@@ -4,7 +4,7 @@
 --	94% plain, 3% head (one end widens + 1 mountain), 3% mountain cluster (2-4 in middle).
 --	Placement: pullBack 4, effMin 4, effMax 6. Footprint check to avoid overlap.
 ------------------------------------------------------------------------------
-include("IslandTypes/IslandHelpers");
+include("IslandHelpers");
 
 local HILLS_MIN = 40;
 local HILLS_MAX = 75;

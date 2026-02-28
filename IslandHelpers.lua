@@ -70,6 +70,66 @@ function GetHexDisk(cx, cy, radius, iW, iH, wrapX, wrapY)
 	return out;
 end
 
+function GetScatteredDiskLandTiles(centerX, centerY, radius, iW, iH, wrapX, wrapY)
+	wrapY = wrapY or false;
+	local odd = firstRingYIsOdd;
+	local even = firstRingYIsEven;
+	local landTiles = {};
+	local landvarDefault = 10;
+
+	local cx = WrapCoord(centerX, iW, wrapX);
+	local cy = WrapCoord(centerY, iH, wrapY);
+	if cx >= 0 and cx < iW and cy >= 0 and cy < iH then
+		landTiles[#landTiles + 1] = {cx, cy, 0};
+	end
+
+	for r = 1, radius do
+		local ringScale = (r == 1) and 1.0 or (r == 2) and 1.25 or 1.5;
+		local currentX = centerX - r;
+		local currentY = centerY;
+		for dir = 1, 6 do
+			for step = 1, r do
+				local adj = (currentY % 2 ~= 0) and odd[dir] or even[dir];
+				currentX = currentX + adj[1];
+				currentY = currentY + adj[2];
+				local gx = WrapCoord(currentX, iW, wrapX);
+				local gy = WrapCoord(currentY, iH, wrapY);
+				if gx >= 0 and gx < iW and gy >= 0 and gy < iH then
+					local thisislandvar = Map.Rand(30, "") + landvarDefault;
+					local islThresh = Map.Rand(50, "") + math.floor(thisislandvar / ringScale);
+					local islRand = Map.Rand(100, "");
+					if islRand > islThresh then
+						landvarDefault = landvarDefault + 5;
+					else
+						landTiles[#landTiles + 1] = {gx, gy, r};
+					end
+				end
+			end
+		end
+	end
+	return landTiles;
+end
+
+function DrawScatteredDisk(plotTypes, landTiles, iW, hillThresh)
+	hillThresh = hillThresh or 70;
+	local char = Map.Rand(3, "");
+	local hillBias = (char == 0) and -15 or (char == 1) and 20 or 0;
+	local mtnBias = (char == 2) and 4 or 0;
+	local mtnChance = (#landTiles <= 6) and (2 + mtnBias) or (5 + mtnBias);
+	for _, t in ipairs(landTiles) do
+		local x, y = t[1], t[2];
+		local ring = t[3] or 0;
+		local idx = y * iW + x + 1;
+		local ht = hillThresh + hillBias + (ring * 5) + Map.Rand(15, "") - 7;
+		ht = math.max(25, math.min(85, ht));
+		local mt = (Map.Rand(100, "") < ht) and PlotTypes.PLOT_LAND or PlotTypes.PLOT_HILLS;
+		if mt == PlotTypes.PLOT_LAND and Map.Rand(100, "") < mtnChance then
+			mt = PlotTypes.PLOT_MOUNTAIN;
+		end
+		plotTypes[idx] = mt;
+	end
+end
+
 function ApplyBasicIslandTerrain(plotTypes, landTiles, iW)
 	local n = #landTiles;
 	if n == 0 then return; end

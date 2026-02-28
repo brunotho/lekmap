@@ -3,7 +3,7 @@
 --	Sri Pada: center mountain, land ring 1-3 thick. 2-3 rings. 20% chance 1 water gap.
 --	40-50% hills near center, 50-60% flat on outer. Exports _jungle_peak_island_tiles.
 ------------------------------------------------------------------------------
-include("IslandTypes/IslandHelpers");
+include("IslandHelpers");
 
 local function isLand(plotTypes, x, y, iW, iH)
 	if x < 0 or x >= iW or y < 0 or y >= iH then return false; end

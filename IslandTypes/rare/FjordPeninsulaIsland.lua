@@ -4,7 +4,7 @@
 --	Mountain ridge along spine, tip always mountain. 2-4 inlets (1-2 wide, 2-4 deep).
 --	Base alignment: ridge aligns with mainland mountain/hill if nearby, else 1-2 offset.
 ------------------------------------------------------------------------------
-include("IslandTypes/IslandHelpers");
+include("IslandHelpers");
 
 local firstRingYIsEven = {{0, 1}, {1, 0}, {0, -1}, {-1, -1}, {-1, 0}, {-1, 1}};
 local firstRingYIsOdd  = {{1, 1}, {1, 0}, {1, -1}, {0, -1}, {-1, 0}, {0, 1}};

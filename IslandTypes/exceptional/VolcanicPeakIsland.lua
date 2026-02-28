@@ -3,7 +3,7 @@
 --	Krakatoa: center mountain, 6-tile caldera lake, land ring 3-5 segments with 1-2 tile gaps.
 --	12-18 land tiles. 50-60% hills. Hills near caldera, flat on outer edge.
 ------------------------------------------------------------------------------
-include("IslandTypes/IslandHelpers");
+include("IslandHelpers");
 
 local function isLand(plotTypes, x, y, iW, iH)
 	if x < 0 or x >= iW or y < 0 or y >= iH then return false; end

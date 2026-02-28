@@ -1,11 +1,11 @@
 ------------------------------------------------------------------------------
---	MountainWallIsland.lua (recreated from transcript)
+--	MountainWallIsland.lua
 --	Ridge 3-6 tiles, land depth = ridge length ±1.
 --	Gaps: len 3 none; len 4 50% one gap; len 5-6 → 45% none, 50% one, 5% two (never at ends).
 --	Ridge: mountains; adjacent 85% hills; 2nd tile 70%; 3rd 50%; 4th 35%; 5th 25%.
 --	Ridge perpendicular to mainland.
 ------------------------------------------------------------------------------
-include("IslandTypes/IslandHelpers");
+include("IslandHelpers");
 
 local function isLand(plotTypes, x, y, iW, iH)
 	if x < 0 or x >= iW or y < 0 or y >= iH then return false; end

@@ -5,7 +5,7 @@
 --	Placement: must touch map edge, min 2 tiles from mainland.
 --	Assumes wrapY=false; no map edge exists when wrapY=true (fringe case).
 ------------------------------------------------------------------------------
-include("IslandTypes/IslandHelpers");
+include("IslandHelpers");
 
 local HILLS_ADJ = 75;
 local FLAT_COAST = 75;

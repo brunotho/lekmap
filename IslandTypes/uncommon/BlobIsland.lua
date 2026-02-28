@@ -2,7 +2,7 @@
 --	BlobIsland.lua (recreated from transcript)
 --	7-10 tiles, organic irregular mass. Hills 50-60%, mountains by size.
 ------------------------------------------------------------------------------
-include("IslandTypes/IslandHelpers");
+include("IslandHelpers");
 
 local function isLand(plotTypes, x, y, iW, iH)
 	if x < 0 or x >= iW or y < 0 or y >= iH then return false; end

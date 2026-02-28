@@ -1,6 +1,6 @@
 ------------------------------------------------------------------------------
---	ChunkIsland.lua
---	6-9 tiles, scattered disk (noisy rings). Hills 50-60%, mountains by size.
+--	PebbleIsland.lua
+--	3-4 tiles, scattered disk (noisy rings). Hills 50-60%, mountains by size.
 ------------------------------------------------------------------------------
 include("IslandHelpers");
 
@@ -17,7 +17,7 @@ local function footprintClear(plotTypes, tiles, iW, iH)
 	return true;
 end
 
-function TryPlaceChunkIsland(plotTypes, centerX, centerY, islLandInRing, params)
+function TryPlacePebbleIsland(plotTypes, centerX, centerY, islLandInRing, params)
 	local pullBack = params.pullBack or 1;
 	local effMin = params.effMin or 1;
 	local effMax = params.effMax or 6;
@@ -28,9 +28,9 @@ function TryPlaceChunkIsland(plotTypes, centerX, centerY, islLandInRing, params)
 	local cy = WrapCoord(centerY, params.iH, params.wrapY);
 	if cx < 0 or cx >= params.iW or cy < 0 or cy >= params.iH then return false; end
 
-	local radius = 2;
+	local radius = 1;
 	local landTiles = GetScatteredDiskLandTiles(cx, cy, radius, params.iW, params.iH, params.wrapX, params.wrapY);
-	if #landTiles < 6 or #landTiles > 10 then return false; end
+	if #landTiles < 3 or #landTiles > 5 then return false; end
 	if not footprintClear(plotTypes, landTiles, params.iW, params.iH) then return false; end
 
 	DrawScatteredDisk(plotTypes, landTiles, params.iW, 50 + Map.Rand(11, ""));

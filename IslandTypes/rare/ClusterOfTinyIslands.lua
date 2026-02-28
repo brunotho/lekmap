@@ -3,7 +3,7 @@
 --	Ellipse cluster: 1-4 tile blips, max 7 segments. 30% flat, 65% hills per 1-tile.
 --	Cluster radius 1-3 (usually 2). Separated by 1 water tile.
 ------------------------------------------------------------------------------
-include("IslandTypes/IslandHelpers");
+include("IslandHelpers");
 
 local ELLIPSE_RX = 4;
 local ELLIPSE_RY = 6;

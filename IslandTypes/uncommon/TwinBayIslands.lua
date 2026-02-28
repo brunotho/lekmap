@@ -4,7 +4,7 @@
 --	One tip extends into bay of the other. Gap 1-2 water tiles.
 --	Hills 40-50% on outer edges, flat on bay-facing. No mountains.
 ------------------------------------------------------------------------------
-include("IslandTypes/IslandHelpers");
+include("IslandHelpers");
 
 local function isLand(plotTypes, x, y, iW, iH)
 	if x < 0 or x >= iW or y < 0 or y >= iH then return false; end

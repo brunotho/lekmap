@@ -4,7 +4,7 @@
 --	Ellipse 6-9 x 4-6 (shrinks on placement retries). 60% hills, 40% flat, no mountains.
 --	Footprint check. Random orientation.
 ------------------------------------------------------------------------------
-include("IslandTypes/IslandHelpers");
+include("IslandHelpers");
 
 local HILLS_PCT = 60;
 

@@ -3,7 +3,7 @@
 --	Sinai: center mountain, diamond-shaped ring 2 tiles thick.
 --	60-70% hills inner, 70-80% flat outer. 30% chance 2-3 adjacent islands (1-2 tiles each).
 ------------------------------------------------------------------------------
-include("IslandTypes/IslandHelpers");
+include("IslandHelpers");
 
 local function isLand(plotTypes, x, y, iW, iH)
 	if x < 0 or x >= iW or y < 0 or y >= iH then return false; end

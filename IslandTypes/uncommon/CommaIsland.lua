@@ -3,7 +3,7 @@
 --	5-7 tiles. Body 4-5, tail 1-2 extending from body. Tail 1 tile wide, curving slightly.
 --	Hills 50-60%, mountains by size.
 ------------------------------------------------------------------------------
-include("IslandTypes/IslandHelpers");
+include("IslandHelpers");
 
 local function isLand(plotTypes, x, y, iW, iH)
 	if x < 0 or x >= iW or y < 0 or y >= iH then return false; end

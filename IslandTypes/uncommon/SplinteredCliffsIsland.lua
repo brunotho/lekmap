@@ -5,7 +5,7 @@
 --	Variant C (20%): 5-7 mountains, 6-12 land, 2 islands get 2-5 hills each.
 --	Adjacent to mountains: 85% hills. 2 tiles from: 65%. 3+: flat.
 ------------------------------------------------------------------------------
-include("IslandTypes/IslandHelpers");
+include("IslandHelpers");
 
 local function isLand(plotTypes, x, y, iW, iH)
 	if x < 0 or x >= iW or y < 0 or y >= iH then return false; end

@@ -3,7 +3,7 @@
 --	4-6 tiles, linear chain 1 tile wide. Straight or gentle curve (40% turn 60° per step).
 --	Hills 50-60%, mountains by size.
 ------------------------------------------------------------------------------
-include("IslandTypes/IslandHelpers");
+include("IslandHelpers");
 
 local function isLand(plotTypes, x, y, iW, iH)
 	if x < 0 or x >= iW or y < 0 or y >= iH then return false; end

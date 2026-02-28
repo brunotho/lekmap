@@ -3,7 +3,7 @@
 --	Crescent 13 tiles in C shape. Bay 5 water tiles. Star: 1 mountain in bay.
 --	50-60% hills on crescent. 20% tip mountain.
 ------------------------------------------------------------------------------
-include("IslandTypes/IslandHelpers");
+include("IslandHelpers");
 
 local CRESCENT_STAR_TEMPLATE = {
 	{0,2},{1,2},{2,2},{3,2},

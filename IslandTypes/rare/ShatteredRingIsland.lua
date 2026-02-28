@@ -3,7 +3,7 @@
 --	Central island 6-10 tiles, ring 5-8 islands (1-3 tiles each) across 8 sectors.
 --	Ring radius 6-9 from center. center 80% mountain / 20% hill; ring 50% hills.
 ------------------------------------------------------------------------------
-include("IslandTypes/IslandHelpers");
+include("IslandHelpers");
 
 local function isLand(plotTypes, x, y, iW, iH)
 	if x < 0 or x >= iW or y < 0 or y >= iH then return false; end
