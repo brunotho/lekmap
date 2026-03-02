@@ -110,7 +110,15 @@ function GetScatteredDiskLandTiles(centerX, centerY, radius, iW, iH, wrapX, wrap
 	return landTiles;
 end
 
-function DrawScatteredDisk(plotTypes, landTiles, iW, hillThresh)
+function DrawScatteredDisk(plotTypes, landTiles, iW, hillThresh, noMountains)
+	if noMountains then
+		for _, t in ipairs(landTiles) do
+			local x, y = t[1], t[2];
+			local idx = y * iW + x + 1;
+			plotTypes[idx] = (Map.Rand(100, "") < 70) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
+		end
+		return;
+	end
 	hillThresh = hillThresh or 70;
 	local char = Map.Rand(3, "");
 	local hillBias = (char == 0) and -15 or (char == 1) and 20 or 0;

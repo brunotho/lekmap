@@ -57,10 +57,10 @@ All specs below are extracted from the agent transcript. Scripts are collected i
 - Ridge perpendicular to mainland.
 
 ### Splintered Cliffs
-- Variant A (60%): 3–5 mountains, 0–1 land, tight cluster.
-- Variant B (20%): 3–6 mountains, 2–4 land, 1 per mountain island max.
-- Variant C (20%): 5–7 mountains, 6–12 land, 2 islands get 2–5 hills each.
-- Adjacent to mountains: 85% hills. 2 tiles from: 65%. 3+: flat.
+- Variant A (60%): 3–5 mountains, 0–1 non-mountainl-land-tiles, tight cluster.
+- Variant B (20%): 3–6 mountains, 2–4 non-mountainl-land-tiles
+- Variant C (20%): 5–7 mountains, 6–12 non-mountainl-land-tiles
+- Adjacent to mountains: 85% hills. mountain independant islands 70% hill
 
 ---
 
@@ -72,15 +72,16 @@ All specs below are extracted from the agent transcript. Scripts are collected i
 - Hills 30–40%.
 
 ### Stepping Stone
-- Coast → 1 water → stepping stone (1–2 tiles) → 1 water → blob 4–8.
-- Optional 20%: 1 water (rarely 2) → far island 1–3 tiles.
-- Closest mainland tile set to mountain. Stepping stone: mountain. Blob: 20% mountain on closest tile if stepping stone mountain, else 5% per tile; 40–50% hills.
+- Coast → 1 water → stepping stone (1–2 tiles) → 1 water → blob 4–8 tiles.
+- Optional 20%: on roughly the opposite of the blob relative to the stepping stone: 1 water (rarely 2) → far island 1–3 tiles.
+- Closest mainland tile set to mountain. Stepping stone: mountain 40% hill 60%. Blob: 20% mountain on closest tile if stepping stone mountain, else 5% per tile; 50-70% hills.
 
 ### Ellipse Archipelago
 - 3–5 islands (2–4 tiles each) along ellipse perimeter. Center water.
 - Ellipse 6–9 × 4–6 (shrinks on retries). 60% hills, 40% flat, no mountains.
 
 ### Fjord Peninsula
+- branching of the mainland pangaea - with contact
 - 8–12 tiles from mainland. Width 2–4 at base, tapering to 1 at tip.
 - Tip always mountain. 2–4 inlets (1–2 wide, 2–4 deep), alternating sides.
 - Ridge aligns with mainland mountain/hill if nearby.
@@ -90,8 +91,7 @@ All specs below are extracted from the agent transcript. Scripts are collected i
 - 4–6 mountain ridge along centerline. 75% hills next to mountains, 75% flat at coast.
 
 ### Arctic Merging Landmass
-- Land from N/S edge merging with pangaea. V-shaped ridges, 70% water path east-west.
-- Must touch edge, ripple inward until mainland contact.
+- see spec inside file
 
 ### Shattered Ring
 - Central 6–10 tiles, ring 5–8 islands (1–3 tiles each), scattered across 8 sectors.

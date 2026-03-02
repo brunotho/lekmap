@@ -18,12 +18,13 @@ include("HBTerrainGenerator");
 include("IslandMaker");
 include("MultilayeredFractal");
 include("PangaeaIslands");
+print("### LekmapPangaeaFractal: includes done ###");
 
 ------------------------------------------------------------------------------
 function GetMapScriptInfo()
 	local world_age, temperature, rainfall, sea_level, resources = GetCoreMapOptions()
 	return {
-		Name = "AAA Lekmap: Pangaea - Fractal (v5.2)",
+		Name = "AAA Pangaea - Fractal (Lekmap v5.3)",
 		Description = "A map script made for Lekmod based of HB's Mapscript v8.1. Pangaea - Fractal",
 		IsAdvancedMap = false,
 		IconIndex = 0,
@@ -1359,8 +1360,6 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		--#####################
 
 
-		GeneratePangaeaIslands(self);
-
 		local iW, iH = Map.GetGridSize();
 		local centerX = iW / 2;
 		local centerY = iH / 2;
@@ -1391,7 +1390,8 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 				end
 			end
 		end
-		
+
+		GeneratePangaeaIslands(self);
 
 		--check to make sure map has not failed
 		local iNumLandTilesInUse = 0;
@@ -1428,15 +1428,18 @@ end
 ------------------------------------------------------------------------------
 
 ------------------------------------------------------------------------------
+local function dbg(msg) print(msg); end
+
 function GeneratePlotTypes()
-	-- Plot generation customized to ensure enough land belongs to the Pangaea.
-	print("Generating Plot Types (Lua Pangaea) ...");
-	
+	dbg("### STAGE: GeneratePlotTypes start ###");
 	local fractal_world = PangaeaFractalWorld.Create();
+	dbg("### STAGE: fractal created ###");
 	local plotTypes = fractal_world:GeneratePlotTypes();
-	
+	dbg("### STAGE: plotTypes generated ###");
 	SetPlotTypes(plotTypes);
+	dbg("### STAGE: SetPlotTypes done ###");
 	GenerateCoasts();
+	dbg("### STAGE: GenerateCoasts done ###");
 end
 ------------------------------------------------------------------------------
 function GenerateTerrain()
@@ -1545,8 +1548,8 @@ function AddFeatures()
 	local args = {rainfall = rain}
 	local featuregen = FeatureGenerator.Create(args);
 
-	-- False parameter removes mountains from coastlines.
-	featuregen:AddFeatures(false);
+	-- True = allow mountains on coast (skip coastal mountain demotion).
+	featuregen:AddFeatures(true);
 end
 ------------------------------------------------------------------------------
 

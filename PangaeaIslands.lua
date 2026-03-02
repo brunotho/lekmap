@@ -2,6 +2,7 @@
 --	PangaeaIslands.lua
 --	Island layer for Pangaea Fractal. Dot, Chunk, PolarMerge.
 ------------------------------------------------------------------------------
+print("### PangaeaIslands: loading ###");
 include("IslandHelpers");
 include("DotIsland");
 include("ChunkIsland");
@@ -10,57 +11,66 @@ include("PebbleIsland");
 include("LollipopIsland");
 include("WaterdropIsland");
 include("BrokenHeartIsland");
+-- include("VolcanicPeakIsland");
+include("CommaIsland");
+include("SplitIsland");
+include("BlobIsland");
+include("CoastalHornIsland");
 -- odds: probability this type is selected when its tier slot is being filled (0-100).
 -- budget: cost deducted from total island budget when placed.
 -- pullBack: minimum ring distance from nearest land before placing.
 -- effMin/effMax: acceptable ring distance range for placement.
--- fragile: placed last within its tier group (between uncommon and common).
+-- fragile: placed late in the placement order - only followed by small common islands
 -- tier: determines maxOne behavior (exceptional/rare = maxOne via IsMaxOne helper).
 
 local CommonIslands = {
-	{ type = "dot",    tier = "common", odds = 100, pullBack = 1,             effMax = 6, budget = 0.1 },
+	{ type = "dot",    tier = "common", odds = 100, pullBack = 1,             effMax = 6, budget = 0.4 },
 	{ type = "pebble", tier = "common", odds = 100, pullBack = 1, effMin = 3, effMax = 6, budget = 1   },
-	-- strip: defined in IslandTypes/common/ but not yet at root; add when ready
 };
 
 local UncommonIslands = {
 	{ type = "chunk",     tier = "uncommon", odds = 100, pullBack = 1, effMin = 3, effMax = 6, budget = 1 },
 	{ type = "lollipop",  tier = "uncommon", odds = 100, pullBack = 2, effMin = 2, effMax = 5, budget = 1 },
 	{ type = "waterdrop", tier = "uncommon", odds = 100, pullBack = 2, effMin = 2, effMax = 5, budget = 1 },
-	{ type = "comma",     tier = "uncommon", odds = 100, pullBack = 1, effMin = 1, effMax = 6, budget = 1 },
+	{ type = "comma",     tier = "uncommon", odds = 100, pullBack = 0, effMin = 0, effMax = 6, budget = 1 },
 	{ type = "split",     tier = "uncommon", odds = 100, pullBack = 1, effMin = 1, effMax = 6, budget = 1 },
 	{ type = "blob",      tier = "uncommon", odds = 100, pullBack = 1, effMin = 1, effMax = 6, budget = 1 },
 };
 
 local RareIslands = {
-	-- polarmerge odds inflated: almost always drafted when a rare slot is rolled.
-	{ type = "polarmerge",		   tier = "rare", odds = 99,pullBack = 3, effMin = 3, effMax = 5, budget = 3, },
-	{ type = "ShatteredRing",      tier = "rare", odds = 1, pullBack = 4, effMin = 4, effMax = 6, budget = 2   },
-	{ type = "EdgeOfWorld",        tier = "rare", odds = 1, pullBack = 4, effMin = 4, effMax = 6, budget = 2   },
-	{ type = "FjordPeninsula",     tier = "rare", odds = 1, pullBack = 4, effMin = 4, effMax = 6, budget = 2   },
-	{ type = "EllipseArchipelago", tier = "rare", odds = 1, pullBack = 4, effMin = 5, effMax = 6, budget = 2   },
-	{ type = "SteppingStone",      tier = "rare", odds = 1, pullBack = 3, effMin = 3, effMax = 5, budget = 1.2 },
-	{ type = "Crescent",           tier = "rare", odds = 1, pullBack = 3, effMin = 3, effMax = 5, budget = 1.2 },
+	{ type = "polarmerge",         tier = "rare", odds = 99, pullBack = 3, effMin = 3, effMax = 5, budget = 1 },
+	{ type = "coastalHorn",        tier = "rare", odds = 1,  pullBack = 1, effMin = 1, effMax = 6, budget = 1 },
+	{ type = "ShatteredRing",      tier = "rare", odds = 1,  pullBack = 4, effMin = 4, effMax = 6, budget = 1 },
+	{ type = "EdgeOfWorld",        tier = "rare", odds = 1,  pullBack = 4, effMin = 4, effMax = 6, budget = 1 },
+	{ type = "FjordPeninsula",     tier = "rare", odds = 1,  pullBack = 4, effMin = 4, effMax = 6, budget = 1 },
+	{ type = "EllipseArchipelago", tier = "rare", odds = 1,  pullBack = 4, effMin = 5, effMax = 6, budget = 1 },
+	{ type = "SteppingStone",      tier = "rare", odds = 1,  pullBack = 3, effMin = 3, effMax = 5, budget = 1 },
+	{ type = "Crescent",           tier = "rare", odds = 1,  pullBack = 3, effMin = 3, effMax = 5, budget = 1 },
 };
 
 local ExceptionalIslands = {
-	{ type = "volcanicPeak",    tier = "exceptional", odds = 100, pullBack = 3, effMin = 3, effMax = 5, budget = 1.25 },
-	{ type = "junglePeak",      tier = "exceptional", odds = 100, pullBack = 2, effMin = 2, effMax = 5, budget = 1    },
-	{ type = "desertPeak",      tier = "exceptional", odds = 100, pullBack = 2, effMin = 2, effMax = 5, budget = 1.5  },
-	{ type = "CrescentAndStar", tier = "exceptional", odds = 100, pullBack = 3, effMin = 3, effMax = 5, budget = 1.2  },
-	{ type = "BrokenHeart",     tier = "exceptional", odds = 100, pullBack = 3, effMin = 3, effMax = 5, budget = 1.2  },
-	{ type = "curledDragon",    tier = "exceptional", odds = 100, pullBack = 3, effMin = 3, effMax = 5, budget = 2    },
+	-- { type = "volcanicPeak",    tier = "exceptional", odds = 9900, pullBack = 3, effMin = 3, effMax = 5, budget = 1 },
+	{ type = "junglePeak",      tier = "exceptional", odds = 1,    pullBack = 2, effMin = 2, effMax = 5, budget = 1 },
+	{ type = "desertPeak",      tier = "exceptional", odds = 1,    pullBack = 2, effMin = 2, effMax = 5, budget = 1 },
+	{ type = "CrescentAndStar", tier = "exceptional", odds = 1,    pullBack = 3, effMin = 3, effMax = 5, budget = 1 },
+	{ type = "BrokenHeart",     tier = "exceptional", odds = 9900, pullBack = 2, effMin = 2, effMax = 5, budget = 1 },
+	{ type = "curledDragon",    tier = "exceptional", odds = 1,    pullBack = 3, effMin = 3, effMax = 5, budget = 1 },
 };
 
 -- Active (implemented) island types.
 -- Types in the tier tables not listed here are defined but not yet active.
 local IslandTypePlace = {
-	dot       = TryPlaceDotIsland,
-	chunk     = TryPlaceChunkIsland,
-	pebble    = TryPlacePebbleIsland,
-	lollipop  = TryPlaceLollipopIsland,
-	waterdrop = TryPlaceWaterdropIsland,
+	dot          = TryPlaceDotIsland,
+	chunk        = TryPlaceChunkIsland,
+	coastalHorn  = TryPlaceCoastalHornIsland,
+	pebble       = TryPlacePebbleIsland,
+	lollipop     = TryPlaceLollipopIsland,
+	waterdrop    = TryPlaceWaterdropIsland,
+	-- volcanicPeak = TryPlaceVolcanicPeakIsland,
 	BrokenHeart  = TryPlaceBrokenHeartIsland,
+	comma        = TryPlaceCommaIsland,
+	split        = TryPlaceSplitIsland,
+	blob         = TryPlaceBlobIsland,
 };
 
 -- Unified lookup across all tier tables.
@@ -163,6 +173,9 @@ end
 
 ------------------------------------------------------------------------------
 function GeneratePangaeaIslands(self)
+	local function dbg2(msg) print(msg); end
+	dbg2("### GeneratePangaeaIslands: start [" .. os.date("%H:%M:%S") .. "] ###");
+	_island_placed = {};
 	local iW, iH = Map.GetGridSize();
 	local wrapX = Map:IsWrapX();
 	local wrapY = false;
@@ -192,9 +205,9 @@ function GeneratePangaeaIslands(self)
 		end
 	end
 
-	local numExceptional = Map.Rand(2, "")+1;    -- 1..2
-	local numRare        = Map.Rand(4, "")+1;    -- 1..4
-	local numUncommon    = Map.Rand(7, "");    -- 0..6
+	local numExceptional = 1;    -- 1..2
+	local numRare        = 1;    -- 1..4
+	local numUncommon    = 6;    -- 0..6
 
 	for i = 1, numExceptional do
 		draftAdd(DraftOneFromTier(ExceptionalIslands, excludeSet));
@@ -249,14 +262,14 @@ function GeneratePangaeaIslands(self)
 						local realY = nextY;
 						if wrapX then realX = realX % iW; end
 						if wrapY then realY = realY % iH; end
-						local scanPlotIndex = realY * iW + realX;
-						if self.plotTypes[scanPlotIndex] == PlotTypes.PLOT_LAND then
-							islLandInRing = ripple_radius;
-							landPlot = scanPlotIndex;
-							landX = realX;
-							landY = realY;
-							break;
-						end
+					local scanPlotIndex = realY * iW + realX;
+					if self.plotTypes[scanPlotIndex] ~= PlotTypes.PLOT_OCEAN then
+						islLandInRing = ripple_radius;
+						landPlot = scanPlotIndex;
+						landX = realX;
+						landY = realY;
+						break;
+					end
 						currentX, currentY = nextX, nextY;
 					end
 				end
@@ -264,25 +277,34 @@ function GeneratePangaeaIslands(self)
 			end
 			if islLandInRing ~= 0 then break; end
 		end
-		if islLandInRing == 0 or self.plotTypes[landPlot] ~= PlotTypes.PLOT_LAND then return false; end
+		if islLandInRing == 0 or self.plotTypes[landPlot] == PlotTypes.PLOT_OCEAN then return false; end
 		spotOpts.landX = landX;
 		spotOpts.landY = landY;
 		return TryPlaceIsland(self.plotTypes, x, y, islLandInRing, spotOpts, forceType);
 	end
 
 	local spentBudget = 0;
+	dbg2("### GeneratePangaeaIslands: placing drafted islands ###");
 
+	-- DIAG: skip BrokenHeart only - if works, BrokenHeart is the culprit
 	for _, islandType in ipairs(drafted) do
-		if not IslandTypePlace[islandType] and islandType ~= "polarmerge" then
-			-- Defined in tier tables but not yet implemented; skip silently.
+		dbg2("### placing: " .. tostring(islandType) .. " ###");
+		if islandType == "BrokenHeart" then
+			dbg2("### skipping BrokenHeart (crash test) ###");
+		elseif not IslandTypePlace[islandType] and islandType ~= "polarmerge" then
 		elseif islandType == "polarmerge" then
 			if TryPlacePolarMerge(self.plotTypes, opts) then
+				spentBudget = spentBudget + GetBudget(islandType);
+			end
+		elseif islandType == "coastalHorn" then
+			if TryPlaceCoastalHornIsland(self.plotTypes, opts) then
 				spentBudget = spentBudget + GetBudget(islandType);
 			end
 		else
 			local placed = false;
 			local attempts = 0;
-			while not placed and attempts < 10 do
+			local maxAttempts = 50;
+			while not placed and attempts < maxAttempts do
 				placed = tryOneSpot(islandType, attempts);
 				attempts = attempts + 1;
 			end
@@ -292,7 +314,7 @@ function GeneratePangaeaIslands(self)
 		end
 	end
 
-	-- Fill remaining budget with common islands.
+	dbg2("### GeneratePangaeaIslands: drafted done, filling commons ###");
 	local escapeCommon = 500;
 	while spentBudget < TOTAL_BUDGET and escapeCommon > 0 do
 		local islandType = DraftOneFromTier(CommonIslands, {});

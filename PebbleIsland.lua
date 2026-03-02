@@ -33,6 +33,6 @@ function TryPlacePebbleIsland(plotTypes, centerX, centerY, islLandInRing, params
 	if #landTiles < 3 or #landTiles > 5 then return false; end
 	if not footprintClear(plotTypes, landTiles, params.iW, params.iH) then return false; end
 
-	DrawScatteredDisk(plotTypes, landTiles, params.iW, 50 + Map.Rand(11, ""));
+	DrawScatteredDisk(plotTypes, landTiles, params.iW, 30, true);
 	return true;
 end

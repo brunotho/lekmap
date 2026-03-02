@@ -1,7 +1,9 @@
 ------------------------------------------------------------------------------
 --	LollipopIsland.lua
---	10-14 tiles. Round base 2-3 thick, single stem 3-5 tiles, 1 tile wide.
---	Base: hills 70%, 1-2 mountains. Stem: hills 50%, no mountains.
+--	Irregular blob head on a slightly organic stem.
+--	Head 6-12 tiles: lopsided, randomly splintered. Stem 3-5 tiles: gently
+--	curved, with occasional 1-tile widening.
+--	Head: hills 70%, 1-2 mountains. Stem: hills 50%, no mountains.
 ------------------------------------------------------------------------------
 include("IslandHelpers");
 
@@ -18,10 +20,14 @@ local function footprintClear(plotTypes, tiles, iW, iH)
 	return true;
 end
 
+local function rotDir(d, delta)
+	return ((d - 1 + delta) % 6 + 6) % 6 + 1;
+end
+
 function TryPlaceLollipopIsland(plotTypes, centerX, centerY, islLandInRing, params)
-	local pullBack = params.pullBack or 2;
-	local effMin = params.effMin or 2;
-	local effMax = params.effMax or 5;
+	local pullBack  = params.pullBack or 2;
+	local effMin    = params.effMin   or 2;
+	local effMax    = params.effMax   or 5;
 	local effRadius = islLandInRing - pullBack;
 	if effRadius < effMin or effRadius > effMax then return false; end
 
@@ -29,85 +35,107 @@ function TryPlaceLollipopIsland(plotTypes, centerX, centerY, islLandInRing, para
 	local cy = WrapCoord(centerY, params.iH, params.wrapY);
 	if cx < 0 or cx >= params.iW or cy < 0 or cy >= params.iH then return false; end
 
-	local baseThick = 2 + Map.Rand(2, "");
-	local armLen = 3 + Map.Rand(3, "");
-	local angleDeg = 45 + Map.Rand(46, "");
-	local angleRad = angleDeg * math.pi / 180;
+	local headDir = Map.Rand(6, "") + 1;
+	-- Stem goes roughly opposite headDir, with a small random angle offset.
+	local oppDir  = rotDir(headDir, 3);
+	local stemDir = rotDir(oppDir, Map.Rand(3, "") - 1);
 
-	local dir1 = Map.Rand(6, "") + 1;
-	local dir2 = dir1 + math.floor(angleDeg / 60) + 1;
-	if dir2 > 6 then dir2 = dir2 - 6; end
+	local headLen = 2 + Map.Rand(2, "");  -- spine tiles beyond center: 2-3
+	local stemLen = 3 + Map.Rand(3, "");  -- 3-5
 
 	local landTiles = {};
-	local x, y = cx, cy;
-	local used = {}; used[cx .. "," .. cy] = true;
+	local used      = {};
+	local baseCount = 0;
 
-	for _ = 1, baseThick do
-		for i = -1, 1 do
-			local d = ((dir1 + i + 5) % 6) + 1;
-			local nx, ny = GetHexNeighbor(x, y, d, params.iW, params.iH, params.wrapX, params.wrapY);
-			if nx >= 0 and nx < params.iW and ny >= 0 and ny < params.iH and not used[nx .. "," .. ny] then
-				landTiles[#landTiles + 1] = {nx, ny};
-				used[nx .. "," .. ny] = true;
-			end
+	local function addBase(x, y)
+		local key = x .. "," .. y;
+		if not used[key] and x >= 0 and x < params.iW and y >= 0 and y < params.iH then
+			landTiles[#landTiles + 1] = {x, y};
+			used[key] = true;
+			baseCount  = baseCount + 1;
+			return true;
 		end
-		local nx, ny = GetHexNeighbor(x, y, dir1, params.iW, params.iH, params.wrapX, params.wrapY);
-		if nx >= 0 and nx < params.iW and ny >= 0 and ny < params.iH then
-			x, y = nx, ny;
-			if not used[x .. "," .. y] then
-				landTiles[#landTiles + 1] = {x, y};
-				used[x .. "," .. y] = true;
-			end
-		else break; end
+		return false;
 	end
 
-	local baseX, baseY = cx, cy;
-	local arm1X, arm1Y = baseX, baseY;
-	for _ = 1, armLen do
-		local nx, ny = GetHexNeighbor(arm1X, arm1Y, dir1, params.iW, params.iH, params.wrapX, params.wrapY);
-		if nx >= 0 and nx < params.iW and ny >= 0 and ny < params.iH and not used[nx .. "," .. ny] then
-			landTiles[#landTiles + 1] = {nx, ny};
-			used[nx .. "," .. ny] = true;
-			arm1X, arm1Y = nx, ny;
-		else break; end
+	local function addArm(x, y)
+		local key = x .. "," .. y;
+		if not used[key] and x >= 0 and x < params.iW and y >= 0 and y < params.iH then
+			landTiles[#landTiles + 1] = {x, y};
+			used[key] = true;
+			return true;
+		end
+		return false;
 	end
 
-	for _ = 1, armLen do
-		local nx, ny = GetHexNeighbor(baseX, baseY, dir2, params.iW, params.iH, params.wrapX, params.wrapY);
-		if nx >= 0 and nx < params.iW and ny >= 0 and ny < params.iH and not used[nx .. "," .. ny] then
-			landTiles[#landTiles + 1] = {nx, ny};
-			used[nx .. "," .. ny] = true;
-			baseX, baseY = nx, ny;
-		else break; end
+	-- Head: lopsided, irregular blob grown along a spine in headDir.
+	-- lopsideBias: -1 favors left side, +1 favors right, 0 is roughly even.
+	local lopsideBias = Map.Rand(3, "") - 1;
+
+	addBase(cx, cy);
+
+	local hx, hy = cx, cy;
+	for _ = 1, headLen do
+		local nx, ny = GetHexNeighbor(hx, hy, headDir, params.iW, params.iH, params.wrapX, params.wrapY);
+		if nx < 0 or nx >= params.iW or ny < 0 or ny >= params.iH then break; end
+		addBase(nx, ny);
+		hx, hy = nx, ny;
+
+		local lProb = (lopsideBias == -1) and 80 or (lopsideBias == 1) and 25 or 55;
+		if Map.Rand(100, "") < lProb then
+			local lx, ly = GetHexNeighbor(hx, hy, rotDir(headDir, -1), params.iW, params.iH, params.wrapX, params.wrapY);
+			if lx >= 0 and lx < params.iW and ly >= 0 and ly < params.iH then addBase(lx, ly); end
+		end
+
+		local rProb = (lopsideBias == 1) and 80 or (lopsideBias == -1) and 25 or 55;
+		if Map.Rand(100, "") < rProb then
+			local rx, ry = GetHexNeighbor(hx, hy, rotDir(headDir, 1), params.iW, params.iH, params.wrapX, params.wrapY);
+			if rx >= 0 and rx < params.iW and ry >= 0 and ry < params.iH then addBase(rx, ry); end
+		end
+	end
+
+	-- Splintered tip: 40% chance of an extra protrusion at the head tip.
+	if Map.Rand(10, "") < 4 then
+		local spDir = rotDir(headDir, Map.Rand(3, "") - 1);
+		local sx, sy = GetHexNeighbor(hx, hy, spDir, params.iW, params.iH, params.wrapX, params.wrapY);
+		if sx >= 0 and sx < params.iW and sy >= 0 and sy < params.iH then addBase(sx, sy); end
+	end
+
+	-- Stem: gentle single bend (70%), with 33% chance of 1-tile widening.
+	local stemCurDir = stemDir;
+	local doBend     = Map.Rand(10, "") < 7;
+	local bendAt     = 1 + Map.Rand(math.max(1, stemLen - 1), "");
+	local bendSide   = (Map.Rand(2, "") == 0) and 1 or -1;
+	local doThicken  = Map.Rand(3, "") == 0;
+	local thickenAt  = 1 + Map.Rand(stemLen, "");
+
+	local tx, ty = cx, cy;
+	for i = 1, stemLen do
+		if doBend and i == bendAt then
+			stemCurDir = rotDir(stemCurDir, bendSide);
+		end
+		local nx, ny = GetHexNeighbor(tx, ty, stemCurDir, params.iW, params.iH, params.wrapX, params.wrapY);
+		if not addArm(nx, ny) then break; end
+		tx, ty = nx, ny;
+
+		if doThicken and i == thickenAt then
+			local wDir    = rotDir(stemCurDir, (Map.Rand(2, "") == 0) and 1 or -1);
+			local wx, wy  = GetHexNeighbor(tx, ty, wDir, params.iW, params.iH, params.wrapX, params.wrapY);
+			addArm(wx, wy);
+		end
 	end
 
 	if #landTiles < 10 then return false; end
 	if not footprintClear(plotTypes, landTiles, params.iW, params.iH) then return false; end
 
-	DrawWishboneIsland(plotTypes, landTiles, params.iW);
+	DrawLollipopIsland(plotTypes, landTiles, baseCount, params.iW);
 	return true;
 end
 
-function DrawLollipopIsland(plotTypes, landTiles, iW)
-	local baseCount = math.min(8, #landTiles);
-	for i, t in ipairs(landTiles) do
+function DrawLollipopIsland(plotTypes, landTiles, baseCount, iW)
+	for _, t in ipairs(landTiles) do
 		local x, y = t[1], t[2];
-		local idx = y * iW + x + 1;
-		if i <= baseCount then
-			plotTypes[idx] = (Map.Rand(100, "") < 70) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
-		else
-			plotTypes[idx] = (Map.Rand(100, "") < 50) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
-		end
-	end
-	local numMountains = 1 + Map.Rand(2, "");
-	local candidates = {};
-	for i = 1, math.min(baseCount, #landTiles) do
-		candidates[#candidates + 1] = landTiles[i];
-	end
-	for i = 1, math.min(numMountains, #candidates) do
-		local r = Map.Rand(#candidates, "") + 1;
-		local t = candidates[r];
-		plotTypes[t[2] * iW + t[1] + 1] = PlotTypes.PLOT_MOUNTAIN;
-		table.remove(candidates, r);
+		local idx   = y * iW + x + 1;
+		plotTypes[idx] = (Map.Rand(100, "") < 70) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
 	end
 end
