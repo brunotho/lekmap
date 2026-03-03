@@ -11,20 +11,20 @@
 -- :2863 using Hax function if coastal
 -- :9291 call to expand coastal plots
 
-include("HBMapGenerator");
-include("HBFractalWorld");
-include("HBFeatureGenerator");
-include("HBTerrainGenerator");
+include("4_HBMapGenerator");
+include("2_HBFractalWorld");
+include("6_HBFeatureGenerator");
+include("5_HBTerrainGenerator");
 include("IslandMaker");
 include("MultilayeredFractal");
-include("PangaeaIslands");
+include("3_PangaeaIslands");
 print("### LekmapPangaeaFractal: includes done ###");
 
 ------------------------------------------------------------------------------
 function GetMapScriptInfo()
 	local world_age, temperature, rainfall, sea_level, resources = GetCoreMapOptions()
 	return {
-		Name = "AAA Pangaea - Fractal (Lekmap v5.3)",
+		Name = "A Fractal Pangaea -- Lekmap v5.3",
 		Description = "A map script made for Lekmod based of HB's Mapscript v8.1. Pangaea - Fractal",
 		IsAdvancedMap = false,
 		IconIndex = 0,
@@ -1400,7 +1400,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 
 		for y = 0, iH - 1 do
 			for x = 0, iW - 1 do
-				local i = iW * y + x;
+				local i = iW * y + x + 1;
 				if self.plotTypes[i] ~= PlotTypes.PLOT_OCEAN then
 					iNumLandTilesInUse = iNumLandTilesInUse + 1;
 				end
@@ -1519,7 +1519,7 @@ function FixCoastLine()
 			if plotAreaID == iAreaID then
 
 				local plotType = plot:GetPlotType();
-				if plot:IsCoastalLand(50) then 
+				if plot:IsCoastalLand(50) then
 					if plotType ~= PlotTypes.PLOT_HILLS then
 					if not plot:IsRiverSide() then
 						local flatToHill = Map.Rand(100, "Plains Spawn Chance");
