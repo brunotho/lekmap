@@ -42,7 +42,9 @@ function TryPlaceStripIsland(plotTypes, centerX, centerY, islLandInRing, params)
 	local used = {}; used[cx .. "," .. cy] = true;
 
 	for _ = 1, size - 1 do
-		if Map.Rand(100, "") < CONFIG.TURN_PCT then
+		if #landTiles == 4 then
+			dir = ((dir + Map.Rand(2, "") - 1) % 6) + 1;
+		elseif Map.Rand(100, "") < CONFIG.TURN_PCT then
 			dir = ((dir + Map.Rand(2, "") - 1) % 6) + 1;
 		end
 		local nx, ny = GetHexNeighbor(x, y, dir, params.iW, params.iH, params.wrapX, params.wrapY);

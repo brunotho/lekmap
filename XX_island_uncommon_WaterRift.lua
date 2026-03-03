@@ -1,5 +1,5 @@
 ------------------------------------------------------------------------------
---	TestFlatDisk.lua
+--	WaterRift.lua
 --	3-radius disk, curved/splintered water rift. Inner (r1-2): hills/land. Outer (r3): land/ocean.
 ------------------------------------------------------------------------------
 include("X_IslandHelpers");
@@ -16,7 +16,7 @@ local CONFIG = {
 	BRANCH_DIR_CHANGE_PCT = 25,
 };
 
-function TryPlaceTestFlatDisk(plotTypes, centerX, centerY, islLandInRing, params)
+function TryPlaceWaterRift(plotTypes, centerX, centerY, islLandInRing, params)
 	local pullBack = params.pullBack or 0;
 	local effMin = params.effMin or 0;
 	local effMax = params.effMax or 6;

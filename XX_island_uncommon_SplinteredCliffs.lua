@@ -50,14 +50,14 @@ function TryPlaceSplinteredCliffsIsland(plotTypes, centerX, centerY, islLandInRi
 	local variant = Map.Rand(100, "");
 	local numMountains, numLand;
 	if variant < 60 then
-		numMountains = 3 + Map.Rand(3, "");
-		numLand = Map.Rand(2, "");
+		numMountains = 5 + Map.Rand(4, "");
+		numLand = Map.Rand(3, "");
 	elseif variant < 80 then
-		numMountains = 3 + Map.Rand(4, "");
+		numMountains = 5 + Map.Rand(3, "");
 		numLand = 2 + Map.Rand(3, "");
 	else
-		numMountains = 5 + Map.Rand(3, "");
-		numLand = 6 + Map.Rand(7, "");
+		numMountains = 6 + Map.Rand(3, "");
+		numLand = 4 + Map.Rand(5, "");
 	end
 
 	local disk = GetHexDisk(cx, cy, 2, params.iW, params.iH, params.wrapX, params.wrapY);

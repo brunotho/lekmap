@@ -30,7 +30,6 @@ function TryPlaceVolcanicPeakIsland(plotTypes, centerX, centerY, islLandInRing, 
 	local cy = WrapCoord(centerY, params.iH, params.wrapY);
 	if cx < 0 or cx >= params.iW or cy < 0 or cy >= params.iH then return false; end
 
-	local ring = GetHexDisk(cx, cy, 2, params.iW, params.iH, params.wrapX, params.wrapY);
 	local centerTiles = GetHexDisk(cx, cy, 1, params.iW, params.iH, params.wrapX, params.wrapY);
 	local calderaTiles = {};
 	for _, t in ipairs(centerTiles) do
@@ -39,20 +38,25 @@ function TryPlaceVolcanicPeakIsland(plotTypes, centerX, centerY, islLandInRing, 
 		end
 	end
 
+	local ring2 = GetHexDisk(cx, cy, 2, params.iW, params.iH, params.wrapX, params.wrapY);
+	local ring1Count = #centerTiles;
+	local ring2Count = #ring2 - ring1Count;
+	local ring2Start = ring1Count + 1;
+
 	local numSegments = 3 + Map.Rand(3, "");
 	local numGaps = 1 + Map.Rand(2, "");
 	local landTiles = {};
 	landTiles[#landTiles + 1] = {cx, cy};
 
-	local step = math.floor(#ring / (numSegments + numGaps));
-	local idx = 1;
+	local step = math.floor(ring2Count / (numSegments + numGaps));
+	local idx = ring2Start;
 	for seg = 1, numSegments + numGaps do
 		local segLen = step;
-		if seg == numSegments + numGaps then segLen = #ring - idx + 1; end
+		if seg == numSegments + numGaps then segLen = ring2Count - (idx - ring2Start); end
 		local isGap = (seg > numSegments);
 		for i = 1, segLen do
-			if idx <= #ring then
-				local t = ring[idx];
+			if idx <= #ring2 then
+				local t = ring2[idx];
 				if not isGap then
 					landTiles[#landTiles + 1] = {t[1], t[2]};
 				end
@@ -61,10 +65,14 @@ function TryPlaceVolcanicPeakIsland(plotTypes, centerX, centerY, islLandInRing, 
 		end
 	end
 
-	if #landTiles < 12 then return false; end
-	if not footprintClear(plotTypes, landTiles, params.iW, params.iH) then return false; end
+	if #landTiles < 8 then return false; end
+	local footprintTiles = {};
+	for _, t in ipairs(landTiles) do footprintTiles[#footprintTiles + 1] = t; end
+	for _, t in ipairs(calderaTiles) do footprintTiles[#footprintTiles + 1] = t; end
+	if not footprintClear(plotTypes, footprintTiles, params.iW, params.iH) then return false; end
 
 	DrawVolcanicPeakIsland(plotTypes, landTiles, calderaTiles, cx, cy, params.iW);
+	_volcanic_peak_krakatoa_plot = cy * params.iW + cx + 1; -- Krakatoa cheat: inject center mountain into NW placement
 	if not _island_placed then _island_placed = {}; end
 	_island_placed.volcanicPeak = true;
 	return true;

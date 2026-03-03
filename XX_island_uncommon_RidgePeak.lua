@@ -1,20 +1,22 @@
 ------------------------------------------------------------------------------
---	TestMountainDot.lua
---	Ridge-first: center ridge, land on one side (40-80%), water gap + 2-4 land on other.
---	Hills gradient for tiles adjacent to mountains.
+--	RidgePeak.lua
+--	Mountain ridge island: center ridge, land on one side, water gap + far land on other.
 ------------------------------------------------------------------------------
 include("X_IslandHelpers");
 
 local CONFIG = {
 	RIDGE_LEN_MIN = 3, RIDGE_LEN_RANGE = 3,  -- 3-5 tiles
-	RIDGE_TURN_PCT = 20,
-	LAND_SIDE_PCT_MIN = 40, LAND_SIDE_PCT_MAX = 80,  -- % of mountain-adjacent tiles that are land (rolled once)
-	WATER_GAP = 1,  -- 1 tile water between ridge and far land
-	FAR_LAND_MIN = 2, FAR_LAND_MAX = 4,  -- land tiles on water side, separated by 1 water
+	RIDGE_TURN_PCT = 30,
+	RIDGE_RIFT_PCT = 70,  -- when ridge has 3+ tiles: % chance to add 1-2 water rifts (splinter)
+	LAND_SIDE_PCT_MIN = 50, LAND_SIDE_PCT_MAX = 85,  -- % of mountain-adjacent tiles that are land
+	WATER_GAP = 1,
+	FAR_LAND_MIN = 3, FAR_LAND_MAX = 5,  -- land tiles on water side
+	SATELLITE_PCT = 35,  -- % chance to add 1-2 satellite land tiles (1 water gap from main)
+	SATELLITE_MIN = 1, SATELLITE_MAX = 2,
 	HILLS_ADJ_PCT = 85, HILLS_2ND_PCT = 65, HILLS_3RD_PCT = 50,
 };
 
-function TryPlaceTestMountainDot(plotTypes, centerX, centerY, islLandInRing, params)
+function TryPlaceRidgePeak(plotTypes, centerX, centerY, islLandInRing, params)
 	local pullBack = params.pullBack or 0;
 	local effMin = params.effMin or 0;
 	local effMax = params.effMax or 6;
@@ -35,7 +37,9 @@ function TryPlaceTestMountainDot(plotTypes, centerX, centerY, islLandInRing, par
 	for step = 1, ridgeLen do
 		ridgeSet[px .. "," .. py] = true;
 		if step < ridgeLen then
-			if Map.Rand(100, "") < CONFIG.RIDGE_TURN_PCT then
+			if step == 4 and ridgeLen > 3 then
+				dir = ((dir + (Map.Rand(2, "") == 0 and -1 or 1) + 5) % 6) + 1;
+			elseif Map.Rand(100, "") < CONFIG.RIDGE_TURN_PCT then
 				dir = ((dir + (Map.Rand(2, "") == 0 and -1 or 1) + 5) % 6) + 1;
 			end
 			px, py = GetHexNeighbor(px, py, dir, iW, iH, wrapX, wrapY);
@@ -43,10 +47,22 @@ function TryPlaceTestMountainDot(plotTypes, centerX, centerY, islLandInRing, par
 		end
 	end
 
+	local riftSet = {};
+	local ridgeList = {};
+	for k in pairs(ridgeSet) do ridgeList[#ridgeList + 1] = k; end
+	if #ridgeList >= 3 and Map.Rand(100, "") < CONFIG.RIDGE_RIFT_PCT then
+		local numRifts = 1 + Map.Rand(2, "");
+		numRifts = math.min(numRifts, #ridgeList - 1);
+		for _ = 1, numRifts do
+			local i = 1 + Map.Rand(#ridgeList, "");
+			riftSet[ridgeList[i]] = true;
+		end
+	end
+
 	for key in pairs(ridgeSet) do
 		local x, y = key:match("([^,]+),([^,]+)");
 		x, y = tonumber(x), tonumber(y);
-		plotTypes[y * iW + x] = PlotTypes.PLOT_MOUNTAIN;
+		plotTypes[y * iW + x] = riftSet[key] and PlotTypes.PLOT_OCEAN or PlotTypes.PLOT_MOUNTAIN;
 	end
 
 	-- 2. Land side: tiles adjacent to ridge, 40-80% land (rolled once per island)
@@ -115,18 +131,60 @@ function TryPlaceTestMountainDot(plotTypes, centerX, centerY, islLandInRing, par
 		plotTypes[y * iW + x] = PlotTypes.PLOT_OCEAN;
 	end
 
-	-- 4. Paint land with hills gradient (adj=85%, 2nd=65%, 3rd=50%)
+	-- 4. Satellite islands: 1-2 land tiles with 1 water gap from main (occasionally)
 	local allLandSet = {};
 	for k in pairs(landSet) do allLandSet[k] = true; end
 	for k in pairs(farLandSet) do allLandSet[k] = true; end
 
+	if Map.Rand(100, "") < CONFIG.SATELLITE_PCT then
+		local waterAdjToLand = {};
+		for key in pairs(allLandSet) do
+			local x, y = key:match("([^,]+),([^,]+)");
+			x, y = tonumber(x), tonumber(y);
+			for d = 1, 6 do
+				local nx, ny = GetHexNeighbor(x, y, d, iW, iH, wrapX, wrapY);
+				if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+					local nk = nx .. "," .. ny;
+					if not allLandSet[nk] and not ridgeSet[nk] then
+						waterAdjToLand[nk] = true;
+					end
+				end
+			end
+		end
+		local satCandidates = {};
+		for key in pairs(waterAdjToLand) do
+			local x, y = key:match("([^,]+),([^,]+)");
+			x, y = tonumber(x), tonumber(y);
+			for d = 1, 6 do
+				local nx, ny = GetHexNeighbor(x, y, d, iW, iH, wrapX, wrapY);
+				if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+					local nk = nx .. "," .. ny;
+					if not allLandSet[nk] and not ridgeSet[nk] and not waterAdjToLand[nk] then
+						satCandidates[nk] = true;
+					end
+				end
+			end
+		end
+		local satList = {};
+		for k in pairs(satCandidates) do satList[#satList + 1] = k; end
+		local numSat = CONFIG.SATELLITE_MIN + Map.Rand(CONFIG.SATELLITE_MAX - CONFIG.SATELLITE_MIN + 1, "");
+		for i = 1, math.min(numSat, #satList) do
+			local j = i + Map.Rand(#satList - i + 1, "");
+			if j < i then j = i; end
+			satList[i], satList[j] = satList[j], satList[i];
+			allLandSet[satList[i]] = true;
+		end
+	end
+
 	local distToRidge = {};
 	local queue = {};
 	for k in pairs(ridgeSet) do
-		local x, y = k:match("([^,]+),([^,]+)");
-		x, y = tonumber(x), tonumber(y);
-		distToRidge[k] = 0;
-		queue[#queue + 1] = {x, y};
+		if not riftSet[k] then
+			local x, y = k:match("([^,]+),([^,]+)");
+			x, y = tonumber(x), tonumber(y);
+			distToRidge[k] = 0;
+			queue[#queue + 1] = {x, y};
+		end
 	end
 	local q = 1;
 	while q <= #queue do

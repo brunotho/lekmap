@@ -99,28 +99,41 @@ local CONFIG = {
 	EMBRACE_ODDS = 100,  -- 0-100: chance to attempt Pangaea Embrace when this type is drafted
 
 	-- Phase 1: Arm shape
-	ARM_WIDTH_MIN = 5, ARM_WIDTH_RANGE = 5,  -- armLen = MIN + Rand(RANGE) → 5-9 tiles
-	ARM_WIDTH_AT_PANGEA_MIN = 2,  -- minimum width at pangea end (thickens toward edge)
+	ARM_WIDTH_MAX_INLAND = 7,  -- cap width at 7 when 4+ tiles from edge (toward pangea)
+	ARM_WIDTH_MIN = 4, ARM_WIDTH_RANGE = 4,  -- armLen = 4-7 (can expand toward edge later)
+	ARM_WIDTH_AT_PANGEA_MIN = 3,
 	THICKEN_TOWARD_EDGE_PCT = 80,  -- % of maps where arms thicken toward edge (else thin)
 	SOFTER_CURVE_PCT = 40,  -- % of maps with gentler arm curvature
 	GENTLER_FREQ_PCT = 50,  -- % of maps with lower curve frequency (less wavy)
 	CURVE_AMP_VARIATION_PCT = 20,  -- per-arm ±% from base amp (correlated but not mirror)
 
 	-- Phase 2: Terrain (gradient by distance to ridge, coastal overrides)
+	HILLS_PCT_MIN = 50,  -- global floor: never >50% flat
 	HILLS_PCT_ADJ = 80, HILLS_PCT_2ND = 65, HILLS_PCT_3RD = 50,  -- by distance to ridge
-	COASTAL_FLAT_PCT = 90,  -- coastal edges: % flat (takes precedence)
+	COASTAL_FLAT_PCT = 50,  -- coastal thick: max 50% flat (capped by HILLS_PCT_MIN)
+	COASTAL_THIN_WIDTH = 3,
+	THIN_STRIP_HILLS_PCT = 70,
 	RIDGE_WIDTH_THRESHOLD = 4,
+	RIDGE_3_TILE_PCT = 35, RIDGE_4_TILE_PCT = 12,
 	RIDGE_POSITIONS = 3,
-	RIDGE_RIFT_COUNT_MIN = 2, RIDGE_RIFT_COUNT_MAX = 4,  -- number of rifts per arm (land now, water when gaps)
-	RIDGE_RIFT_HEIGHT_MIN = 1, RIDGE_RIFT_HEIGHT_MAX = 2,  -- rows per rift
-	RIDGE_RIFT_HILLS_PCT = 70,  -- rift tiles: % hills vs flat (land, not mountain)
+	RIDGE_SECTION_COUNT = 4,  -- partition arm into sections for mountain % variation
+	RIDGE_RIFT_COUNT_MIN = 2, RIDGE_RIFT_COUNT_MAX = 5,  -- fewer rifts = more mountain by default
+	RIDGE_RIFT_HEIGHT_MIN = 1, RIDGE_RIFT_HEIGHT_MAX = 3,
+	RIDGE_RIFT_IS_WATER = true,
+	RIDGE_RIFT_HILLS_PCT = 70,
+	HEAVY_RIDGE_PCT = 18,  -- heavy thick ridge, several thin water gaps close together
+	HEAVY_RIDGE_RIFT_COUNT_MIN = 4, HEAVY_RIDGE_RIFT_COUNT_MAX = 7,
+	HEAVY_RIDGE_RIFT_HEIGHT = 1,  -- thin gaps only
 
 	-- Phase 3: Ocean gaps (water cuts through arms)
-	GAP_POLICY = "always",  -- "always" | "optional" | "never"
-	GAP_OPTIONAL_PCT = 60,  -- when policy=optional: % chance to add gaps
-	GAP_COUNT_MIN = 1, GAP_COUNT_MAX = 3,  -- number of gaps when enabled
-	GAP_THICKNESS_MIN = 1, GAP_THICKNESS_MAX = 3,  -- tiles per gap
-	GAP_DIST_FROM_EDGE_MIN = 2, GAP_DIST_FROM_EDGE_MAX = 3,  -- rows from map edge
+	GAP_POLICY = "always",
+	GAP_OPTIONAL_PCT = 60,
+	GAP_COUNT_MIN = 2, GAP_COUNT_MAX = 5,  -- 2-5 gaps, more frequent
+	GAP_THICKNESS_MIN = 1, GAP_THICKNESS_MAX = 4,  -- min width when not cutting full; unused if GAP_CUT_FULL_WIDTH
+	GAP_CUT_FULL_WIDTH = true,
+	GAP_SPLINTER_PCT = 70,  -- % of gaps that zigzag (splintered path) instead of straight line
+	GAP_SPLINTER_STEP_PCT = 28,  -- per step: % chance to move row up/down (zigzag)
+	GAP_DIST_FROM_EDGE_MIN = 6, GAP_DIST_FROM_EDGE_MAX = 12,
 };
 
 local function isLand(plotTypes, x, y, iW, iH)
@@ -216,6 +229,10 @@ local function drawPangaeaEmbrace(plotTypes, iW, iH, wrapX, wrapY)
 		local widthAtD_E = math.max(CONFIG.ARM_WIDTH_AT_PANGEA_MIN, math.floor(CONFIG.ARM_WIDTH_AT_PANGEA_MIN + (armLenE - CONFIG.ARM_WIDTH_AT_PANGEA_MIN) * t) + Map.Rand(2, "") - 1);
 		widthAtD_W = math.min(armLenW, widthAtD_W);
 		widthAtD_E = math.min(armLenE, widthAtD_E);
+		if d >= 4 then
+			widthAtD_W = math.min(CONFIG.ARM_WIDTH_MAX_INLAND, widthAtD_W);
+			widthAtD_E = math.min(CONFIG.ARM_WIDTH_MAX_INLAND, widthAtD_E);
+		end
 
 		for w = 0, widthAtD_W - 1 do
 			local baseX = westAnchor + w;
@@ -264,12 +281,18 @@ local function drawPangaeaEmbrace(plotTypes, iW, iH, wrapX, wrapY)
 	local ridgePosW = Map.Rand(CONFIG.RIDGE_POSITIONS, "");
 	local ridgePosE = Map.Rand(CONFIG.RIDGE_POSITIONS, "");
 
+	local function getRidgeWidth(w)
+		local base = 1 + Map.Rand(2, "");
+		local widthBias = (w >= 6 and Map.Rand(100, "") < 25) and 1 or 0;
+		if w >= 8 and Map.Rand(100, "") < 12 then widthBias = widthBias + 1; end
+		return math.min(w, base + widthBias);
+	end
 	local function isRidgeWest(x, y)
 		local lo, hi = westMinX[y], westMaxX[y];
 		if not lo then return false; end
 		hi = hi or lo;
 		local w = hi - lo + 1;
-		local ridgeW = (w >= CONFIG.RIDGE_WIDTH_THRESHOLD) and 2 or 1;
+		local ridgeW = math.min(getRidgeWidth(w), w);
 		local start = (ridgePosW == 0) and lo or (ridgePosW == 1) and (lo + math.floor((w - ridgeW) / 2)) or (hi - ridgeW + 1);
 		return x >= start and x < start + ridgeW;
 	end
@@ -278,7 +301,7 @@ local function drawPangaeaEmbrace(plotTypes, iW, iH, wrapX, wrapY)
 		if not hi then return false; end
 		lo = lo or hi;
 		local w = hi - lo + 1;
-		local ridgeW = (w >= CONFIG.RIDGE_WIDTH_THRESHOLD) and 2 or 1;
+		local ridgeW = math.min(getRidgeWidth(w), w);
 		local start = (ridgePosE == 0) and (hi - ridgeW + 1) or (ridgePosE == 1) and (lo + math.floor((w - ridgeW) / 2)) or lo;
 		return x >= start and x < start + ridgeW;
 	end
@@ -291,6 +314,12 @@ local function drawPangaeaEmbrace(plotTypes, iW, iH, wrapX, wrapY)
 		if isRidgeEast(t[1], t[2]) then ridgeSet[t[1] .. "," .. t[2]] = true; end
 	end
 
+	local heavyRidge = (Map.Rand(100, "") < CONFIG.HEAVY_RIDGE_PCT);
+	local riftCountMin = heavyRidge and CONFIG.HEAVY_RIDGE_RIFT_COUNT_MIN or CONFIG.RIDGE_RIFT_COUNT_MIN;
+	local riftCountMax = heavyRidge and CONFIG.HEAVY_RIDGE_RIFT_COUNT_MAX or CONFIG.RIDGE_RIFT_COUNT_MAX;
+	local riftHeightMin = heavyRidge and CONFIG.HEAVY_RIDGE_RIFT_HEIGHT or CONFIG.RIDGE_RIFT_HEIGHT_MIN;
+	local riftHeightMax = heavyRidge and CONFIG.HEAVY_RIDGE_RIFT_HEIGHT or CONFIG.RIDGE_RIFT_HEIGHT_MAX;
+
 	local function buildRiftRows(tiles)
 		local rows = {};
 		for _, t in ipairs(tiles) do rows[t[2]] = true; end
@@ -299,12 +328,41 @@ local function drawPangaeaEmbrace(plotTypes, iW, iH, wrapX, wrapY)
 		table.sort(rowList);
 		if #rowList < 2 then return {}; end
 		local riftRowSet = {};
-		local numRifts = CONFIG.RIDGE_RIFT_COUNT_MIN + Map.Rand(CONFIG.RIDGE_RIFT_COUNT_MAX - CONFIG.RIDGE_RIFT_COUNT_MIN + 1, "");
+		local nSec = CONFIG.RIDGE_SECTION_COUNT;
+		local secSize = math.max(1, math.floor(#rowList / nSec));
+		local secWeights = {};
+		for s = 1, nSec do
+			secWeights[s] = 0.5 + Map.Rand(11, "") / 10;
+		end
+		local totalWeight = 0;
+		for s = 1, nSec do totalWeight = totalWeight + secWeights[s]; end
+		local numRifts = riftCountMin + Map.Rand(riftCountMax - riftCountMin + 1, "");
 		numRifts = math.min(numRifts, math.max(1, #rowList - 1));
+		local clusterCenter;
+		if heavyRidge and #rowList >= 3 then
+			clusterCenter = rowList[1 + Map.Rand(#rowList, "")];
+		end
 		for _ = 1, numRifts do
-			local i = 1 + Map.Rand(#rowList, "");
-			local y = rowList[i];
-			local h = CONFIG.RIDGE_RIFT_HEIGHT_MIN + Map.Rand(CONFIG.RIDGE_RIFT_HEIGHT_MAX - CONFIG.RIDGE_RIFT_HEIGHT_MIN + 1, "");
+			local y;
+			if clusterCenter then
+				local offset = Map.Rand(5, "") - 2;
+				y = clusterCenter + offset;
+				y = math.max(rowList[1], math.min(rowList[#rowList], y));
+			else
+				local r = Map.Rand(math.floor(totalWeight * 100), "") / 100;
+				local acc = 0;
+				local sec = 1;
+				for s = 1, nSec do
+					acc = acc + secWeights[s];
+					if r < acc then sec = s; break; end
+				end
+				local loIdx = 1 + (sec - 1) * secSize;
+				local hiIdx = (sec < nSec) and (sec * secSize) or #rowList;
+				local pickIdx = loIdx + Map.Rand(math.max(1, hiIdx - loIdx + 1), "") - 1;
+				y = rowList[math.min(pickIdx, #rowList)];
+			end
+			y = math.max(rowList[1], math.min(rowList[#rowList], y));
+			local h = riftHeightMin + Map.Rand(riftHeightMax - riftHeightMin + 1, "");
 			for dy = 0, h - 1 do
 				riftRowSet[y + dy] = true;
 			end
@@ -318,7 +376,8 @@ local function drawPangaeaEmbrace(plotTypes, iW, iH, wrapX, wrapY)
 		local idx = t[2] * iW + t[1];
 		if isRidgeWest(t[1], t[2]) then
 			if westRiftRows[t[2]] then
-				plotTypes[idx] = (Map.Rand(100, "") < CONFIG.RIDGE_RIFT_HILLS_PCT) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
+				plotTypes[idx] = CONFIG.RIDGE_RIFT_IS_WATER and PlotTypes.PLOT_OCEAN
+					or ((Map.Rand(100, "") < CONFIG.RIDGE_RIFT_HILLS_PCT) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND);
 			else
 				plotTypes[idx] = PlotTypes.PLOT_MOUNTAIN;
 			end
@@ -328,7 +387,8 @@ local function drawPangaeaEmbrace(plotTypes, iW, iH, wrapX, wrapY)
 		local idx = t[2] * iW + t[1];
 		if isRidgeEast(t[1], t[2]) then
 			if eastRiftRows[t[2]] then
-				plotTypes[idx] = (Map.Rand(100, "") < CONFIG.RIDGE_RIFT_HILLS_PCT) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
+				plotTypes[idx] = CONFIG.RIDGE_RIFT_IS_WATER and PlotTypes.PLOT_OCEAN
+					or ((Map.Rand(100, "") < CONFIG.RIDGE_RIFT_HILLS_PCT) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND);
 			else
 				plotTypes[idx] = PlotTypes.PLOT_MOUNTAIN;
 			end
@@ -378,12 +438,14 @@ local function drawPangaeaEmbrace(plotTypes, iW, iH, wrapX, wrapY)
 		if not isRidgeWest(t[1], t[2]) then
 			local hillsPct = CONFIG.HILLS_PCT_3RD;
 			if isCoastal(t[1], t[2]) then
-				hillsPct = 100 - CONFIG.COASTAL_FLAT_PCT;
+				local w = westMinX[t[2]] and (westMaxX[t[2]] - westMinX[t[2]] + 1) or 0;
+				hillsPct = (w >= CONFIG.COASTAL_THIN_WIDTH) and (100 - CONFIG.COASTAL_FLAT_PCT) or CONFIG.THIN_STRIP_HILLS_PCT;
 			else
 				local d = distToRidge[t[1] .. "," .. t[2]];
 				if d == 1 then hillsPct = CONFIG.HILLS_PCT_ADJ;
 				elseif d == 2 then hillsPct = CONFIG.HILLS_PCT_2ND; end
 			end
+			hillsPct = math.max(CONFIG.HILLS_PCT_MIN, hillsPct);
 			plotTypes[idx] = (Map.Rand(100, "") < hillsPct) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
 		end
 	end
@@ -392,12 +454,14 @@ local function drawPangaeaEmbrace(plotTypes, iW, iH, wrapX, wrapY)
 		if not isRidgeEast(t[1], t[2]) then
 			local hillsPct = CONFIG.HILLS_PCT_3RD;
 			if isCoastal(t[1], t[2]) then
-				hillsPct = 100 - CONFIG.COASTAL_FLAT_PCT;
+				local w = eastMinX[t[2]] and (eastMaxX[t[2]] - eastMinX[t[2]] + 1) or 0;
+				hillsPct = (w >= CONFIG.COASTAL_THIN_WIDTH) and (100 - CONFIG.COASTAL_FLAT_PCT) or CONFIG.THIN_STRIP_HILLS_PCT;
 			else
 				local d = distToRidge[t[1] .. "," .. t[2]];
 				if d == 1 then hillsPct = CONFIG.HILLS_PCT_ADJ;
 				elseif d == 2 then hillsPct = CONFIG.HILLS_PCT_2ND; end
 			end
+			hillsPct = math.max(CONFIG.HILLS_PCT_MIN, hillsPct);
 			plotTypes[idx] = (Map.Rand(100, "") < hillsPct) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
 		end
 	end
@@ -409,40 +473,76 @@ local function drawPangaeaEmbrace(plotTypes, iW, iH, wrapX, wrapY)
 	local doGaps = (CONFIG.GAP_POLICY == "always") or
 		(CONFIG.GAP_POLICY == "optional" and Map.Rand(100, "") < CONFIG.GAP_OPTIONAL_PCT);
 	local numGaps = doGaps and (CONFIG.GAP_COUNT_MIN + Map.Rand(CONFIG.GAP_COUNT_MAX - CONFIG.GAP_COUNT_MIN + 1, "")) or 0;
-	local gapThickness = CONFIG.GAP_THICKNESS_MIN + Map.Rand(CONFIG.GAP_THICKNESS_MAX - CONFIG.GAP_THICKNESS_MIN + 1, "");
 	local distFromEdge = CONFIG.GAP_DIST_FROM_EDGE_MIN + Map.Rand(CONFIG.GAP_DIST_FROM_EDGE_MAX - CONFIG.GAP_DIST_FROM_EDGE_MIN + 1, "");
+	distFromEdge = math.min(distFromEdge, math.max(0, maxDepth - 7));  -- keep >5 from edge, fit in arm
+
+	local function cutSplinteredPath(minXByY, maxXByY, y0, stepDir)
+		local lo, hi = minXByY[y0], maxXByY[y0];
+		if not lo or not hi then return; end
+		local x0 = stepDir > 0 and lo or hi;
+		local xEnd = stepDir > 0 and hi or lo;
+		local py = y0;
+		for x = x0, xEnd, stepDir do
+			if minXByY[py] and x >= minXByY[py] and x <= maxXByY[py] then
+				local wx = wrapX and (((x % iW) + iW) % iW) or x;
+				if wx >= 0 and wx < iW then
+					plotTypes[py * iW + wx] = PlotTypes.PLOT_OCEAN;
+				end
+			end
+			if Map.Rand(100, "") < CONFIG.GAP_SPLINTER_STEP_PCT then
+				local ny = py + (Map.Rand(2, "") == 0 and 1 or -1);
+				if minXByY[ny] and maxXByY[ny] and x >= minXByY[ny] and x <= maxXByY[ny] then
+					py = ny;
+				end
+			end
+		end
+	end
+
+	local function cutStraightRow(minXByY, maxXByY, y0)
+		local lo, hi = minXByY[y0], maxXByY[y0];
+		if lo and hi then
+			for x = lo, hi do
+				local wx = wrapX and (((x % iW) + iW) % iW) or x;
+				if wx >= 0 and wx < iW then
+					plotTypes[y0 * iW + wx] = PlotTypes.PLOT_OCEAN;
+				end
+			end
+		end
+	end
 
 	for g = 1, numGaps do
 		local d = southEdge and (maxDepth - 1 - distFromEdge - Map.Rand(2, "")) or (distFromEdge + Map.Rand(2, ""));
 		d = math.max(0, math.min(maxDepth - 1, d));
 		local y = southEdge and d or (edgeY - d);
 		if y >= 0 and y < iH then
-			local loW, hiW = westMinX[y], westMaxX[y];
-			if loW and hiW then
-				local w = hiW - loW + 1;
-				local start = loW + Map.Rand(math.max(1, w - gapThickness), "");
-				for i = 0, gapThickness - 1 do
-					local x = start + i;
-					if wrapX then x = ((x % iW) + iW) % iW; end
-					if x >= 0 and x < iW then
-						plotTypes[y * iW + x] = PlotTypes.PLOT_OCEAN;
-					end
-				end
-			end
-			local loE, hiE = eastMinX[y], eastMaxX[y];
-			if loE and hiE then
-				local w = hiE - loE + 1;
-				local start = loE + Map.Rand(math.max(1, w - gapThickness), "");
-				for i = 0, gapThickness - 1 do
-					local x = start + i;
-					if wrapX then x = ((x % iW) + iW) % iW; end
-					if x >= 0 and x < iW then
-						plotTypes[y * iW + x] = PlotTypes.PLOT_OCEAN;
-					end
-				end
+			local splinter = Map.Rand(100, "") < CONFIG.GAP_SPLINTER_PCT;
+			if splinter then
+				cutSplinteredPath(westMinX, westMaxX, y, 1);
+				cutSplinteredPath(eastMinX, eastMaxX, y, -1);
+			else
+				cutStraightRow(westMinX, westMaxX, y);
+				cutStraightRow(eastMinX, eastMaxX, y);
 			end
 		end
 	end
+
+	-- Spec: "Entire landmass generated by this script: Ineligible for player starting positions"
+	_polar_pangea_excluded_plots = _polar_pangea_excluded_plots or {};
+	for _, t in ipairs(westTiles) do
+		local idx = t[2] * iW + t[1];
+		local pt = plotTypes[idx];
+		if pt == PlotTypes.PLOT_LAND or pt == PlotTypes.PLOT_HILLS or pt == PlotTypes.PLOT_MOUNTAIN then
+			_polar_pangea_excluded_plots[idx + 1] = true;
+		end
+	end
+	for _, t in ipairs(eastTiles) do
+		local idx = t[2] * iW + t[1];
+		local pt = plotTypes[idx];
+		if pt == PlotTypes.PLOT_LAND or pt == PlotTypes.PLOT_HILLS or pt == PlotTypes.PLOT_MOUNTAIN then
+			_polar_pangea_excluded_plots[idx + 1] = true;
+		end
+	end
+
 	return true;
 end
 

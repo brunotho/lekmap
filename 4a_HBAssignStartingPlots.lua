@@ -7604,6 +7604,17 @@ function AssignStartingPlots:AttemptToPlaceNaturalWonder(wonder_number, row_numb
 		for i = 2, #candidate_plot_list do rest[#rest + 1] = candidate_plot_list[i]; end
 		rest = GetShuffledCopyOfTable(rest);
 		for i = 1, #rest do candidate_plot_list[i + 1] = rest[i]; end
+	elseif self.wonder_list[wonder_number] == "FEATURE_CRATER" and _volcanic_peak_krakatoa_plot then
+		candidate_plot_list = {_volcanic_peak_krakatoa_plot};
+		for _, idx in ipairs(temp_table) do
+			if idx ~= _volcanic_peak_krakatoa_plot then
+				candidate_plot_list[#candidate_plot_list + 1] = idx;
+			end
+		end
+		local rest = {};
+		for i = 2, #candidate_plot_list do rest[#rest + 1] = candidate_plot_list[i]; end
+		rest = GetShuffledCopyOfTable(rest);
+		for i = 1, #rest do candidate_plot_list[i + 1] = rest[i]; end
 	else
 		candidate_plot_list = GetShuffledCopyOfTable(temp_table);
 	end

@@ -7,7 +7,7 @@ include("X_IslandHelpers");
 include("XX_island_common_Dot");
 include("XX_island_common_Pebble");
 include("XX_island_common_Strip");
-include("XX_island_common_TestFlatDisk");
+include("XX_island_uncommon_WaterRift");
 include("XX_island_uncommon_Chunk");
 include("XX_island_uncommon_Lollipop");
 include("XX_island_uncommon_Waterdrop");
@@ -19,7 +19,7 @@ include("XX_island_uncommon_SShape");
 include("XX_island_uncommon_SplinteredCliffs");
 include("XX_island_uncommon_TwinBay");
 include("XX_island_uncommon_MountainWall");
-include("XX_island_uncommon_TestMountainDot");
+include("XX_island_uncommon_RidgePeak");
 include("XX_island_rare_PolarMerge");
 include("XX_island_rare_CoastalHorn");
 include("XX_island_rare_ShatteredRing");
@@ -35,7 +35,7 @@ include("XX_island_exceptional_JunglePeak");
 include("XX_island_exceptional_DesertPeak");
 include("XX_island_exceptional_CrescentAndStar");
 include("XX_island_exceptional_CurledDragon");
-include("XX_island_exceptional_TestHillRing");
+include("XX_island_exceptional_VolcanicRing");
 -- odds: probability this type is selected when its tier slot is being filled (0-100).
 -- budget: cost deducted from total island budget when placed.
 -- pullBack: minimum ring distance from nearest land before placing.
@@ -44,12 +44,13 @@ include("XX_island_exceptional_TestHillRing");
 
 local CommonIslands = {
 	{ type = "dot",         tier = "common", odds = 0,  pullBack = 0, effMin = 2, effMax = 5, budget = 0.1 },   -- effMin 2 = 1 water gap min
-	{ type = "pebble",      tier = "common", odds = 0,  pullBack = 0, effMin = 2, effMax = 5, budget = 0.4   },
-	{ type = "strip",       tier = "common", odds = 0,  pullBack = 0, effMin = 2, effMax = 5, budget = 0.5   },
-	{ type = "testFlatDisk", tier = "common", odds = 100, pullBack = 0, effMin = 5, effMax = 6, budget = 2 },  -- effMin 5 = 1 water gap min
+	{ type = "pebble",      tier = "common", odds = 80,  pullBack = 0, effMin = 2, effMax = 5, budget = 0.4   },
+	{ type = "strip",       tier = "common", odds = 0,  pullBack = 0, effMin = 2, effMax = 5, budget = 0.5 },
 };
 
 local UncommonIslands = {
+	{ type = "waterRift",       tier = "uncommon", odds = 0,  pullBack = 0, effMin = 6, effMax = 7, budget = 2.5 },
+	{ type = "waterRift",       tier = "uncommon", odds = 0,  pullBack = 0, effMin = 6, effMax = 7, budget = 2.5 },
 	{ type = "chunk",           tier = "uncommon", odds = 0,  pullBack = 1, effMin = 3, effMax = 6, budget = 1 },
 	{ type = "lollipop",        tier = "uncommon", odds = 0,  pullBack = 2, effMin = 2, effMax = 5, budget = 1 },
 	{ type = "waterdrop",       tier = "uncommon", odds = 0,  pullBack = 2, effMin = 2, effMax = 5, budget = 1 },
@@ -58,10 +59,11 @@ local UncommonIslands = {
 	{ type = "blob",            tier = "uncommon", odds = 0,  pullBack = 1, effMin = 1, effMax = 6, budget = 1 },
 	{ type = "wishbone",        tier = "uncommon", odds = 0,  pullBack = 2, effMin = 2, effMax = 5, budget = 1 },
 	{ type = "sShape",          tier = "uncommon", odds = 0,  pullBack = 2, effMin = 2, effMax = 5, budget = 1 },
-	{ type = "splinteredCliffs", tier = "uncommon", odds = 0, pullBack = 2, effMin = 2, effMax = 5, budget = 1 },
+	{ type = "waterRift", tier = "uncommon", odds = 0, pullBack = 0, effMin = 6, effMax = 7, budget = 2.5 },
+	{ type = "splinteredCliffs", tier = "uncommon", odds = 80, pullBack = 2, effMin = 2, effMax = 5, budget = 1 },
 	{ type = "twinBay",         tier = "uncommon", odds = 0,  pullBack = 2, effMin = 2, effMax = 5, budget = 1 },
 	{ type = "mountainWall",    tier = "uncommon", odds = 0,  pullBack = 2, effMin = 2, effMax = 5, budget = 1 },
-	{ type = "testMountainDot", tier = "uncommon", odds = 100, pullBack = 0, effMin = 0, effMax = 6, budget = 2 },
+	{ type = "ridgePeak", tier = "uncommon", odds = 0, pullBack = 0, effMin = 1, effMax = 7, budget = 1.5 },
 };
 
 local RareIslands = {
@@ -78,19 +80,19 @@ local RareIslands = {
 
 local ExceptionalIslands = {
 	{ type = "BrokenHeart",     tier = "exceptional", odds = 0, pullBack = 2, effMin = 2, effMax = 5, budget = 1 },
-	{ type = "volcanicPeak",    tier = "exceptional", odds = 0, pullBack = 3, effMin = 3, effMax = 5, budget = 1 },
+	{ type = "volcanicPeak",    tier = "exceptional", odds = 80, pullBack = 3, effMin = 3, effMax = 5, budget = 1 },
 	{ type = "junglePeak",      tier = "exceptional", odds = 0, pullBack = 2, effMin = 2, effMax = 5, budget = 1 },
 	{ type = "desertPeak",      tier = "exceptional", odds = 0, pullBack = 2, effMin = 2, effMax = 5, budget = 1 },
 	{ type = "CrescentAndStar", tier = "exceptional", odds = 0, pullBack = 3, effMin = 3, effMax = 5, budget = 1 },
 	{ type = "curledDragon",    tier = "exceptional", odds = 0, pullBack = 3, effMin = 3, effMax = 5, budget = 1 },
-	{ type = "testHillRing",    tier = "exceptional", odds = 100, pullBack = 3, effMin = 3, effMax = 6, budget = 2 },
+	{ type = "volcanicRing", tier = "exceptional", odds = 0, pullBack = 3, effMin = 3, effMax = 6, budget = 2 },
 };
 
 local IslandTypePlace = {
 	dot = TryPlaceDotIsland,
 	pebble = TryPlacePebbleIsland,
 	strip = TryPlaceStripIsland,
-	testFlatDisk = TryPlaceTestFlatDisk,
+	waterRift = TryPlaceWaterRift,
 	chunk = TryPlaceChunkIsland,
 	lollipop = TryPlaceLollipopIsland,
 	waterdrop = TryPlaceWaterdropIsland,
@@ -102,7 +104,7 @@ local IslandTypePlace = {
 	splinteredCliffs = TryPlaceSplinteredCliffsIsland,
 	twinBay = TryPlaceTwinBayIslands,
 	mountainWall = TryPlaceMountainWallIsland,
-	testMountainDot = TryPlaceTestMountainDot,
+	ridgePeak = TryPlaceRidgePeak,
 	coastalHorn = TryPlaceCoastalHornIsland,
 	ShatteredRing = TryPlaceShatteredRingIsland,
 	EdgeOfWorld = TryPlaceEdgeOfWorldIsland,
@@ -117,7 +119,7 @@ local IslandTypePlace = {
 	desertPeak = TryPlaceDesertPeakIsland,
 	CrescentAndStar = TryPlaceCrescentAndStarIsland,
 	curledDragon = TryPlaceCurledDragonIsland,
-	testHillRing = TryPlaceTestHillRing,
+	volcanicRing = TryPlaceVolcanicRing,
 };
 
 -- Unified lookup across all tier tables.
@@ -199,7 +201,7 @@ end
 -- Priority constants for placement ordering. Lower = placed first.
 local NAMED_PRIORITY = {
 	polarmerge = 1,
-	testMountainDot = 2,
+	ridgePeak = 2,
 };
 local TIER_BASE_PRIORITY = {
 	exceptional = 4,
@@ -273,7 +275,7 @@ function GeneratePangaeaIslands(self)
 
 	-- -------------------------------------------------------------------------
 	-- PLACEMENT PHASE
-	-- polarmerge and testMountainDot use opts-based placement; all others use spot-finding.
+	-- polarmerge and ridgePeak use opts-based placement; all others use spot-finding.
 	-- -------------------------------------------------------------------------
 	local function tryOneSpot(forceType, attempt)
 		local x = Map.Rand(iW, "");
