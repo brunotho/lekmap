@@ -22,6 +22,7 @@ local function footprintClear(plotTypes, tiles, iW, iH)
 end
 
 function TryPlacePebbleIsland(plotTypes, centerX, centerY, islLandInRing, params)
+	if params.nearPangea == false then return false; end
 	local pullBack = params.pullBack or 1;
 	local effMin = params.effMin or 1;
 	local effMax = params.effMax or 6;
@@ -34,7 +35,7 @@ function TryPlacePebbleIsland(plotTypes, centerX, centerY, islLandInRing, params
 
 	local radius = 1;
 	local landTiles = GetScatteredDiskLandTiles(cx, cy, radius, params.iW, params.iH, params.wrapX, params.wrapY);
-	if #landTiles < 3 or #landTiles > 5 then return false; end
+	if #landTiles < 3 or #landTiles > 6 then return false; end
 	if not footprintClear(plotTypes, landTiles, params.iW, params.iH) then return false; end
 
 	DrawScatteredDisk(plotTypes, landTiles, params.iW, CONFIG.HILLS_PCT, true);

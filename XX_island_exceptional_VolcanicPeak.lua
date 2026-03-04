@@ -1,9 +1,15 @@
 ------------------------------------------------------------------------------
---	VolcanicPeakIsland.lua
---	Center mountain, 6-tile caldera lake, land ring 3-5 segments with 1-2 tile gaps.
---	12-18 land tiles. 50-60% hills. Hills near caldera, flat on outer edge.
+--	VolcanicPeakIsland.lua (Krakatoa)
+--
+-- Placement: Jungle latitude (5-7 rows, centered on equator), min 3 tiles from land.
+-- Latitude is enforced in 3_PangaeaIslands tryOneSpot when forceType == "volcanicPeak".
+--
+-- Layout: Center mountain, 6-tile caldera lake, 3-4 satellite islands in rings 2-3.
+-- Each island: 3-6 tiles, min 1 in ring 2 and min 1 in ring 3. Grown by adjacency only.
 ------------------------------------------------------------------------------
 include("X_IslandHelpers");
+
+local function plotIdx1(x, y, iW) return y * iW + x + 1; end
 
 local function isLand(plotTypes, x, y, iW, iH)
 	if x < 0 or x >= iW or y < 0 or y >= iH then return false; end
@@ -18,6 +24,15 @@ local function footprintClear(plotTypes, tiles, iW, iH)
 	return true;
 end
 
+local function isAdjacentToTile(ax, ay, bx, by)
+	local dx, dy = bx - ax, by - ay;
+	local adj = (ay % 2 ~= 0) and firstRingYIsOdd or firstRingYIsEven;
+	for d = 1, 6 do
+		if adj[d][1] == dx and adj[d][2] == dy then return true; end
+	end
+	return false;
+end
+
 function TryPlaceVolcanicPeakIsland(plotTypes, centerX, centerY, islLandInRing, params)
 	if _island_placed and _island_placed.volcanicPeak then return false; end
 	local pullBack = params.pullBack or 3;
@@ -30,68 +45,111 @@ function TryPlaceVolcanicPeakIsland(plotTypes, centerX, centerY, islLandInRing, 
 	local cy = WrapCoord(centerY, params.iH, params.wrapY);
 	if cx < 0 or cx >= params.iW or cy < 0 or cy >= params.iH then return false; end
 
-	local centerTiles = GetHexDisk(cx, cy, 1, params.iW, params.iH, params.wrapX, params.wrapY);
+	local disk = GetHexDisk(cx, cy, 4, params.iW, params.iH, params.wrapX, params.wrapY);
 	local calderaTiles = {};
-	for _, t in ipairs(centerTiles) do
-		if t[1] ~= cx or t[2] ~= cy then
-			calderaTiles[#calderaTiles + 1] = t;
+	local ring2Tiles = {};
+	local ring3Tiles = {};
+	local ring1End = 7;
+	local ring2End = 19;
+	local ring3End = 37;
+	for i = 2, ring1End do calderaTiles[#calderaTiles + 1] = disk[i]; end
+	for i = ring1End + 1, ring2End do ring2Tiles[#ring2Tiles + 1] = disk[i]; end
+	for i = ring2End + 1, ring3End do ring3Tiles[#ring3Tiles + 1] = disk[i]; end
+
+	local numIslands = 3 + Map.Rand(2, "");
+	numIslands = math.min(numIslands, 4);
+	local r2Count, r3Count = #ring2Tiles, #ring3Tiles;
+	local landTiles = {};
+	local used = {};
+	local allR2R3 = {};
+	for _, t in ipairs(ring2Tiles) do allR2R3[#allR2R3 + 1] = {t[1], t[2], "r2"}; end
+	for _, t in ipairs(ring3Tiles) do allR2R3[#allR2R3 + 1] = {t[1], t[2], "r3"}; end
+
+	local function isAdjacentToIsland(tx, ty, island)
+		for _, it in ipairs(island) do
+			if isAdjacentToTile(tx, ty, it[1], it[2]) then return true; end
 		end
+		return false;
 	end
 
-	local ring2 = GetHexDisk(cx, cy, 2, params.iW, params.iH, params.wrapX, params.wrapY);
-	local ring1Count = #centerTiles;
-	local ring2Count = #ring2 - ring1Count;
-	local ring2Start = ring1Count + 1;
-
-	local numSegments = 3 + Map.Rand(3, "");
-	local numGaps = 1 + Map.Rand(2, "");
-	local landTiles = {};
-	landTiles[#landTiles + 1] = {cx, cy};
-
-	local step = math.floor(ring2Count / (numSegments + numGaps));
-	local idx = ring2Start;
-	for seg = 1, numSegments + numGaps do
-		local segLen = step;
-		if seg == numSegments + numGaps then segLen = ring2Count - (idx - ring2Start); end
-		local isGap = (seg > numSegments);
-		for i = 1, segLen do
-			if idx <= #ring2 then
-				local t = ring2[idx];
-				if not isGap then
-					landTiles[#landTiles + 1] = {t[1], t[2]};
-				end
-				idx = idx + 1;
+	for isl = 1, numIslands do
+		local loR2 = math.floor((isl - 1) * r2Count / numIslands) + 1;
+		local hiR2 = math.floor(isl * r2Count / numIslands);
+		local loR3 = math.floor((isl - 1) * r3Count / numIslands) + 1;
+		local hiR3 = math.floor(isl * r3Count / numIslands);
+		local r2Pick = loR2 + Map.Rand(math.max(1, hiR2 - loR2 + 1), "");
+		local r2t = ring2Tiles[r2Pick];
+		local r3Cand = {};
+		for _, t in ipairs(ring3Tiles) do
+			if isAdjacentToTile(t[1], t[2], r2t[1], r2t[2]) and not used[t[2] * params.iW + t[1]] then
+				r3Cand[#r3Cand + 1] = t;
 			end
 		end
+		if #r3Cand == 0 then
+			for _, t in ipairs(ring3Tiles) do
+				if isAdjacentToTile(t[1], t[2], r2t[1], r2t[2]) then
+					r3Cand[#r3Cand + 1] = t;
+					break;
+				end
+			end
+		end
+		if #r3Cand == 0 then r3Cand[#r3Cand + 1] = ring3Tiles[loR3]; end
+		local r3Pick = r3Cand[1 + Map.Rand(#r3Cand, "")];
+		local island = {{r2t[1], r2t[2], "r2"}, {r3Pick[1], r3Pick[2], "r3"}};
+		used[r2t[2] * params.iW + r2t[1]] = true;
+		used[r3Pick[2] * params.iW + r3Pick[1]] = true;
+
+		local targetSize = 3 + Map.Rand(4, "");
+		targetSize = math.min(targetSize, 6);
+		while #island < targetSize do
+			local adjCand = {};
+			for _, t in ipairs(allR2R3) do
+				local k = t[2] * params.iW + t[1];
+				if not used[k] and isAdjacentToIsland(t[1], t[2], island) then
+					adjCand[#adjCand + 1] = {t[1], t[2], t[3], k};
+				end
+			end
+			if #adjCand == 0 then break; end
+			local pick = adjCand[1 + Map.Rand(#adjCand, "")];
+			island[#island + 1] = {pick[1], pick[2], pick[3]};
+			used[pick[4]] = true;
+		end
+		for _, t in ipairs(island) do
+			landTiles[#landTiles + 1] = {t[1], t[2], t[3]};
+		end
 	end
 
-	if #landTiles < 8 then return false; end
-	local footprintTiles = {};
-	for _, t in ipairs(landTiles) do footprintTiles[#footprintTiles + 1] = t; end
+	local footprintTiles = {{cx, cy}};
 	for _, t in ipairs(calderaTiles) do footprintTiles[#footprintTiles + 1] = t; end
+	for _, t in ipairs(landTiles) do footprintTiles[#footprintTiles + 1] = {t[1], t[2]}; end
 	if not footprintClear(plotTypes, footprintTiles, params.iW, params.iH) then return false; end
 
-	DrawVolcanicPeakIsland(plotTypes, landTiles, calderaTiles, cx, cy, params.iW);
-	_volcanic_peak_krakatoa_plot = cy * params.iW + cx + 1; -- Krakatoa cheat: inject center mountain into NW placement
+	DrawVolcanicPeakIsland(plotTypes, landTiles, calderaTiles, cx, cy, params.iW, params.iH);
+	_volcanic_peak_krakatoa_plot = plotIdx1(cx, cy, params.iW);
 	if not _island_placed then _island_placed = {}; end
 	_island_placed.volcanicPeak = true;
 	return true;
 end
 
-function DrawVolcanicPeakIsland(plotTypes, landTiles, calderaTiles, cx, cy, iW)
-	local centerIdx = cy * iW + cx;
-	plotTypes[centerIdx] = PlotTypes.PLOT_MOUNTAIN;
+function DrawVolcanicPeakIsland(plotTypes, landTiles, calderaTiles, cx, cy, iW, iH)
+	plotTypes[cy * iW + cx] = PlotTypes.PLOT_MOUNTAIN;
 	for _, t in ipairs(calderaTiles) do
 		plotTypes[t[2] * iW + t[1]] = PlotTypes.PLOT_OCEAN;
 	end
-	local hillsPct = 50 + Map.Rand(11, "");
-	for i, t in ipairs(landTiles) do
-		if t[1] == cx and t[2] == cy then
-		else
-			local idx = t[2] * iW + t[1];
-			local dist = math.abs(t[1] - cx) + math.abs(t[2] - cy);
-			local pct = (dist <= 2) and (50 + Map.Rand(11, "")) or (30 + Map.Rand(11, ""));
-			plotTypes[idx] = (Map.Rand(100, "") < pct) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
+	for _, t in ipairs(landTiles) do
+		local x, y = t[1], t[2];
+		local idx = y * iW + x;
+		local adjCaldera = false;
+		for _, c in ipairs(calderaTiles) do
+			if isAdjacentToTile(x, y, c[1], c[2]) then adjCaldera = true; break; end
 		end
+		local plotType;
+		if adjCaldera then
+			plotType = (Map.Rand(100, "") < 6) and PlotTypes.PLOT_MOUNTAIN
+				or ((Map.Rand(100, "") < (82 + Map.Rand(14, ""))) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND);
+		else
+			plotType = (Map.Rand(100, "") < (18 + Map.Rand(15, ""))) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
+		end
+		plotTypes[idx] = plotType;
 	end
 end

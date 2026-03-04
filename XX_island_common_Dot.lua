@@ -12,6 +12,7 @@ local CONFIG = {
 };
 
 function TryPlaceDotIsland(plotTypes, centerX, centerY, islLandInRing, params)
+	if params.nearPangea == false then return false; end
 	local pullBack = params.pullBack or 1;
 	local effMin = params.effMin or 1;
 	local effMax = params.effMax or 6;

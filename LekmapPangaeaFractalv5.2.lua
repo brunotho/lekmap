@@ -1519,7 +1519,7 @@ function FixCoastLine()
 			if plotAreaID == iAreaID then
 
 				local plotType = plot:GetPlotType();
-				if plot:IsCoastalLand(50) then
+				if plot:IsCoastalLand(25) then
 					if plotType ~= PlotTypes.PLOT_HILLS then
 					if not plot:IsRiverSide() then
 						local flatToHill = Map.Rand(100, "Plains Spawn Chance");

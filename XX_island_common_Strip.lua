@@ -6,7 +6,7 @@ include("X_IslandHelpers");
 
 local CONFIG = {
 	HILLS_PCT_MIN = 50, HILLS_PCT_RANGE = 11,
-	MTN_CHANCE_SMALL = 2, MTN_CHANCE_LARGE = 5,
+	MTN_CHANCE_SMALL = 0, MTN_CHANCE_LARGE = 0,
 	SIZE_THRESHOLD = 6,
 	TURN_PCT = 40,
 };
@@ -25,6 +25,7 @@ local function footprintClear(plotTypes, tiles, iW, iH)
 end
 
 function TryPlaceStripIsland(plotTypes, centerX, centerY, islLandInRing, params)
+	if params.nearPangea == false then return false; end
 	local pullBack = params.pullBack or 1;
 	local effMin = params.effMin or 1;
 	local effMax = params.effMax or 6;

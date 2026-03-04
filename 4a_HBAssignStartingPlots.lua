@@ -3909,7 +3909,7 @@ function AssignStartingPlots:FindCoastalStart(region_number)
 			if self.plotDataIsCoastal[plotIndex] == true then -- This plot is a land plot next to an ocean.
 				local plot = Map.GetPlot(x, y);
 				local plotType = plot:GetPlotType()
-				if plotType ~= PlotTypes.PLOT_MOUNTAIN and (AllowInlandSea == 1 or plot:IsCoastalLand(50)) then -- Not a mountain plot, nor a plot adjacent to inland sea, or inland sea allowed.
+				if plotType ~= PlotTypes.PLOT_MOUNTAIN and (AllowInlandSea == 1 or plot:IsCoastalLand(300)) then -- Not a mountain plot, nor a plot adjacent to inland sea, or inland sea allowed.
 					local area_of_plot = plot:GetArea();
 					if area_of_plot == iAreaID or iAreaID == -1 then -- This plot is a member, so it goes on at least one candidate list.
 						--
@@ -7478,7 +7478,7 @@ function AssignStartingPlots:GenerateNaturalWondersCandidatePlotLists()
 	-- Lekmap: inject island mountain plots (Krakatoa, Sri Pada, Sinai) for Pangaea Fractal
 	if self.eligibility_lists and self.wonder_list then
 		for wn, nw_type in ipairs(self.wonder_list) do
-			if nw_type == "FEATURE_CRATER" and _volcanic_peak_krakatoa_plot then
+			if nw_type == "FEATURE_VOLCANO" and _volcanic_peak_krakatoa_plot then
 				table.insert(self.eligibility_lists[wn], 1, _volcanic_peak_krakatoa_plot);
 			elseif nw_type == "FEATURE_SRI_PADA" and _jungle_peak_sri_pada_plot then
 				table.insert(self.eligibility_lists[wn], 1, _jungle_peak_sri_pada_plot);
@@ -7604,7 +7604,7 @@ function AssignStartingPlots:AttemptToPlaceNaturalWonder(wonder_number, row_numb
 		for i = 2, #candidate_plot_list do rest[#rest + 1] = candidate_plot_list[i]; end
 		rest = GetShuffledCopyOfTable(rest);
 		for i = 1, #rest do candidate_plot_list[i + 1] = rest[i]; end
-	elseif self.wonder_list[wonder_number] == "FEATURE_CRATER" and _volcanic_peak_krakatoa_plot then
+	elseif self.wonder_list[wonder_number] == "FEATURE_VOLCANO" and _volcanic_peak_krakatoa_plot then
 		candidate_plot_list = {_volcanic_peak_krakatoa_plot};
 		for _, idx in ipairs(temp_table) do
 			if idx ~= _volcanic_peak_krakatoa_plot then
@@ -7621,7 +7621,7 @@ function AssignStartingPlots:AttemptToPlaceNaturalWonder(wonder_number, row_numb
 	for loop, plotIndex in ipairs(candidate_plot_list) do
 		if self.naturalWondersData[plotIndex] == 0 then -- No collision with civ start or other NW, so place wonder here!
 			local x = (plotIndex - 1) % iW;
-			local y = (plotIndex - x - 1) / iW;
+			local y = math.floor((plotIndex - x - 1) / iW);
 			local plot = Map.GetPlot(x, y);
 			-- Lekmap: dragon eye El Dorado - force Plains terrain
 			if self.wonder_list[wonder_number] == "FEATURE_EL_DORADO" and _curled_dragon_el_dorado_plot and plotIndex == _curled_dragon_el_dorado_plot then
@@ -7763,40 +7763,62 @@ function AssignStartingPlots:PlaceNaturalWonders(wonderargs)
 	print("--- Placing Natural Wonders! ---");
 	]]--
 	
-	-- Place the NWs
-	local iNumPlaced = 0;
-	for loop, nw_number in ipairs(selected_NWs) do
-		local nw_type = self.wonder_list[nw_number];
-		-- Obtain the correct Row number from the xml Placement table.
-		local row_number;
-		for row in GameInfo.Natural_Wonder_Placement() do
-			if row.NaturalWonderType == nw_type then
-				row_number = row.ID;
+	-- Lekmap: place forced island wonders first (Krakatoa, El Dorado, etc.) so they "steal" their slot before random process
+	local forced_placed = {};
+	local forced_pairs = {
+		{ var = _volcanic_peak_krakatoa_plot, type = "FEATURE_VOLCANO" },
+		{ var = _curled_dragon_el_dorado_plot, type = "FEATURE_EL_DORADO" },
+		{ var = _jungle_peak_sri_pada_plot, type = "FEATURE_SRI_PADA" },
+		{ var = _desert_peak_sinai_plot, type = "FEATURE_MTS_SINAI" },
+		{ var = _desert_peak_sinai_plot, type = "FEATURE_SINA" },
+	};
+	for _, pair in ipairs(forced_pairs) do
+		if pair.var then
+			for wn, nw_type in ipairs(self.wonder_list) do
+				if nw_type == pair.type and not forced_placed[wn] then
+					local row_number;
+					for row in GameInfo.Natural_Wonder_Placement() do
+						if row.NaturalWonderType == nw_type then row_number = row.ID; break; end
+					end
+					if row_number and self:AttemptToPlaceNaturalWonder(wn, row_number) then
+						forced_placed[wn] = true;
+						break;
+					end
+				end
 			end
 		end
-		-- Place the wonder, using the correct row data from XML.
-		local bSuccess = self:AttemptToPlaceNaturalWonder(nw_number, row_number)
-		if bSuccess then
+	end
+	
+	-- Place the NWs (skip those already placed by forced island injection)
+	local iNumPlaced = 0;
+	for loop, nw_number in ipairs(selected_NWs) do
+		if forced_placed[nw_number] then
 			iNumPlaced = iNumPlaced + 1;
+		else
+			local nw_type = self.wonder_list[nw_number];
+			local row_number;
+			for row in GameInfo.Natural_Wonder_Placement() do
+				if row.NaturalWonderType == nw_type then row_number = row.ID; break; end
+			end
+			if row_number and self:AttemptToPlaceNaturalWonder(nw_number, row_number) then
+				iNumPlaced = iNumPlaced + 1;
+			end
 		end
 	end
 	if iNumPlaced < iNumNWtoPlace then
 		for loop, nw_number in ipairs(fallback_NWs) do
-			if iNumPlaced >= iNumNWtoPlace then
-				break
-			end
-			local nw_type = self.wonder_list[nw_number];
-			-- Obtain the correct Row number from the xml Placement table.
-			local row_number;
-			for row in GameInfo.Natural_Wonder_Placement() do
-				if row.NaturalWonderType == nw_type then
-					row_number = row.ID;
-				end
-			end
-			-- Place the wonder, using the correct row data from XML.
-			local bSuccess = self:AttemptToPlaceNaturalWonder(nw_number, row_number)
-			if bSuccess then
+			if iNumPlaced >= iNumNWtoPlace then break; end
+			if forced_placed[nw_number] then
 				iNumPlaced = iNumPlaced + 1;
+			else
+				local nw_type = self.wonder_list[nw_number];
+				local row_number;
+				for row in GameInfo.Natural_Wonder_Placement() do
+					if row.NaturalWonderType == nw_type then row_number = row.ID; break; end
+				end
+				if row_number and self:AttemptToPlaceNaturalWonder(nw_number, row_number) then
+					iNumPlaced = iNumPlaced + 1;
+				end
 			end
 		end
 	end
