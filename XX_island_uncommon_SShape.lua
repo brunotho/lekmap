@@ -11,7 +11,7 @@ local HILLS_MAX = 75;
 
 local function isLand(plotTypes, x, y, iW, iH)
 	if x < 0 or x >= iW or y < 0 or y >= iH then return false; end
-	local t = plotTypes[y * iW + x];
+	local t = plotTypes[y * iW + x + 1];
 	return t == PlotTypes.PLOT_LAND or t == PlotTypes.PLOT_HILLS or t == PlotTypes.PLOT_MOUNTAIN;
 end
 
@@ -67,7 +67,7 @@ local function addWidth(landTiles, iW, iH, wrapX, wrapY)
 	for _, t in ipairs(landTiles) do spineSet[t[1] .. "," .. t[2]] = true; end
 	local added = {};
 	for i, t in ipairs(landTiles) do
-		if Map.Rand(100, "") < 55 then
+		if Map.Rand(100, "") < 28 then
 			for dir = 1, 6 do
 				local nx, ny = GetHexNeighbor(t[1], t[2], dir, iW, iH, wrapX, wrapY);
 				if nx >= 0 and nx < iW and ny >= 0 and ny < iH and not spineSet[nx .. "," .. ny] and not added[nx .. "," .. ny] then
@@ -95,10 +95,11 @@ function TryPlaceSShapeIsland(plotTypes, centerX, centerY, islLandInRing, params
 	for _, t in ipairs(spine) do landTiles[#landTiles + 1] = {t[1], t[2]}; end
 	addWidth(landTiles, params.iW, params.iH, params.wrapX, params.wrapY);
 
-	local target = 10 + Map.Rand(7, "");
-	while #landTiles < target and #landTiles < 16 do
-		local r = Map.Rand(#landTiles, "") + 1;
-		local tx, ty = landTiles[r][1], landTiles[r][2];
+	-- Extend only from spine ends to preserve S-curve (avoid blob)
+	local target = 10 + Map.Rand(4, "");
+	while #landTiles < target and #landTiles < 14 do
+		local pick = (Map.Rand(2, "") == 0) and landTiles[1] or landTiles[#landTiles];
+		local tx, ty = pick[1], pick[2];
 		local found = false;
 		for dir = 1, 6 do
 			local nx, ny = GetHexNeighbor(tx, ty, dir, params.iW, params.iH, params.wrapX, params.wrapY);
@@ -106,7 +107,11 @@ function TryPlaceSShapeIsland(plotTypes, centerX, centerY, islLandInRing, params
 				local dup = false;
 				for _, t in ipairs(landTiles) do if t[1] == nx and t[2] == ny then dup = true; break; end end
 				if not dup then
-					landTiles[#landTiles + 1] = {nx, ny};
+					if pick == landTiles[1] then
+						table.insert(landTiles, 1, {nx, ny});
+					else
+						landTiles[#landTiles + 1] = {nx, ny};
+					end
 					found = true;
 					break;
 				end
@@ -115,7 +120,7 @@ function TryPlaceSShapeIsland(plotTypes, centerX, centerY, islLandInRing, params
 		if not found then break; end
 	end
 
-	if #landTiles < 10 or #landTiles > 16 then return false; end
+	if #landTiles < 8 or #landTiles > 14 then return false; end
 
 	local variant = Map.Rand(100, "");
 	local hasHead = (variant < 3);
@@ -164,7 +169,7 @@ function DrawSShapeIsland(plotTypes, landTiles, hasHead, hasMountainCluster, iW,
 	local hillsPct = HILLS_MIN + Map.Rand(HILLS_MAX - HILLS_MIN + 1, "");
 	for _, t in ipairs(landTiles) do
 		local x, y = t[1], t[2];
-		local idx = y * iW + x;
+		local idx = y * iW + x + 1;
 		if mountainSet[x .. "," .. y] then
 			plotTypes[idx] = PlotTypes.PLOT_MOUNTAIN;
 		else

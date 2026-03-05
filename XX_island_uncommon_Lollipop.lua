@@ -1,8 +1,7 @@
 ------------------------------------------------------------------------------
 --	LollipopIsland.lua
 --	Irregular blob head on a slightly organic stem.
---	Head 6-12 tiles: lopsided, randomly splintered. Stem 3-5 tiles: gently
---	curved, with occasional 1-tile widening.
+--	Head 6-12 tiles: lopsided, randomly splintered. Stem 3-5 tiles, 1 tile wide.
 --	Head: hills 70%, 1-2 mountains. Stem: hills 50%, no mountains.
 ------------------------------------------------------------------------------
 include("X_IslandHelpers");
@@ -101,13 +100,17 @@ function TryPlaceLollipopIsland(plotTypes, centerX, centerY, islLandInRing, para
 		if sx >= 0 and sx < params.iW and sy >= 0 and sy < params.iH then addBase(sx, sy); end
 	end
 
-	-- Stem: gentle single bend (70%), with 33% chance of 1-tile widening.
+	-- Stem: gentle single bend (70%), always 1 tile wide. When stemLen=5, force bend at either end.
 	local stemCurDir = stemDir;
 	local doBend     = Map.Rand(10, "") < 7;
-	local bendAt     = 1 + Map.Rand(math.max(1, stemLen - 1), "");
+	local bendAt;
+	if stemLen == 5 and not doBend then
+		doBend = true;
+		bendAt = (Map.Rand(2, "") == 0) and 1 or 5;
+	else
+		bendAt = 1 + Map.Rand(math.max(1, stemLen - 1), "");
+	end
 	local bendSide   = (Map.Rand(2, "") == 0) and 1 or -1;
-	local doThicken  = Map.Rand(3, "") == 0;
-	local thickenAt  = 1 + Map.Rand(stemLen, "");
 
 	local tx, ty = cx, cy;
 	for i = 1, stemLen do
@@ -117,12 +120,6 @@ function TryPlaceLollipopIsland(plotTypes, centerX, centerY, islLandInRing, para
 		local nx, ny = GetHexNeighbor(tx, ty, stemCurDir, params.iW, params.iH, params.wrapX, params.wrapY);
 		if not addArm(nx, ny) then break; end
 		tx, ty = nx, ny;
-
-		if doThicken and i == thickenAt then
-			local wDir    = rotDir(stemCurDir, (Map.Rand(2, "") == 0) and 1 or -1);
-			local wx, wy  = GetHexNeighbor(tx, ty, wDir, params.iW, params.iH, params.wrapX, params.wrapY);
-			addArm(wx, wy);
-		end
 	end
 
 	if #landTiles < 10 then return false; end

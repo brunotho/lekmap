@@ -1,6 +1,7 @@
 ------------------------------------------------------------------------------
 --	ChunkIsland.lua
---	6-9 tiles, scattered disk (noisy rings). Hills 50-60%, mountains by size.
+--	Scattered disk: radius 3, 6-10 tiles. Hills 50-70%, 2-5% mountains.
+--	Tiny chance (8%) for 2-3 mountain cluster in center.
 ------------------------------------------------------------------------------
 include("X_IslandHelpers");
 
@@ -28,11 +29,44 @@ function TryPlaceChunkIsland(plotTypes, centerX, centerY, islLandInRing, params)
 	local cy = WrapCoord(centerY, params.iH, params.wrapY);
 	if cx < 0 or cx >= params.iW or cy < 0 or cy >= params.iH then return false; end
 
-	local radius = 2;
-	local landTiles = GetScatteredDiskLandTiles(cx, cy, radius, params.iW, params.iH, params.wrapX, params.wrapY);
+	local landTiles = GetScatteredDiskLandTiles(cx, cy, 3, params.iW, params.iH, params.wrapX, params.wrapY);
 	if #landTiles < 6 or #landTiles > 10 then return false; end
 	if not footprintClear(plotTypes, landTiles, params.iW, params.iH) then return false; end
 
-	DrawScatteredDisk(plotTypes, landTiles, params.iW, 50 + Map.Rand(11, ""));
+	local landSet = {};
+	for _, t in ipairs(landTiles) do landSet[t[1] .. "," .. t[2]] = t; end
+
+	local hillThresh = 50 + Map.Rand(21, "");
+	local mtnChance = 2 + Map.Rand(4, "");
+	for _, t in ipairs(landTiles) do
+		local x, y = t[1], t[2];
+		local ring = t[3] or 0;
+		local idx = y * params.iW + x;
+		local ht = hillThresh + (ring * 5) + Map.Rand(11, "") - 5;
+		ht = math.max(40, math.min(80, ht));
+		local mt = (Map.Rand(100, "") < ht) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
+		if mt == PlotTypes.PLOT_LAND and Map.Rand(100, "") < mtnChance then
+			mt = PlotTypes.PLOT_MOUNTAIN;
+		end
+		plotTypes[idx] = mt;
+	end
+
+	if Map.Rand(100, "") < 8 then
+		local centerCluster = {};
+		if landSet[cx .. "," .. cy] then centerCluster[#centerCluster + 1] = {cx, cy}; end
+		for d = 1, 6 do
+			local nx, ny = GetHexNeighbor(cx, cy, d, params.iW, params.iH, params.wrapX, params.wrapY);
+			if landSet[nx .. "," .. ny] then centerCluster[#centerCluster + 1] = {nx, ny}; end
+		end
+		local n = math.min(2 + Map.Rand(2, ""), #centerCluster);
+		for i = 1, n do
+			if #centerCluster == 0 then break; end
+			local pick = 1 + Map.Rand(#centerCluster, "");
+			local t = centerCluster[pick];
+			centerCluster[pick] = centerCluster[#centerCluster];
+			centerCluster[#centerCluster] = nil;
+			plotTypes[t[2] * params.iW + t[1]] = PlotTypes.PLOT_MOUNTAIN;
+		end
+	end
 	return true;
 end

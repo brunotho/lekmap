@@ -1,14 +1,14 @@
 ------------------------------------------------------------------------------
---	TwinBayIslands.lua (recreated from transcript)
---	Two islands 5-8 tiles each, concave bays facing each other.
---	One tip extends into bay of the other. Gap 1-2 water tiles.
+--	TwinBayIslands.lua
+--	Two S-curved islands 5-8 tiles each, concave bays facing each other.
+--	Uses SShape spine logic rotated so curves face inward. Gap 1-2 water tiles.
 --	Hills 40-50% on outer edges, flat on bay-facing. No mountains.
 ------------------------------------------------------------------------------
 include("X_IslandHelpers");
 
 local function isLand(plotTypes, x, y, iW, iH)
 	if x < 0 or x >= iW or y < 0 or y >= iH then return false; end
-	local t = plotTypes[y * iW + x];
+	local t = plotTypes[y * iW + x + 1];
 	return t == PlotTypes.PLOT_LAND or t == PlotTypes.PLOT_HILLS or t == PlotTypes.PLOT_MOUNTAIN;
 end
 
@@ -19,31 +19,36 @@ local function footprintClear(plotTypes, tiles, iW, iH)
 	return true;
 end
 
-local function growCompactBlob(cx, cy, size, iW, iH, wrapX, wrapY)
-	local landTiles = {{cx, cy}};
-	local frontier = {{cx, cy}};
-	local seen = {}; seen[cy * iW + cx] = true;
-
-	while #landTiles < size and #frontier > 0 do
-		local r = Map.Rand(#frontier, "") + 1;
-		local fx, fy = frontier[r][1], frontier[r][2];
-		table.remove(frontier, r);
-		for _, n in ipairs(GetHexNeighbors(fx, fy)) do
-			local gx = WrapCoord(n[1], iW, wrapX);
-			local gy = WrapCoord(n[2], iH, wrapY);
-			if gx >= 0 and gx < iW and gy >= 0 and gy < iH and not seen[gy * iW + gx] then
-				for _, t in ipairs(landTiles) do
-					if IsHexAdjacent(t[1], t[2], gx, gy) then
-						landTiles[#landTiles + 1] = {gx, gy};
-						frontier[#frontier + 1] = {gx, gy};
-						seen[gy * iW + gx] = true;
-						break;
-					end
-				end
-			end
-		end
+local function buildSSpine(cx, cy, startDir, iW, iH, wrapX, wrapY)
+	local seg1 = 2 + Map.Rand(2, "");
+	local trans = 1 + Map.Rand(2, "");
+	local seg2 = 2 + Map.Rand(2, "");
+	local dir = startDir;
+	local turn1 = (Map.Rand(2, "") == 0) and -1 or 1;
+	local turn2 = -turn1;
+	local spine = {{cx, cy}};
+	local x, y = cx, cy;
+	for _ = 1, seg1 - 1 do
+		dir = ((dir + turn1 + 5) % 6) + 1;
+		local nx, ny = GetHexNeighbor(x, y, dir, iW, iH, wrapX, wrapY);
+		if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+			spine[#spine + 1] = {nx, ny}; x, y = nx, ny;
+		else break; end
 	end
-	return landTiles;
+	for _ = 1, trans do
+		local nx, ny = GetHexNeighbor(x, y, dir, iW, iH, wrapX, wrapY);
+		if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+			spine[#spine + 1] = {nx, ny}; x, y = nx, ny;
+		else break; end
+	end
+	for _ = 1, seg2 - 1 do
+		dir = ((dir + turn2 + 5) % 6) + 1;
+		local nx, ny = GetHexNeighbor(x, y, dir, iW, iH, wrapX, wrapY);
+		if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+			spine[#spine + 1] = {nx, ny}; x, y = nx, ny;
+		else break; end
+	end
+	return spine;
 end
 
 function TryPlaceTwinBayIslands(plotTypes, centerX, centerY, islLandInRing, params)
@@ -66,14 +71,14 @@ function TryPlaceTwinBayIslands(plotTypes, centerX, centerY, islLandInRing, para
 		if isl2X < 0 or isl2X >= params.iW or isl2Y < 0 or isl2Y >= params.iH then return false; end
 	end
 
-	local size1 = 5 + Map.Rand(4, "");
-	local size2 = 5 + Map.Rand(4, "");
-	local tiles1 = growCompactBlob(isl1X, isl1Y, size1, params.iW, params.iH, params.wrapX, params.wrapY);
-	if #tiles1 < 5 then return false; end
+	-- S-curves rotated so concavities face each other. Isle1 starts toward isle2, isle2 toward isle1.
+	local oppDir = ((dir + 2) % 6) + 1;
+	local tiles1 = buildSSpine(isl1X, isl1Y, dir, params.iW, params.iH, params.wrapX, params.wrapY);
+	local tiles2 = buildSSpine(isl2X, isl2Y, oppDir, params.iW, params.iH, params.wrapX, params.wrapY);
+	if #tiles1 < 4 or #tiles2 < 4 then return false; end
 
 	local occupied = {};
 	for _, t in ipairs(tiles1) do occupied[t[1] .. "," .. t[2]] = true; end
-	local tiles2 = growCompactBlob(isl2X, isl2Y, size2, params.iW, params.iH, params.wrapX, params.wrapY);
 	for _, t in ipairs(tiles2) do
 		if occupied[t[1] .. "," .. t[2]] then return false; end
 	end
@@ -92,7 +97,7 @@ function DrawTwinBayIslands(plotTypes, landTiles, tiles1, tiles2, iW)
 	local hillsPct = 40 + Map.Rand(11, "");
 	for _, t in ipairs(landTiles) do
 		local x, y = t[1], t[2];
-		local idx = y * iW + x;
+		local idx = y * iW + x + 1;
 		plotTypes[idx] = (Map.Rand(100, "") < hillsPct) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
 	end
 end

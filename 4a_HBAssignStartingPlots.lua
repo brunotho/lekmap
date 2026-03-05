@@ -7482,7 +7482,7 @@ function AssignStartingPlots:GenerateNaturalWondersCandidatePlotLists()
 				table.insert(self.eligibility_lists[wn], 1, _volcanic_peak_krakatoa_plot);
 			elseif nw_type == "FEATURE_SRI_PADA" and _jungle_peak_sri_pada_plot then
 				table.insert(self.eligibility_lists[wn], 1, _jungle_peak_sri_pada_plot);
-			elseif (nw_type == "FEATURE_MTS_SINAI" or nw_type == "FEATURE_SINA") and _desert_peak_sinai_plot then
+			elseif (nw_type == "FEATURE_MTS_SINAI" or nw_type == "FEATURE_MT_SINAI" or nw_type == "FEATURE_SINA") and _desert_peak_sinai_plot then
 				table.insert(self.eligibility_lists[wn], 1, _desert_peak_sinai_plot);
 			elseif nw_type == "FEATURE_EL_DORADO" and _curled_dragon_el_dorado_plot then
 				table.insert(self.eligibility_lists[wn], 1, _curled_dragon_el_dorado_plot);
@@ -7608,6 +7608,17 @@ function AssignStartingPlots:AttemptToPlaceNaturalWonder(wonder_number, row_numb
 		candidate_plot_list = {_volcanic_peak_krakatoa_plot};
 		for _, idx in ipairs(temp_table) do
 			if idx ~= _volcanic_peak_krakatoa_plot then
+				candidate_plot_list[#candidate_plot_list + 1] = idx;
+			end
+		end
+		local rest = {};
+		for i = 2, #candidate_plot_list do rest[#rest + 1] = candidate_plot_list[i]; end
+		rest = GetShuffledCopyOfTable(rest);
+		for i = 1, #rest do candidate_plot_list[i + 1] = rest[i]; end
+	elseif (self.wonder_list[wonder_number] == "FEATURE_MTS_SINAI" or self.wonder_list[wonder_number] == "FEATURE_MT_SINAI" or self.wonder_list[wonder_number] == "FEATURE_SINA") and _desert_peak_sinai_plot then
+		candidate_plot_list = {_desert_peak_sinai_plot};
+		for _, idx in ipairs(temp_table) do
+			if idx ~= _desert_peak_sinai_plot then
 				candidate_plot_list[#candidate_plot_list + 1] = idx;
 			end
 		end
@@ -7770,6 +7781,7 @@ function AssignStartingPlots:PlaceNaturalWonders(wonderargs)
 		{ var = _curled_dragon_el_dorado_plot, type = "FEATURE_EL_DORADO" },
 		{ var = _jungle_peak_sri_pada_plot, type = "FEATURE_SRI_PADA" },
 		{ var = _desert_peak_sinai_plot, type = "FEATURE_MTS_SINAI" },
+		{ var = _desert_peak_sinai_plot, type = "FEATURE_MT_SINAI" },
 		{ var = _desert_peak_sinai_plot, type = "FEATURE_SINA" },
 	};
 	for _, pair in ipairs(forced_pairs) do

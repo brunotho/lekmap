@@ -1,9 +1,8 @@
 ------------------------------------------------------------------------------
 --	WishboneIsland.lua
---	Y-shape: short stem below a fork, two arms spreading ~120° apart.
---	10-16 tiles. Stem 2-3 tiles, arms 3-5 tiles each. Arms gently curved
---	outward (biased away from each other); arms never touch.
---	Stem/fork: hills 70%, 1-2 mountains. Arms: hills 50%, no mountains.
+--	Blob with two curved arms. Small irregular blob at center, two arms
+--	extending out with gentle curve/angle. Arms 1 tile wide, biased away,
+--	never touch.
 ------------------------------------------------------------------------------
 include("X_IslandHelpers");
 
@@ -25,12 +24,13 @@ local function rotDir(d, delta)
 end
 
 -- Grows a gently curved arm of up to armLen steps from (sx,sy) in baseDir.
--- bendBias: +1 or -1; the preferred bend direction (outward, weighted 70/30).
--- Grown tiles are immediately marked in `used` and returned as a list.
+-- Arms are 1 tile wide. bendBias: +1 or -1; preferred bend direction (outward).
+-- Slight initial angle (50%) and mid-arm bend for organic curve.
 local function growArm(sx, sy, baseDir, armLen, bendBias, used, params)
 	local tiles = {};
 	local x, y  = sx, sy;
 	local dir   = baseDir;
+	if Map.Rand(2, "") == 0 then dir = rotDir(dir, (Map.Rand(2, "") == 0) and 1 or -1); end
 	local doBend   = Map.Rand(10, "") < 7;
 	local bendAt   = 1 + Map.Rand(math.max(1, armLen - 1), "");
 	local bendSide = (Map.Rand(10, "") < 7) and bendBias or -bendBias;
@@ -88,63 +88,56 @@ function TryPlaceWishboneIsland(plotTypes, centerX, centerY, islLandInRing, para
 	local cy = WrapCoord(centerY, params.iH, params.wrapY);
 	if cx < 0 or cx >= params.iW or cy < 0 or cy >= params.iH then return false; end
 
-	local stemDir = Map.Rand(6, "") + 1;
-	local oppIdx  = (stemDir - 1 + 3) % 6;
-	-- arm1 and arm2 are 2 hex directions apart (~120°), both roughly opposite the stem.
-	local arm1Dir = oppIdx % 6 + 1;
-	local arm2Dir = (oppIdx + 2) % 6 + 1;
-
-	local stemLen = 2 + Map.Rand(2, "");  -- 2-3
-	local armLen  = 3 + Map.Rand(3, "");  -- 3-5
-
 	local landTiles = {};
 	local used      = {};
-	local baseCount = 0;
 
-	local function addBase(x, y)
-		local key = x .. "," .. y;
-		if not used[key] and x >= 0 and x < params.iW and y >= 0 and y < params.iH then
-			landTiles[#landTiles + 1] = {x, y};
-			used[key] = true;
-			baseCount  = baseCount + 1;
-			return true;
+	-- Blob: irregular disk radius 1 (center + ring 1). ~40-55% fill for small organic shape.
+	local disk = GetHexDisk(cx, cy, 1, params.iW, params.iH, params.wrapX, params.wrapY);
+	for i = 1, #disk do
+		local t = disk[i];
+		if i == 1 or Map.Rand(100, "") < (40 + Map.Rand(16, "")) then
+			local key = t[1] .. "," .. t[2];
+			if not used[key] then
+				landTiles[#landTiles + 1] = t;
+				used[key] = true;
+			end
 		end
-		return false;
 	end
 
-	-- Fork point.
-	addBase(cx, cy);
+	-- Arm directions: 1 hex dir apart (60°), both in similar direction.
+	local arm1Dir = Map.Rand(6, "") + 1;
+	local arm2Dir = rotDir(arm1Dir, (Map.Rand(2, "") == 0) and 1 or -1);
 
-	-- Stem: slight optional curve (50%).
-	local tx, ty     = cx, cy;
-	local stemCurDir = stemDir;
-	local sDoBend    = Map.Rand(2, "") == 0;
-	local sBendAt    = 1 + Map.Rand(math.max(1, stemLen - 1), "");
-	local sBendSide  = (Map.Rand(2, "") == 0) and 1 or -1;
-	for i = 1, stemLen do
-		if sDoBend and i == sBendAt then
-			stemCurDir = rotDir(stemCurDir, sBendSide);
+	-- Find arm start points: blob edge tiles farthest in each arm direction.
+	local function farthestInDir(dir)
+		local best, bestScore = nil, -999;
+		for _, t in ipairs(landTiles) do
+			local dx = t[1] - cx;
+			local dy = t[2] - cy;
+			local adj = (cy % 2 ~= 0) and firstRingYIsOdd[dir] or firstRingYIsEven[dir];
+			local score = dx * adj[1] + dy * adj[2];
+			if score > bestScore then bestScore = score; best = t; end
 		end
-		local nx, ny = GetHexNeighbor(tx, ty, stemCurDir, params.iW, params.iH, params.wrapX, params.wrapY);
-		if not addBase(nx, ny) then break; end
-		tx, ty = nx, ny;
+		return best;
 	end
+	local arm1Start = farthestInDir(arm1Dir);
+	local arm2Start = farthestInDir(arm2Dir);
+	if not arm1Start or not arm2Start then return false; end
 
-	-- Arms: arm2 is +2 dirs from arm1.
-	-- arm1 bends outward = away from arm2 = -1 direction.
-	-- arm2 bends outward = away from arm1 = +1 direction.
-	local arm1Tiles = growArm(cx, cy, arm1Dir, armLen, -1, used, params);
-	local arm2Tiles = growArm(cx, cy, arm2Dir, armLen,  1, used, params);
+	local armLen = 2 + Map.Rand(2, "");  -- 2-3
+	-- arm1 bends outward (away from arm2) = -1. arm2 bends outward = +1.
+	local arm1Tiles = growArm(arm1Start[1], arm1Start[2], arm1Dir, armLen, -1, used, params);
+	local arm2Tiles = growArm(arm2Start[1], arm2Start[2], arm2Dir, armLen,  1, used, params);
 
 	if armsTouch(arm1Tiles, arm2Tiles, params) then return false; end
 
 	for _, t in ipairs(arm1Tiles) do landTiles[#landTiles + 1] = t; end
 	for _, t in ipairs(arm2Tiles) do landTiles[#landTiles + 1] = t; end
 
-	if #landTiles < 10 then return false; end
+	if #landTiles < 5 then return false; end
 	if not footprintClear(plotTypes, landTiles, params.iW, params.iH) then return false; end
 
-	DrawWishboneIsland(plotTypes, landTiles, baseCount, params.iW);
+	DrawWishboneIsland(plotTypes, landTiles, #landTiles, params.iW);
 	return true;
 end
 

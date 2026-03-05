@@ -448,6 +448,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 
 	while allcomplete == false do
 		outerAttempts = outerAttempts + 1;
+		print("### Pangaea attempt " .. outerAttempts .. "/" .. MAX_OUTER .. " ###");
 		if outerAttempts > MAX_OUTER then
 			print("[Pangaea] MAX_OUTER reached, accepting map");
 			break;
@@ -1391,7 +1392,10 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 			end
 		end
 
-		GeneratePangaeaIslands(self);
+		local ok, err = pcall(GeneratePangaeaIslands, self);
+		if not ok then
+			print("### GeneratePangaeaIslands ERROR (islands skipped): " .. tostring(err) .. " ###");
+		end
 
 		--check to make sure map has not failed
 		local iNumLandTilesInUse = 0;
@@ -1431,9 +1435,11 @@ end
 local function dbg(msg) print(msg); end
 
 function GeneratePlotTypes()
+	print("### STAGE: GeneratePlotTypes ENTRY ###");
 	dbg("### STAGE: GeneratePlotTypes start ###");
 	local fractal_world = PangaeaFractalWorld.Create();
 	dbg("### STAGE: fractal created ###");
+	print("### STAGE: calling fractal_world:GeneratePlotTypes (may take 1-2 min) ###");
 	local plotTypes = fractal_world:GeneratePlotTypes();
 	dbg("### STAGE: plotTypes generated ###");
 	SetPlotTypes(plotTypes);
