@@ -1,9 +1,5 @@
-------------------------------------------------------------------------------
---	WishboneIsland.lua
---	Blob with two curved arms. Small irregular blob at center, two arms
---	extending out with gentle curve/angle. Arms 1 tile wide, biased away,
---	never touch.
-------------------------------------------------------------------------------
+-- Small central blob with two short curved one-tile arms that stay apart.
+
 include("X_IslandHelpers");
 
 local function isLand(plotTypes, x, y, iW, iH)
@@ -23,9 +19,6 @@ local function rotDir(d, delta)
 	return ((d - 1 + delta) % 6 + 6) % 6 + 1;
 end
 
--- Grows a gently curved arm of up to armLen steps from (sx,sy) in baseDir.
--- Arms are 1 tile wide. bendBias: +1 or -1; preferred bend direction (outward).
--- Slight initial angle (50%) and mid-arm bend for organic curve.
 local function growArm(sx, sy, baseDir, armLen, bendBias, used, params)
 	local tiles = {};
 	local x, y  = sx, sy;
@@ -49,8 +42,6 @@ local function growArm(sx, sy, baseDir, armLen, bendBias, used, params)
 	return tiles;
 end
 
--- Returns true if the bodies of arm1 and arm2 touch (are adjacent), ignoring
--- each arm's first tile since those are naturally adjacent at the fork.
 local function armsTouch(arm1, arm2, params)
 	local arm2Set = {};
 	for _, t in ipairs(arm2) do
@@ -91,7 +82,6 @@ function TryPlaceWishboneIsland(plotTypes, centerX, centerY, islLandInRing, para
 	local landTiles = {};
 	local used      = {};
 
-	-- Blob: irregular disk radius 1 (center + ring 1). ~40-55% fill for small organic shape.
 	local disk = GetHexDisk(cx, cy, 1, params.iW, params.iH, params.wrapX, params.wrapY);
 	for i = 1, #disk do
 		local t = disk[i];
@@ -104,11 +94,9 @@ function TryPlaceWishboneIsland(plotTypes, centerX, centerY, islLandInRing, para
 		end
 	end
 
-	-- Arm directions: 1 hex dir apart (60°), both in similar direction.
 	local arm1Dir = Map.Rand(6, "") + 1;
 	local arm2Dir = rotDir(arm1Dir, (Map.Rand(2, "") == 0) and 1 or -1);
 
-	-- Find arm start points: blob edge tiles farthest in each arm direction.
 	local function farthestInDir(dir)
 		local best, bestScore = nil, -999;
 		for _, t in ipairs(landTiles) do
@@ -124,8 +112,7 @@ function TryPlaceWishboneIsland(plotTypes, centerX, centerY, islLandInRing, para
 	local arm2Start = farthestInDir(arm2Dir);
 	if not arm1Start or not arm2Start then return false; end
 
-	local armLen = 2 + Map.Rand(2, "");  -- 2-3
-	-- arm1 bends outward (away from arm2) = -1. arm2 bends outward = +1.
+	local armLen = 2 + Map.Rand(2, "");
 	local arm1Tiles = growArm(arm1Start[1], arm1Start[2], arm1Dir, armLen, -1, used, params);
 	local arm2Tiles = growArm(arm2Start[1], arm2Start[2], arm2Dir, armLen,  1, used, params);
 

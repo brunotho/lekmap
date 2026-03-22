@@ -3072,8 +3072,8 @@ function AssignStartingPlots:MeasureSinglePlot(x, y, region_type, distance_from_
 end
 ------------------------------------------------------------------------------
 function AssignStartingPlots:EvaluateCandidatePlot(plotIndex, region_type)
-	-- Lekmap: exclude PolarPangea, FjordPeninsula land and snow from civ starts
-	if _polar_pangea_excluded_plots and _polar_pangea_excluded_plots[plotIndex] then
+	-- Lekmap: exclude polarMerge + fjordPeninsula reserved plots; snow in EvaluateCandidatePlot below
+	if _polar_merge_excluded_plots and _polar_merge_excluded_plots[plotIndex] then
 		return 0, false;
 	end
 	if _fjord_peninsula_excluded_plots and _fjord_peninsula_excluded_plots[plotIndex] then
@@ -3082,6 +3082,10 @@ function AssignStartingPlots:EvaluateCandidatePlot(plotIndex, region_type)
 	local iW, iH = Map.GetGridSize();
 	local x = (plotIndex - 1) % iW;
 	local y = (plotIndex - x - 1) / iW;
+	local distFromEdge = math.min(y, iH - 1 - y);
+	if distFromEdge < 8 then
+		return 0, false;
+	end
 	local plot = Map.GetPlot(x, y);
 	if plot and plot:GetTerrainType() == TerrainTypes.TERRAIN_SNOW then
 		return 0, false;
@@ -4340,6 +4344,47 @@ function AssignStartingPlots:ChooseLocations(args)
 	self.minProdOuter = args.minProdOuter or self.minProdOuter;
 	self.minGoodOuter = args.minGoodOuter or self.minGoodOuter;
 	self.maxJunk = args.maxJunk or self.maxJunk;
+
+	-- Lekmap: if Solomon's Ridge reserved a plot for King Solomon's Mines, pre-fill distanceData
+	-- so start selection keeps starts at least 6 tiles away (ripple 5 = rings 1..5 marked).
+	if _solomons_ridge_mines_plot then
+		local solX = (_solomons_ridge_mines_plot - 1) % iW;
+		local solY = math.floor((_solomons_ridge_mines_plot - 1 - solX) / iW);
+		local wrapX = Map.IsWrapX();
+		local wrapY = Map.IsWrapY();
+		local odd = self.firstRingYIsOdd;
+		local even = self.firstRingYIsEven;
+		local ripple_values = {97, 95, 92, 88, 83};
+		local impact_value = 99;
+		self.distanceData[_solomons_ridge_mines_plot] = impact_value;
+		self.playerCollisionData[_solomons_ridge_mines_plot] = true;
+		for ripple_radius, ripple_value in ipairs(ripple_values) do
+			local currentX = solX - ripple_radius;
+			local currentY = solY;
+			for direction_index = 1, 6 do
+				for plot_to_handle = 1, ripple_radius do
+					local plot_adjustments = (currentY % 2 ~= 0) and odd[direction_index] or even[direction_index];
+					local nextX = currentX + plot_adjustments[1];
+					local nextY = currentY + plot_adjustments[2];
+					if not wrapX and (nextX < 0 or nextX >= iW) then
+					elseif not wrapY and (nextY < 0 or nextY >= iH) then
+					else
+						local realX = wrapX and (nextX % iW) or nextX;
+						local realY = wrapY and (nextY % iH) or nextY;
+						if realX < 0 then realX = realX + iW; end
+						if realY < 0 then realY = realY + iH; end
+						local ringPlotIndex = realY * iW + realX + 1;
+						if self.distanceData[ringPlotIndex] > 0 then
+							self.distanceData[ringPlotIndex] = math.min(97, math.max(self.distanceData[ringPlotIndex], ripple_value));
+						else
+							self.distanceData[ringPlotIndex] = ripple_value;
+						end
+					end
+					currentX, currentY = nextX, nextY;
+				end
+			end
+		end
+	end
 
 	-- Measure terrain/plot/feature in regions.
 	self:MeasureTerrainInRegions()
@@ -7478,14 +7523,16 @@ function AssignStartingPlots:GenerateNaturalWondersCandidatePlotLists()
 	-- Lekmap: inject island mountain plots (Krakatoa, Sri Pada, Sinai) for Pangaea Fractal
 	if self.eligibility_lists and self.wonder_list then
 		for wn, nw_type in ipairs(self.wonder_list) do
-			if nw_type == "FEATURE_VOLCANO" and _volcanic_peak_krakatoa_plot then
-				table.insert(self.eligibility_lists[wn], 1, _volcanic_peak_krakatoa_plot);
-			elseif nw_type == "FEATURE_SRI_PADA" and _jungle_peak_sri_pada_plot then
-				table.insert(self.eligibility_lists[wn], 1, _jungle_peak_sri_pada_plot);
-			elseif (nw_type == "FEATURE_MTS_SINAI" or nw_type == "FEATURE_MT_SINAI" or nw_type == "FEATURE_SINA") and _desert_peak_sinai_plot then
-				table.insert(self.eligibility_lists[wn], 1, _desert_peak_sinai_plot);
-			elseif nw_type == "FEATURE_EL_DORADO" and _curled_dragon_el_dorado_plot then
-				table.insert(self.eligibility_lists[wn], 1, _curled_dragon_el_dorado_plot);
+			if nw_type == "FEATURE_VOLCANO" and _krakatoa_island_plot then
+				table.insert(self.eligibility_lists[wn], 1, _krakatoa_island_plot);
+			elseif (nw_type == "FEATURE_SRI_PADA" or nw_type == "FEATURE_MT_SRI_PADA") and _sri_pada_island_plot then
+				table.insert(self.eligibility_lists[wn], 1, _sri_pada_island_plot);
+			elseif (nw_type == "FEATURE_MTS_SINAI" or nw_type == "FEATURE_MT_SINAI" or nw_type == "FEATURE_SINA") and _sinai_island_plot then
+				table.insert(self.eligibility_lists[wn], 1, _sinai_island_plot);
+			elseif nw_type == "FEATURE_EL_DORADO" and _el_dorado_island_plot then
+				table.insert(self.eligibility_lists[wn], 1, _el_dorado_island_plot);
+			elseif (nw_type == "FEATURE_KING_SOLOMONS_MINES" or nw_type == "FEATURE_SOLOMONS_MINES") and _solomons_ridge_mines_plot then
+				table.insert(self.eligibility_lists[wn], 1, _solomons_ridge_mines_plot);
 			end
 		end
 	end
@@ -7593,10 +7640,10 @@ function AssignStartingPlots:AttemptToPlaceNaturalWonder(wonder_number, row_numb
 	end
 	local temp_table = self.eligibility_lists[wonder_number];
 	local candidate_plot_list;
-	if self.wonder_list[wonder_number] == "FEATURE_EL_DORADO" and _curled_dragon_el_dorado_plot then
-		candidate_plot_list = {_curled_dragon_el_dorado_plot};
+	if self.wonder_list[wonder_number] == "FEATURE_EL_DORADO" and _el_dorado_island_plot then
+		candidate_plot_list = {_el_dorado_island_plot};
 		for _, idx in ipairs(temp_table) do
-			if idx ~= _curled_dragon_el_dorado_plot then
+			if idx ~= _el_dorado_island_plot then
 				candidate_plot_list[#candidate_plot_list + 1] = idx;
 			end
 		end
@@ -7604,10 +7651,10 @@ function AssignStartingPlots:AttemptToPlaceNaturalWonder(wonder_number, row_numb
 		for i = 2, #candidate_plot_list do rest[#rest + 1] = candidate_plot_list[i]; end
 		rest = GetShuffledCopyOfTable(rest);
 		for i = 1, #rest do candidate_plot_list[i + 1] = rest[i]; end
-	elseif self.wonder_list[wonder_number] == "FEATURE_VOLCANO" and _volcanic_peak_krakatoa_plot then
-		candidate_plot_list = {_volcanic_peak_krakatoa_plot};
+	elseif self.wonder_list[wonder_number] == "FEATURE_VOLCANO" and _krakatoa_island_plot then
+		candidate_plot_list = {_krakatoa_island_plot};
 		for _, idx in ipairs(temp_table) do
-			if idx ~= _volcanic_peak_krakatoa_plot then
+			if idx ~= _krakatoa_island_plot then
 				candidate_plot_list[#candidate_plot_list + 1] = idx;
 			end
 		end
@@ -7615,10 +7662,32 @@ function AssignStartingPlots:AttemptToPlaceNaturalWonder(wonder_number, row_numb
 		for i = 2, #candidate_plot_list do rest[#rest + 1] = candidate_plot_list[i]; end
 		rest = GetShuffledCopyOfTable(rest);
 		for i = 1, #rest do candidate_plot_list[i + 1] = rest[i]; end
-	elseif (self.wonder_list[wonder_number] == "FEATURE_MTS_SINAI" or self.wonder_list[wonder_number] == "FEATURE_MT_SINAI" or self.wonder_list[wonder_number] == "FEATURE_SINA") and _desert_peak_sinai_plot then
-		candidate_plot_list = {_desert_peak_sinai_plot};
+	elseif (self.wonder_list[wonder_number] == "FEATURE_SRI_PADA" or self.wonder_list[wonder_number] == "FEATURE_MT_SRI_PADA") and _sri_pada_island_plot then
+		candidate_plot_list = {_sri_pada_island_plot};
 		for _, idx in ipairs(temp_table) do
-			if idx ~= _desert_peak_sinai_plot then
+			if idx ~= _sri_pada_island_plot then
+				candidate_plot_list[#candidate_plot_list + 1] = idx;
+			end
+		end
+		local rest = {};
+		for i = 2, #candidate_plot_list do rest[#rest + 1] = candidate_plot_list[i]; end
+		rest = GetShuffledCopyOfTable(rest);
+		for i = 1, #rest do candidate_plot_list[i + 1] = rest[i]; end
+	elseif (self.wonder_list[wonder_number] == "FEATURE_MTS_SINAI" or self.wonder_list[wonder_number] == "FEATURE_MT_SINAI" or self.wonder_list[wonder_number] == "FEATURE_SINA") and _sinai_island_plot then
+		candidate_plot_list = {_sinai_island_plot};
+		for _, idx in ipairs(temp_table) do
+			if idx ~= _sinai_island_plot then
+				candidate_plot_list[#candidate_plot_list + 1] = idx;
+			end
+		end
+		local rest = {};
+		for i = 2, #candidate_plot_list do rest[#rest + 1] = candidate_plot_list[i]; end
+		rest = GetShuffledCopyOfTable(rest);
+		for i = 1, #rest do candidate_plot_list[i + 1] = rest[i]; end
+	elseif (self.wonder_list[wonder_number] == "FEATURE_KING_SOLOMONS_MINES" or self.wonder_list[wonder_number] == "FEATURE_SOLOMONS_MINES") and _solomons_ridge_mines_plot then
+		candidate_plot_list = {_solomons_ridge_mines_plot};
+		for _, idx in ipairs(temp_table) do
+			if idx ~= _solomons_ridge_mines_plot then
 				candidate_plot_list[#candidate_plot_list + 1] = idx;
 			end
 		end
@@ -7635,7 +7704,7 @@ function AssignStartingPlots:AttemptToPlaceNaturalWonder(wonder_number, row_numb
 			local y = math.floor((plotIndex - x - 1) / iW);
 			local plot = Map.GetPlot(x, y);
 			-- Lekmap: dragon eye El Dorado - force Plains terrain
-			if self.wonder_list[wonder_number] == "FEATURE_EL_DORADO" and _curled_dragon_el_dorado_plot and plotIndex == _curled_dragon_el_dorado_plot then
+			if self.wonder_list[wonder_number] == "FEATURE_EL_DORADO" and _el_dorado_island_plot and plotIndex == _el_dorado_island_plot then
 				if plot:GetTerrainType() ~= TerrainTypes.TERRAIN_PLAINS then
 					plot:SetTerrainType(TerrainTypes.TERRAIN_PLAINS, false, false);
 				end
@@ -7677,7 +7746,11 @@ function AssignStartingPlots:AttemptToPlaceNaturalWonder(wonder_number, row_numb
 			-- Now place this wonder and record the placement.
 			plot:SetFeatureType(feature_type_to_place)
 			table.insert(self.placed_natural_wonder, wonder_number);
-			self:PlaceResourceImpact(x, y, 6, math.floor(iH / 5))	-- Natural Wonders layer
+			local nwRipple = math.floor(iH / 5);
+			if (self.wonder_list[wonder_number] == "FEATURE_KING_SOLOMONS_MINES" or self.wonder_list[wonder_number] == "FEATURE_SOLOMONS_MINES") and (plotIndex == _solomons_ridge_mines_plot) then
+				nwRipple = math.max(5, nwRipple);
+			end
+			self:PlaceResourceImpact(x, y, 6, nwRipple)	-- Natural Wonders layer
 			self:PlaceResourceImpact(x, y, 1, 1)					-- Strategic layer
 			self:PlaceResourceImpact(x, y, 2, 1)					-- Luxury layer
 			self:PlaceResourceImpact(x, y, 3, 1)					-- Bonus layer
@@ -7777,12 +7850,15 @@ function AssignStartingPlots:PlaceNaturalWonders(wonderargs)
 	-- Lekmap: place forced island wonders first (Krakatoa, El Dorado, etc.) so they "steal" their slot before random process
 	local forced_placed = {};
 	local forced_pairs = {
-		{ var = _volcanic_peak_krakatoa_plot, type = "FEATURE_VOLCANO" },
-		{ var = _curled_dragon_el_dorado_plot, type = "FEATURE_EL_DORADO" },
-		{ var = _jungle_peak_sri_pada_plot, type = "FEATURE_SRI_PADA" },
-		{ var = _desert_peak_sinai_plot, type = "FEATURE_MTS_SINAI" },
-		{ var = _desert_peak_sinai_plot, type = "FEATURE_MT_SINAI" },
-		{ var = _desert_peak_sinai_plot, type = "FEATURE_SINA" },
+		{ var = _krakatoa_island_plot, type = "FEATURE_VOLCANO" },
+		{ var = _el_dorado_island_plot, type = "FEATURE_EL_DORADO" },
+		{ var = _sri_pada_island_plot, type = "FEATURE_SRI_PADA" },
+		{ var = _sri_pada_island_plot, type = "FEATURE_MT_SRI_PADA" },
+		{ var = _sinai_island_plot, type = "FEATURE_MTS_SINAI" },
+		{ var = _sinai_island_plot, type = "FEATURE_MT_SINAI" },
+		{ var = _sinai_island_plot, type = "FEATURE_SINA" },
+		{ var = _solomons_ridge_mines_plot, type = "FEATURE_KING_SOLOMONS_MINES" },
+		{ var = _solomons_ridge_mines_plot, type = "FEATURE_SOLOMONS_MINES" },
 	};
 	for _, pair in ipairs(forced_pairs) do
 		if pair.var then

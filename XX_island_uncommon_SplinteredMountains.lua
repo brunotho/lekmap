@@ -1,8 +1,5 @@
-------------------------------------------------------------------------------
---	SplinteredMountainsIsland.lua
---	Lots of isolated tiny mountain islands, occasional hills adjacent, rare land blobs.
---	No scattered disk - explicit placement with min spacing for isolation.
-------------------------------------------------------------------------------
+-- Many separate one-tile mountain dots in an area, with rare hill fringes and tiny land blobs.
+
 include("X_IslandHelpers");
 
 local CONFIG = {

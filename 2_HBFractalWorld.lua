@@ -94,6 +94,8 @@ function FractalWorld:InitFractal(args)
 	local numPlates = sizevalues[sizekey] or 4
 	-- Blend a bit of ridge into the fractal.
 	-- This will do things like roughen the coastlines and build inland seas. - Brian
+	-- Inland seas are incidental: wherever the ridge (Voronoi/plate-boundary) lowers height below
+	-- sea level in GeneratePlotTypes they become ocean. Ridge logic is linear, so seas tend to be thin/elongated.
 	self.continentsFrac:BuildRidges(numPlates, ridge_flags, 1, 4);
 end
 -------------------------------------------------------------------------------------------

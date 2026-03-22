@@ -438,6 +438,299 @@ function PangaeaFractalWorld.Create(fracXExp, fracYExp)
 		
 	return data;
 end
+
+------------------------------------------------------------------------------
+-- Round thin inland seas (Lua 5.1 compatible: no goto). Inland-sea islands are sprayed during this pass.
+------------------------------------------------------------------------------
+function RoundInlandSeas(self)
+	if not GetHexNeighbor then return; end
+	local iW, iH = self.iNumPlotsX, self.iNumPlotsY;
+	local wrapX = Map.IsWrapX and Map:IsWrapX() or false;
+	local wrapY = Map.IsWrapY and Map:IsWrapY() or false;
+	local plotTypes = self.plotTypes;
+	local function pidx(x, y) return y * iW + x + 1; end
+	local function isOcean(x, y)
+		if x < 0 or x >= iW or y < 0 or y >= iH then return false; end
+		return plotTypes[pidx(x, y)] == PlotTypes.PLOT_OCEAN;
+	end
+	local function isLand(x, y)
+		if x < 0 or x >= iW or y < 0 or y >= iH then return false; end
+		return plotTypes[pidx(x, y)] ~= PlotTypes.PLOT_OCEAN;
+	end
+
+	local openOcean = {};
+	local queue = {};
+	for x = 0, iW - 1 do
+		for _, edgeY in ipairs({0, iH - 1}) do
+			if isOcean(x, edgeY) then
+				local k = edgeY * iW + x;
+				if not openOcean[k] then openOcean[k] = true; queue[#queue + 1] = {x, edgeY}; end
+			end
+		end
+	end
+	local q = 1;
+	while q <= #queue do
+		local cx, cy = queue[q][1], queue[q][2];
+		q = q + 1;
+		for d = 1, 6 do
+			local nx, ny = GetHexNeighbor(cx, cy, d, iW, iH, wrapX, wrapY);
+			if nx >= 0 and nx < iW and ny >= 0 and ny < iH and isOcean(nx, ny) then
+				local nk = ny * iW + nx;
+				if not openOcean[nk] then openOcean[nk] = true; queue[#queue + 1] = {nx, ny}; end
+			end
+		end
+	end
+
+	-- Land distance to open ocean (hex steps). Used so inland-sea expansion only nibbles toward pangaea center.
+	local distToOpenOcean = {};
+	queue = {};
+	for y = 0, iH - 1 do
+		for x = 0, iW - 1 do
+			local k = y * iW + x;
+			if openOcean[k] then
+				for d = 1, 6 do
+					local nx, ny = GetHexNeighbor(x, y, d, iW, iH, wrapX, wrapY);
+					if nx >= 0 and nx < iW and ny >= 0 and ny < iH and isLand(nx, ny) then
+						local nk = ny * iW + nx;
+						if distToOpenOcean[nk] == nil then
+							distToOpenOcean[nk] = 1;
+							queue[#queue + 1] = {nx, ny};
+						end
+					end
+				end
+			end
+		end
+	end
+	q = 1;
+	while q <= #queue do
+		local cx, cy = queue[q][1], queue[q][2];
+		q = q + 1;
+		local ck = cy * iW + cx;
+		local cd = distToOpenOcean[ck];
+		for d = 1, 6 do
+			local nx, ny = GetHexNeighbor(cx, cy, d, iW, iH, wrapX, wrapY);
+			if nx >= 0 and nx < iW and ny >= 0 and ny < iH and isLand(nx, ny) then
+				local nk = ny * iW + nx;
+				if distToOpenOcean[nk] == nil then
+					distToOpenOcean[nk] = cd + 1;
+					queue[#queue + 1] = {nx, ny};
+				end
+			end
+		end
+	end
+
+	local inlandSet = {};
+	for y = 0, iH - 1 do
+		for x = 0, iW - 1 do
+			if isOcean(x, y) and not openOcean[y * iW + x] then
+				inlandSet[y * iW + x] = {x, y};
+			end
+		end
+	end
+
+	local components = {};
+	local used = {};
+	for y = 0, iH - 1 do
+		for x = 0, iW - 1 do
+			local k = y * iW + x;
+			if inlandSet[k] and not used[k] then
+				local comp = {};
+				queue = {{x, y}};
+				used[k] = true;
+				comp[k] = true;
+				q = 1;
+				while q <= #queue do
+					local cx, cy = queue[q][1], queue[q][2];
+					q = q + 1;
+					for d = 1, 6 do
+						local nx, ny = GetHexNeighbor(cx, cy, d, iW, iH, wrapX, wrapY);
+						if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+							local nk = ny * iW + nx;
+							if inlandSet[nk] and not used[nk] then
+								used[nk] = true; comp[nk] = true; queue[#queue + 1] = {nx, ny};
+							end
+						end
+					end
+				end
+				components[#components + 1] = comp;
+			end
+		end
+	end
+
+	-- Widen thin inland seas: convert bordering land to ocean so they look rounder.
+	local ASPECT_THRESHOLD = 1.25;   -- round when even mildly elongated
+	local MIN_SIZE = 6;              -- round when >5 tiles
+	local MAX_EXPAND_BODIES = 2;
+	local MAX_ROUND_ITER = 12;
+	local MIN_LAND_NEIGHBORS = 1;
+	local MIN_DIST_FROM_OPEN_OCEAN = 4;  -- only nibble land this many hex steps from open ocean (expand toward center)
+	local numExpanded = 0;
+	for _, comp in ipairs(components) do
+		local tiles = {};
+		for k in pairs(comp) do tiles[#tiles + 1] = inlandSet[k]; end
+		if #tiles >= MIN_SIZE then
+			local minX, maxX, minY, maxY = iW, -1, iH, -1;
+			for _, t in ipairs(tiles) do
+				local x, y = t[1], t[2];
+				if x < minX then minX = x; end
+				if x > maxX then maxX = x; end
+				if y < minY then minY = y; end
+				if y > maxY then maxY = y; end
+			end
+			local w, h = maxX - minX + 1, maxY - minY + 1;
+			local aspectX = w / math.max(1, h);
+			local aspectY = h / math.max(1, w);
+			if (aspectX >= ASPECT_THRESHOLD or aspectY >= ASPECT_THRESHOLD) and numExpanded < MAX_EXPAND_BODIES then
+				numExpanded = numExpanded + 1;
+				for iter = 1, MAX_ROUND_ITER do
+					local candidateSet = {};
+					for _, t in ipairs(tiles) do
+						local sx, sy = t[1], t[2];
+						for d = 1, 6 do
+							local nx, ny = GetHexNeighbor(sx, sy, d, iW, iH, wrapX, wrapY);
+							if nx >= 0 and nx < iW and ny >= 0 and ny < iH and isLand(nx, ny) then
+								local adjOpenOcean = false;
+								for d2 = 1, 6 do
+									local nnx, nny = GetHexNeighbor(nx, ny, d2, iW, iH, wrapX, wrapY);
+									if nnx >= 0 and nnx < iW and nny >= 0 and nny < iH and openOcean[nny * iW + nnx] then adjOpenOcean = true; break; end
+								end
+								local nk = ny * iW + nx;
+								local distToOcean = distToOpenOcean[nk];
+								local farEnoughFromEdge = (distToOcean == nil) or (distToOcean >= MIN_DIST_FROM_OPEN_OCEAN);
+								if not adjOpenOcean and farEnoughFromEdge then
+									local landNeighbors = 0;
+									for d2 = 1, 6 do
+										local nnx, nny = GetHexNeighbor(nx, ny, d2, iW, iH, wrapX, wrapY);
+										if nnx >= 0 and nnx < iW and nny >= 0 and nny < iH and isLand(nnx, nny) then landNeighbors = landNeighbors + 1; end
+									end
+									if landNeighbors >= MIN_LAND_NEIGHBORS then
+										local key = nx .. "," .. ny;
+										if not candidateSet[key] then candidateSet[key] = {nx, ny}; end
+									end
+								end
+							end
+						end
+					end
+					local candidates = {};
+					for _, v in pairs(candidateSet) do candidates[#candidates + 1] = v; end
+					if #candidates == 0 then break; end
+					local pick = candidates[1 + Map.Rand(#candidates, "RoundInlandSea")];
+					local lx, ly = pick[1], pick[2];
+					plotTypes[pidx(lx, ly)] = PlotTypes.PLOT_OCEAN;
+					tiles[#tiles + 1] = {lx, ly};
+					comp[ly * iW + lx] = true;
+				end
+			end
+			-- Rebuild tiles from comp so spray runs over the full inland sea (original + any newly rounded/enlarged).
+			tiles = {};
+			for k in pairs(comp) do
+				local x = k % iW;
+				local y = math.floor(k / iW);
+				tiles[#tiles + 1] = {x, y};
+			end
+			-- Recompute bbox after rounding for spray gating.
+			minX, maxX, minY, maxY = iW, -1, iH, -1;
+			for _, t in ipairs(tiles) do
+				local x, y = t[1], t[2];
+				if x < minX then minX = x; end
+				if x > maxX then maxX = x; end
+				if y < minY then minY = y; end
+				if y > maxY then maxY = y; end
+			end
+			w, h = maxX - minX + 1, maxY - minY + 1;
+			aspectX = w / math.max(1, h);
+			aspectY = h / math.max(1, w);
+			-- Distance to mainland shore only (land bordering this inland sea). So spray can fill around sprayed islands.
+			local shoreSet = {};
+			for _, t in ipairs(tiles) do
+				local x, y = t[1], t[2];
+				for dir = 1, 6 do
+					local nx, ny = GetHexNeighbor(x, y, dir, iW, iH, wrapX, wrapY);
+					if nx >= 0 and nx < iW and ny >= 0 and ny < iH and isLand(nx, ny) then
+						shoreSet[ny * iW + nx] = true;
+					end
+				end
+			end
+			local distToShore = {};
+			queue = {};
+			for _, t in ipairs(tiles) do
+				local x, y = t[1], t[2];
+				local k = y * iW + x;
+				for dir = 1, 6 do
+					local nx, ny = GetHexNeighbor(x, y, dir, iW, iH, wrapX, wrapY);
+					if nx >= 0 and nx < iW and ny >= 0 and ny < iH and shoreSet[ny * iW + nx] then
+						distToShore[k] = 1;
+						queue[#queue + 1] = {x, y};
+						break;
+					end
+				end
+			end
+			q = 1;
+			while q <= #queue do
+				local cx, cy = queue[q][1], queue[q][2];
+				q = q + 1;
+				local ck = cy * iW + cx;
+				local cd = distToShore[ck];
+				for dir = 1, 6 do
+					local nx, ny = GetHexNeighbor(cx, cy, dir, iW, iH, wrapX, wrapY);
+					if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+						local nk = ny * iW + nx;
+						if comp[nk] and distToShore[nk] == nil then
+							distToShore[nk] = cd + 1;
+							queue[#queue + 1] = {nx, ny};
+						end
+					end
+				end
+			end
+			local function distFromShore(x, y)
+				return distToShore[y * iW + x] or 99;
+			end
+			-- Spray only in rounder seas (aspect < 2.2) to avoid a straight line of paint down thin channels.
+			local doSpray = (aspectX < 2.2 and aspectY < 2.2);
+			if doSpray then
+				local SPRAY_CHANCE = 100;  -- was 90; set to 100 to verify spray logic (eligible = all painted)
+				local MIN_DIST = 2;       -- tiles 2+ from mainland shore eligible (islands don't block)
+				for _, t in ipairs(tiles) do
+					local x, y = t[1], t[2];
+					if plotTypes[pidx(x, y)] == PlotTypes.PLOT_OCEAN and distFromShore(x, y) >= MIN_DIST then
+						if Map.Rand(100, "inland_spray") < SPRAY_CHANCE then
+							local r = Map.Rand(100, "");
+							if r < 3 then plotTypes[pidx(x, y)] = PlotTypes.PLOT_MOUNTAIN;
+							else plotTypes[pidx(x, y)] = (r < 53) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND; end
+						end
+					end
+				end
+				local function isSprayLand(px, py)
+					if px < 0 or px >= iW or py < 0 or py >= iH then return false; end
+					local pt = plotTypes[pidx(px, py)];
+					return pt == PlotTypes.PLOT_LAND or pt == PlotTypes.PLOT_HILLS or pt == PlotTypes.PLOT_MOUNTAIN;
+				end
+				for _ = 1, 3 do
+					local grown = {};
+					for _, t in ipairs(tiles) do
+						local x, y = t[1], t[2];
+						if plotTypes[pidx(x, y)] == PlotTypes.PLOT_OCEAN and distFromShore(x, y) >= MIN_DIST then
+							local landNeighbors = 0;
+							for d = 1, 6 do
+								local nx, ny = GetHexNeighbor(x, y, d, iW, iH, wrapX, wrapY);
+								if isSprayLand(nx, ny) then landNeighbors = landNeighbors + 1; end
+							end
+							if landNeighbors >= 1 and Map.Rand(100, "inland_blob") < 72 then
+								grown[#grown + 1] = { x, y };
+							end
+						end
+					end
+					for _, t in ipairs(grown) do
+						local r = Map.Rand(100, "");
+						if r < 3 then plotTypes[pidx(t[1], t[2])] = PlotTypes.PLOT_MOUNTAIN;
+						else plotTypes[pidx(t[1], t[2])] = (r < 53) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND; end
+					end
+				end
+			end
+		end
+	end
+end
+
 ------------------------------------------------------------------------------
 function PangaeaFractalWorld:GeneratePlotTypes(args)
 	if(args == nil) then args = {}; end
@@ -592,7 +885,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 				iNumTotalLandTiles = 0;
 				for x = 0, self.iNumPlotsX - 1 do
 					for y = 0, self.iNumPlotsY - 1 do
-						local i = y * self.iNumPlotsX + x;
+						local i = y * self.iNumPlotsX + x + 1;
 						local val = self.continentsFrac:GetHeight(x, y);
 						if(val <= iWaterThreshold) then
 							self.plotTypes[i] = PlotTypes.PLOT_OCEAN;
@@ -659,7 +952,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 			for x = 0, self.iNumPlotsX - 1 do
 				for y = 0, self.iNumPlotsY - 1 do
 		
-					local i = y * self.iNumPlotsX + x;
+					local i = y * self.iNumPlotsX + x + 1;
 					local val = self.continentsFrac:GetHeight(x, y);
 					local mountainVal = self.mountainsFrac:GetHeight(x, y);
 					local hillVal = self.hillsFrac:GetHeight(x, y);
@@ -751,7 +1044,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 				landincol = 0;
 		
 				for y = 2, iH-2  do
-					local i = iW * y + x;
+					local i = iW * y + x + 1;
 					--print("Plot Location = ", i);
 					if self.plotTypes[i] ~= PlotTypes.PLOT_OCEAN then
 						landincol = landincol + 1;
@@ -792,7 +1085,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 				landincol = 0;
 				contlandincol = 0;
 				for y = 2, iH-2  do
-					local i = iW * y + x;
+					local i = iW * y + x + 1;
 					--print("Plot Location = ", i);
 					if self.plotTypes[i] ~= PlotTypes.PLOT_OCEAN then
 					
@@ -971,7 +1264,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		local iW, iH = Map.GetGridSize();
 		for x = 0, xstart - 1 do --clear west side of map
 			for y = 0, iH  do
-				destPlotIndex = iW * y + x;
+				destPlotIndex = iW * y + x + 1;
 				self.plotTypes[destPlotIndex] = PlotTypes.PLOT_OCEAN;
 			end
 		end
@@ -979,21 +1272,21 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 
 		for x = xend + 1, iW  do --clear east side of map
 			for y = 0, iH  do
-				destPlotIndex = iW * y + x;
+				destPlotIndex = iW * y + x + 1;
 				self.plotTypes[destPlotIndex] = PlotTypes.PLOT_OCEAN;
 			end
 		end
 
 		for y = 0, ystart - 1 do --clear south side of map
 			for x = 0, iW  do
-				destPlotIndex = iW * y + x;
+				destPlotIndex = iW * y + x + 1;
 				self.plotTypes[destPlotIndex] = PlotTypes.PLOT_OCEAN;
 			end
 		end
 	
 		for y = yend + 1, iH  do --clear north side of map
 			for x = 0, iW  do
-				destPlotIndex = iW * y + x;
+				destPlotIndex = iW * y + x + 1;
 				self.plotTypes[destPlotIndex] = PlotTypes.PLOT_OCEAN;
 			end
 		end
@@ -1007,7 +1300,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 
 			for x = iW, 0, -1 do
 				for y = iH, 0, -1 do
-					local destPlotIndex = iW * y + x;
+					local destPlotIndex = iW * y + x + 1;
 					local sourcePlotIndex = destPlotIndex - math.abs(xshiftamt);
 					--print("Moving Plot: ", sourcePlotIndex, "To Location: ",destPlotIndex );
 					self.plotTypes[destPlotIndex] = self.plotTypes[sourcePlotIndex]
@@ -1020,7 +1313,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 
 			for x = 0, iW do
 				for y = 0, iH do
-					local destPlotIndex = iW * y + x;
+					local destPlotIndex = iW * y + x + 1;
 					local sourcePlotIndex = destPlotIndex + math.abs(xshiftamt);
 					--print("Moving Plot: ", sourcePlotIndex, "To Location: ",destPlotIndex );
 					self.plotTypes[destPlotIndex] = self.plotTypes[sourcePlotIndex]
@@ -1041,7 +1334,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 
 			for y = iH, 0, -1 do
 				for x = iW, 0, -1 do
-					local destPlotIndex = iW * y + x;
+					local destPlotIndex = iW * y + x + 1;
 					local sourcePlotIndex = destPlotIndex - iW * (math.abs(yshiftamt));
 					--print("Moving Plot: ", sourcePlotIndex, "To Location: ",destPlotIndex );
 					self.plotTypes[destPlotIndex] = self.plotTypes[sourcePlotIndex]
@@ -1051,7 +1344,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 			local i = math.abs(yshiftamt);
 			for y = 0, i do
 				for x = 0, iW do
-					destPlotIndex = iW * y + x;
+					destPlotIndex = iW * y + x + 1;
 					self.plotTypes[destPlotIndex] = PlotTypes.PLOT_OCEAN;
 				end
 			end
@@ -1063,7 +1356,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 
 			for y = 0, iH do
 				for x = 0, iW do
-					local destPlotIndex = iW * y + x;
+					local destPlotIndex = iW * y + x + 1;
 					local sourcePlotIndex = destPlotIndex + iW * (math.abs(yshiftamt));
 					--print("Moving Plot: ", sourcePlotIndex, "To Location: ",destPlotIndex );
 					self.plotTypes[destPlotIndex] = self.plotTypes[sourcePlotIndex]
@@ -1073,7 +1366,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 			local i = math.abs(yshiftamt);
 			for y = iH-i, iH do
 				for x = 0, iW do
-					destPlotIndex = iW * y + x;
+					destPlotIndex = iW * y + x + 1;
 					self.plotTypes[destPlotIndex] = PlotTypes.PLOT_OCEAN;
 				end
 			end
@@ -1121,7 +1414,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 				i = 0;
 				while (i == 0)
 				do
-					local PlotIndex = iW * y + x;
+					local PlotIndex = iW * y + x + 1;
 					if self.plotTypes[PlotIndex] ~= PlotTypes.PLOT_OCEAN then
 						self.plotTypes[PlotIndex] = PlotTypes.PLOT_OCEAN;
 						j = 1;
@@ -1147,7 +1440,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 							if x > iW - 18 then
 								i = 1;
 							end
-							local PlotIndex = iW * y + x;
+							local PlotIndex = iW * y + x + 1;
 							self.plotTypes[PlotIndex] = PlotTypes.PLOT_OCEAN;
 							j = j + 1;
 						end
@@ -1173,7 +1466,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 				i = 0;
 				while (i == 0)
 				do
-					local PlotIndex = iW * y + x;
+					local PlotIndex = iW * y + x + 1;
 					if self.plotTypes[PlotIndex] ~= PlotTypes.PLOT_OCEAN then
 						self.plotTypes[PlotIndex] = PlotTypes.PLOT_OCEAN;
 						j = 1;
@@ -1199,7 +1492,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 							if x < 18 then
 								i = 1;
 							end
-							local PlotIndex = iW * y + x;
+							local PlotIndex = iW * y + x + 1;
 							self.plotTypes[PlotIndex] = PlotTypes.PLOT_OCEAN;
 							j = j + 1;
 						end
@@ -1225,7 +1518,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 				i = 0;
 				while (i == 0)
 				do
-					local PlotIndex = iW * y + x;
+					local PlotIndex = iW * y + x + 1;
 					if self.plotTypes[PlotIndex] ~= PlotTypes.PLOT_OCEAN then
 						self.plotTypes[PlotIndex] = PlotTypes.PLOT_OCEAN;
 						j = 1;
@@ -1258,7 +1551,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 							if y < 3 then
 								i = 1;
 							end
-							local PlotIndex = iW * y + x;
+							local PlotIndex = iW * y + x + 1;
 							self.plotTypes[PlotIndex] = PlotTypes.PLOT_OCEAN;
 							j = j + 1;
 						end
@@ -1284,7 +1577,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 				i = 0;
 				while (i == 0)
 				do
-					local PlotIndex = iW * y + x;
+					local PlotIndex = iW * y + x + 1;
 					if self.plotTypes[PlotIndex] ~= PlotTypes.PLOT_OCEAN then
 						self.plotTypes[PlotIndex] = PlotTypes.PLOT_OCEAN;
 						j = 1;
@@ -1317,7 +1610,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 							if y > iH - 9 then
 								i = 1;
 							end
-							local PlotIndex = iW * y + x;
+							local PlotIndex = iW * y + x + 1;
 							self.plotTypes[PlotIndex] = PlotTypes.PLOT_OCEAN;
 							j = j + 1;
 						end
@@ -1392,10 +1685,20 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 			end
 		end
 
-		local ok, err = pcall(GeneratePangaeaIslands, self);
+		-- Round thin inland seas (elongated from BuildRidges) so center can fit islands.
+		RoundInlandSeas(self);
+
+		local ok, islandsPlaced = pcall(GeneratePangaeaIslands, self);
 		if not ok then
-			print("### GeneratePangaeaIslands ERROR (islands skipped): " .. tostring(err) .. " ###");
+			print("### GeneratePangaeaIslands ERROR (islands skipped): " .. tostring(islandsPlaced) .. " ###");
+			islandsPlaced = 0;
+		else
+			islandsPlaced = tonumber(islandsPlaced) or 0;
 		end
+
+		-- Minimum islands required: from Islands setting (15). Value 1 = No Islands (min 0), 2 = "1", ... 6 = "4", etc.
+		local islandsOpt = Map.GetCustomOption(15);
+		local minIslands = (islandsOpt and islandsOpt > 1) and (islandsOpt - 1) or 0;
 
 		--check to make sure map has not failed
 		local iNumLandTilesInUse = 0;
@@ -1414,8 +1717,9 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		print("######### Map Failure Check #########");
 		print("30% Of Map Area: ", iPercent);
 		print("Map Land Tiles: ", iNumLandTilesInUse);
+		print("Islands Placed: ", islandsPlaced, "(min ", minIslands, " required)");
 
-		if iNumLandTilesInUse >= iPercent then
+		if iNumLandTilesInUse >= iPercent and islandsPlaced >= minIslands then
 			allcomplete = true;
 			print("######### Map Pass #########");
 		else

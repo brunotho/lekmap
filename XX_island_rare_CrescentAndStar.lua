@@ -1,9 +1,9 @@
--- Asymmetric crescent of land with a wide bay opening and a few central peaks inside the bay.
+-- Crescent of land with a bay gap, a few peaks in the water, and thickened noisy outer ring.
 
 include("X_IslandHelpers");
 
 local function pidx(x, y, iW)
-	return y * iW + x + 1;
+	return y * iW + x;
 end
 
 local function isLand(plotTypes, x, y, iW, iH)
@@ -29,22 +29,9 @@ function TryPlaceCrescentIsland(plotTypes, centerX, centerY, islLandInRing, para
 	local cy = WrapCoord(centerY, params.iH, params.wrapY);
 	if cx < 0 or cx >= params.iW or cy < 0 or cy >= params.iH then return false; end
 
-	local rotSteps = Map.Rand(6, "");
-	local function rotateRing(ring, iW, iH, wrapX, wrapY)
-		local out = {};
-		for _, t in ipairs(ring) do
-			local dx, dy = t[1] - cx, t[2] - cy;
-			local dx2, dy2 = RotateOffset60(dx, dy, rotSteps);
-			local nx, ny = cx + dx2, cy + dy2;
-			nx = WrapCoord(nx, iW, wrapX);
-			ny = wrapY and WrapCoord(ny, iH, wrapY) or ny;
-			if ny >= 0 and ny < iH then out[#out + 1] = {nx, ny}; end
-		end
-		return out;
-	end
-	local ring1 = rotateRing(GetHexRingAtRadius(cx, cy, 1, params.iW, params.iH, params.wrapX, params.wrapY), params.iW, params.iH, params.wrapX, params.wrapY);
-	local ring2 = rotateRing(GetHexRingAtRadius(cx, cy, 2, params.iW, params.iH, params.wrapX, params.wrapY), params.iW, params.iH, params.wrapX, params.wrapY);
-	local ring3 = rotateRing(GetHexRingAtRadius(cx, cy, 3, params.iW, params.iH, params.wrapX, params.wrapY), params.iW, params.iH, params.wrapX, params.wrapY);
+	local ring1 = GetHexRingAtRadius(cx, cy, 1, params.iW, params.iH, params.wrapX, params.wrapY);
+	local ring2 = GetHexRingAtRadius(cx, cy, 2, params.iW, params.iH, params.wrapX, params.wrapY);
+	local ring3 = GetHexRingAtRadius(cx, cy, 3, params.iW, params.iH, params.wrapX, params.wrapY);
 	if #ring1 < 6 or #ring2 < 12 or #ring3 < 18 then return false; end
 
 	local gapSize = 4;

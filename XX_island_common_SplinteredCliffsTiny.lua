@@ -1,7 +1,5 @@
-------------------------------------------------------------------------------
---	SplinteredCliffsTiny.lua
---	Tiny common-tier: 4-5 mountains sprayed over small area, 20% hill instead.
-------------------------------------------------------------------------------
+-- Four or five sharp peaks in a small radius, occasionally a hill instead of a peak.
+
 include("X_IslandHelpers");
 
 local CONFIG = {

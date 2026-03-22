@@ -1,7 +1,4 @@
-------------------------------------------------------------------------------
---	IslandHelpers.lua
---	Shared hex utilities used by island types.
-------------------------------------------------------------------------------
+-- Neighbors, rings, disks, and offset rotation for even-r hex used by island scripts.
 
 firstRingYIsEven = {{0, 1}, {1, 0}, {0, -1}, {-1, -1}, {-1, 0}, {-1, 1}};
 firstRingYIsOdd  = {{1, 1}, {1, 0}, {1, -1}, {0, -1}, {-1, 0}, {0, 1}};
@@ -42,6 +39,43 @@ function IsHexAdjacent(ax, ay, bx, by)
 		if adj[d][1] == dx and adj[d][2] == dy then return true; end
 	end
 	return false;
+end
+
+-- Rotate (dx, dy) by steps*60° clockwise on even-r offset hex grid. steps in 0..5.
+-- Use for rotating a template: RotateOffset60(tx, ty, steps) gives correct (dx', dy').
+function RotateOffset60(dx, dy, steps)
+	steps = steps % 6;
+	if steps == 0 then return dx, dy; end
+	-- Even-r offset -> axial: q = x, r = y - floor((x + (x mod 2)) / 2)
+	local q = dx;
+	local r = dy - math.floor((dx + (dx % 2)) / 2);
+	for _ = 1, steps do
+		q, r = -r, q + r;
+	end
+	-- Axial -> even-r offset: x = q, y = r + floor((q + (q mod 2)) / 2)
+	local x = q;
+	local y = r + math.floor((q + (q % 2)) / 2);
+	return x, y;
+end
+
+-- Returns tiles at exactly hex distance radius (ring only). Radius >= 1.
+function GetHexRingAtRadius(cx, cy, radius, iW, iH, wrapX, wrapY)
+	local out = {};
+	local currentX = cx - radius;
+	local currentY = cy;
+	for dir = 1, 6 do
+		for step = 1, radius do
+			local gx = WrapCoord(currentX, iW, wrapX);
+			local gy = WrapCoord(currentY, iH, wrapY);
+			if gx >= 0 and gx < iW and gy >= 0 and gy < iH then
+				out[#out + 1] = {gx, gy};
+			end
+			local adj = (currentY % 2 ~= 0) and firstRingYIsOdd[dir] or firstRingYIsEven[dir];
+			currentX = currentX + adj[1];
+			currentY = currentY + adj[2];
+		end
+	end
+	return out;
 end
 
 function GetHexDisk(cx, cy, radius, iW, iH, wrapX, wrapY)

@@ -1,9 +1,5 @@
-------------------------------------------------------------------------------
---	LollipopIsland.lua
---	Irregular blob head on a slightly organic stem.
---	Head 6-12 tiles: lopsided, randomly splintered. Stem 3-5 tiles, 1 tile wide.
---	Head: hills 70%, 1-2 mountains. Stem: hills 50%, no mountains.
-------------------------------------------------------------------------------
+-- A blobby head plus a thin stem of hex steps, like a lollipop.
+
 include("X_IslandHelpers");
 
 local function isLand(plotTypes, x, y, iW, iH)
@@ -35,12 +31,11 @@ function TryPlaceLollipopIsland(plotTypes, centerX, centerY, islLandInRing, para
 	if cx < 0 or cx >= params.iW or cy < 0 or cy >= params.iH then return false; end
 
 	local headDir = Map.Rand(6, "") + 1;
-	-- Stem goes roughly opposite headDir, with a small random angle offset.
 	local oppDir  = rotDir(headDir, 3);
 	local stemDir = rotDir(oppDir, Map.Rand(3, "") - 1);
 
-	local headLen = 2 + Map.Rand(2, "");  -- spine tiles beyond center: 2-3
-	local stemLen = 3 + Map.Rand(3, "");  -- 3-5
+	local headLen = 2 + Map.Rand(2, "");
+	local stemLen = 3 + Map.Rand(3, "");
 
 	local landTiles = {};
 	local used      = {};
@@ -67,8 +62,6 @@ function TryPlaceLollipopIsland(plotTypes, centerX, centerY, islLandInRing, para
 		return false;
 	end
 
-	-- Head: lopsided, irregular blob grown along a spine in headDir.
-	-- lopsideBias: -1 favors left side, +1 favors right, 0 is roughly even.
 	local lopsideBias = Map.Rand(3, "") - 1;
 
 	addBase(cx, cy);
@@ -93,14 +86,12 @@ function TryPlaceLollipopIsland(plotTypes, centerX, centerY, islLandInRing, para
 		end
 	end
 
-	-- Splintered tip: 40% chance of an extra protrusion at the head tip.
 	if Map.Rand(10, "") < 4 then
 		local spDir = rotDir(headDir, Map.Rand(3, "") - 1);
 		local sx, sy = GetHexNeighbor(hx, hy, spDir, params.iW, params.iH, params.wrapX, params.wrapY);
 		if sx >= 0 and sx < params.iW and sy >= 0 and sy < params.iH then addBase(sx, sy); end
 	end
 
-	-- Stem: gentle single bend (70%), always 1 tile wide. When stemLen=5, force bend at either end.
 	local stemCurDir = stemDir;
 	local doBend     = Map.Rand(10, "") < 7;
 	local bendAt;

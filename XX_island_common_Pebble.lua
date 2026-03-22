@@ -1,11 +1,9 @@
-------------------------------------------------------------------------------
---	PebbleIsland.lua
---	3-4 tiles, scattered disk. Terrain odds in CONFIG.
-------------------------------------------------------------------------------
+-- A small scattered clump of a few tiles (rough disk), mostly hills.
+
 include("X_IslandHelpers");
 
 local CONFIG = {
-	HILLS_PCT = 70,  -- DrawScatteredDisk with noMountains uses this for hills vs flat
+	HILLS_PCT = 70,
 };
 
 local function isLand(plotTypes, x, y, iW, iH)

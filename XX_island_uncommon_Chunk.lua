@@ -1,8 +1,5 @@
-------------------------------------------------------------------------------
---	ChunkIsland.lua
---	Scattered disk: radius 3, 6-10 tiles. Hills 50-70%, 2-5% mountains.
---	Tiny chance (8%) for 2-3 mountain cluster in center.
-------------------------------------------------------------------------------
+-- Medium island from a radius-3 scattered disk, six to ten tiles with mixed hills, some mountains.
+
 include("X_IslandHelpers");
 
 local function isLand(plotTypes, x, y, iW, iH)

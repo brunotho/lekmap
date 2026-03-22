@@ -1,12 +1,10 @@
-------------------------------------------------------------------------------
---	DotIsland.lua
---	1-2 tiles. Terrain odds defined in CONFIG.
-------------------------------------------------------------------------------
+-- One or two adjacent ocean tiles turned into a tiny island (hills/flat, rare mountain).
+
 include("X_IslandHelpers");
 
 local CONFIG = {
-	HILLS_PCT_MIN = 50, HILLS_PCT_RANGE = 11,  -- hills vs flat
-	MTN_CHANCE_1_TILE = 2, MTN_CHANCE_2_TILE = 1,  -- % when flat, by size
+	HILLS_PCT_MIN = 50, HILLS_PCT_RANGE = 11,
+	MTN_CHANCE_1_TILE = 2, MTN_CHANCE_2_TILE = 1,
 	MTN_CHANCE_1_LARGE = 5, MTN_CHANCE_2_LARGE = 2,
 	SIZE_THRESHOLD = 6,
 };
@@ -43,7 +41,7 @@ function DrawDotIsland(plotTypes, centerX, centerY, iW, iH, wrapX, wrapY)
 	local mtn2 = (#landTiles <= CONFIG.SIZE_THRESHOLD) and CONFIG.MTN_CHANCE_2_TILE or CONFIG.MTN_CHANCE_2_LARGE;
 	for _, t in ipairs(landTiles) do
 		local x, y = t[1], t[2];
-		local idx = y * iW + x;
+		local idx = y * iW + x + 1;
 		local mt = (Map.Rand(100, "") < hillsPct) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
 		if mt == PlotTypes.PLOT_LAND and #landTiles == 1 and Map.Rand(100, "") < mtn1 then
 			mt = PlotTypes.PLOT_MOUNTAIN;

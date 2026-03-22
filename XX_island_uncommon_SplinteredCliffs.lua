@@ -1,17 +1,14 @@
-------------------------------------------------------------------------------
---	SplinteredCliffsIsland.lua
---	Mostly visual: scattered mountains, individual peaks alone in water,
---	occasionally small adjacent mountain clusters. Land tiles extremely rare.
-------------------------------------------------------------------------------
+-- Dense field of lone mountain peaks and occasional two-tile clusters, almost no flat land.
+
 include("X_IslandHelpers");
 
 local CONFIG = {
 	RADIUS = 5,
-	SEMI_MAJOR = 6, SEMI_MINOR = 4,  -- oval: elongated in one axis
+	SEMI_MAJOR = 6, SEMI_MINOR = 4,
 	MIN_PEAK_DIST = 2,
 	NUM_PEAKS_MIN = 12,
 	NUM_PEAKS_MAX = 22,
-	CLUSTER_CHANCE_PCT = 16,   -- reduced for less clumping
+	CLUSTER_CHANCE_PCT = 16,
 	CLUSTER_2ND_PCT = 35,
 	LAND_TILE_PCT = 3,
 };

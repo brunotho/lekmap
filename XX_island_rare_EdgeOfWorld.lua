@@ -1,10 +1,5 @@
-------------------------------------------------------------------------------
---	EdgeOfWorldIsland.lua
---	Soft triangle at north/south map edge: wide base (6-8), tapering to tip (0-3),
---	length 8-10. Mountain ridge down center, hills adjacent, flat at coast.
---	Placement: must touch map edge, min 2 tiles from mainland.
---	Assumes wrapY=false; no map edge exists when wrapY=true (fringe case).
-------------------------------------------------------------------------------
+-- Triangle of land pinned to the north or south map edge, ridge down the middle, wider at the rim.
+
 include("X_IslandHelpers");
 
 local HILLS_ADJ = 75;
@@ -13,29 +8,54 @@ local FLAT_COAST = 75;
 function TryPlaceEdgeOfWorldIsland(plotTypes, centerX, centerY, islLandInRing, params)
 	if _island_placed and _island_placed.edgeOfWorld then return false; end
 	if islLandInRing < 2 then return false; end
-	DrawEdgeOfWorldIsland(plotTypes, centerX, centerY, params.iW, params.iH, params.wrapX, params.wrapY);
+
+	if Map and Map.Rand then
+		print("[EdgeOfWorld] TryPlaceEdgeOfWorldIsland at center (" .. tostring(centerX) .. "," .. tostring(centerY) .. "), islLandInRing=" .. tostring(islLandInRing));
+	end
+
+	if params.wrapY then return false; end
+	local iW, iH = params.iW, params.iH;
+	if not iW or not iH then iW, iH = Map.GetGridSize(); end
+
+	local edgeBand = math.min(5, math.floor(iH * 0.15));
+	local tipY;
+	if centerY <= edgeBand then
+		tipY = 0;
+	elseif centerY >= iH - 1 - edgeBand then
+		tipY = iH - 1;
+	else
+		if Map and Map.Rand then
+			print("[EdgeOfWorld] Rejecting center (" .. tostring(centerX) .. "," .. tostring(centerY) .. ") not near north/south edge (iH=" .. tostring(iH) .. ")");
+		end
+		return false;
+	end
+
+	DrawEdgeOfWorldIsland(plotTypes, centerX, tipY, iW, iH, params.wrapX, params.wrapY);
 	if not _island_placed then _island_placed = {}; end
 	_island_placed.edgeOfWorld = true;
+	if Map and Map.Rand then
+		print("[EdgeOfWorld] PLACED at (" .. tostring(centerX) .. "," .. tostring(tipY) .. ")");
+	end
 	return true;
 end
 
 function DrawEdgeOfWorldIsland(plotTypes, centerX, centerY, iW, iH, wrapX, wrapY)
 	wrapY = wrapY or false;
+
 	local baseWidth = 6 + Map.Rand(3, "");
-	local tipWidth = Map.Rand(4, "");
-	local length = 8 + Map.Rand(3, "");
+	local maxRows = baseWidth + 2;
 	local numRidge = 4 + Map.Rand(3, "");
 	local ridgeWaterExt = (Map.Rand(100, "") < 5) and 1 or 0;
 
 	local southEdge = (centerY == 0);
 	local dy = southEdge and 1 or -1;
 	local rows = {};
-	for r = 0, length - 1 do
-		local rowY = southEdge and r or (centerY - r);
+	for r = 0, maxRows - 1 do
+		local rowY = southEdge and (centerY + r) or (centerY - r);
 		if rowY < 0 or rowY >= iH then break; end
-		local w = math.floor(baseWidth * (1 - r / length) + tipWidth * (r / length) + 0.5);
-		w = math.max(0, math.min(w, baseWidth));
+		local w = baseWidth - r;
 		if w <= 0 and r > 0 then break; end
+		if w <= 0 then w = 1; end
 		rows[#rows + 1] = {y = rowY, width = w};
 	end
 
@@ -104,7 +124,7 @@ function DrawEdgeOfWorldIsland(plotTypes, centerX, centerY, iW, iH, wrapX, wrapY
 
 	for _, t in ipairs(landTiles) do
 		local x, y = t[1], t[2];
-		local idx = y * iW + x;
+		local idx = y * iW + x + 1;
 		if ridgeSet[x .. "," .. y] == "mountain" then
 			plotTypes[idx] = PlotTypes.PLOT_MOUNTAIN;
 		elseif adjToMountain(x, y) then

@@ -1,9 +1,5 @@
-------------------------------------------------------------------------------
---	FjordPeninsulaIsland.lua
---	Long narrow peninsula extending from mainland. 8-12 tiles, width 2-4 tapering to 1.
---	Mountain ridge along spine, tip always mountain. 2-4 inlets (1-2 wide, 2-4 deep).
---	Base alignment: ridge aligns with mainland mountain/hill if nearby, else 1-2 offset.
-------------------------------------------------------------------------------
+-- Narrow peninsula from the coast with a mountain spine, tapering tip, and side water inlets.
+
 include("X_IslandHelpers");
 
 local firstRingYIsEven = {{0, 1}, {1, 0}, {0, -1}, {-1, -1}, {-1, 0}, {-1, 1}};
@@ -11,15 +7,19 @@ local firstRingYIsOdd  = {{1, 1}, {1, 0}, {1, -1}, {0, -1}, {-1, 0}, {0, 1}};
 
 local HILLS_ADJ = 75;
 
+local function pidx(x, y, iW)
+	return y * iW + x + 1;
+end
+
 local function isLand(plotTypes, x, y, iW, iH)
 	if x < 0 or x >= iW or y < 0 or y >= iH then return false; end
-	local t = plotTypes[y * iW + x];
+	local t = plotTypes[pidx(x, y, iW)];
 	return t == PlotTypes.PLOT_LAND or t == PlotTypes.PLOT_HILLS or t == PlotTypes.PLOT_MOUNTAIN;
 end
 
 local function isOcean(plotTypes, x, y, iW, iH)
 	if x < 0 or x >= iW or y < 0 or y >= iH then return false; end
-	return plotTypes[y * iW + x] == PlotTypes.PLOT_OCEAN;
+	return plotTypes[pidx(x, y, iW)] == PlotTypes.PLOT_OCEAN;
 end
 
 local COAST_EDGE_MARGIN = 6;
@@ -57,14 +57,14 @@ local function hasSpaceForPeninsula(plotTypes, startX, startY, dir, len, iW, iH,
 	return true;
 end
 
-local function paintMainlandConnection(plotTypes, baseX, baseY, startX, startY, ridgeTiles, iW, iH, wrapX, wrapY)
+local function paintMainlandConnection(plotTypes, baseX, baseY, ridgeTiles, iW, iH, wrapX, wrapY)
 	local firstRidge = ridgeTiles[1];
 	local ridgeAdjacent = IsHexAdjacent(baseX, baseY, firstRidge[1], firstRidge[2]);
 	local disk = GetHexDisk(baseX, baseY, 1, iW, iH, wrapX or true, wrapY or false);
 	for _, p in ipairs(disk) do
 		local x, y = p[1], p[2];
 		if isLand(plotTypes, x, y, iW, iH) then
-			local idx = y * iW + x;
+			local idx = pidx(x, y, iW);
 			if plotTypes[idx] ~= PlotTypes.PLOT_MOUNTAIN then
 				if ridgeAdjacent and (x == baseX and y == baseY) then
 					plotTypes[idx] = (Map.Rand(100, "") < 80) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
@@ -76,11 +76,44 @@ local function paintMainlandConnection(plotTypes, baseX, baseY, startX, startY, 
 	end
 end
 
+local function mergeCoastMouth(plotTypes, baseX, baseY, landTiles, iW, iH, wrapX, wrapY)
+	local landSet = {};
+	for _, t in ipairs(landTiles) do landSet[t[1] .. "," .. t[2]] = true; end
+	local merged = {};
+	for d = 1, 6 do
+		local ox, oy = GetHexNeighbor(baseX, baseY, d, iW, iH, wrapX, wrapY);
+		if ox >= 0 and ox < iW and oy >= 0 and oy < iH and isOcean(plotTypes, ox, oy, iW, iH) then
+			local touchesPen = false;
+			for _, t in ipairs(landTiles) do
+				if IsHexAdjacent(ox, oy, t[1], t[2]) then
+					touchesPen = true;
+					break;
+				end
+			end
+			if touchesPen then
+				local k = ox .. "," .. oy;
+				if not landSet[k] then
+					landTiles[#landTiles + 1] = {ox, oy};
+					landSet[k] = true;
+					merged[#merged + 1] = k;
+				end
+			end
+		end
+	end
+	if #merged > 1 and Map.Rand(100, "") < 14 then
+		local rm = merged[Map.Rand(#merged, "") + 1];
+		for i = #landTiles, 1, -1 do
+			local t = landTiles[i];
+			if t[1] .. "," .. t[2] == rm then table.remove(landTiles, i); break; end
+		end
+	end
+end
+
 local function findMainlandMountainOrHill(plotTypes, cx, cy, iW, iH, wrapX, wrapY)
 	local disk = GetHexDisk(cx, cy, 2, iW, iH, wrapX, wrapY);
 	for _, p in ipairs(disk) do
 		if p[1] ~= cx or p[2] ~= cy then
-			local t = plotTypes[p[2] * iW + p[1]];
+			local t = plotTypes[pidx(p[1], p[2], iW)];
 			if t == PlotTypes.PLOT_MOUNTAIN or t == PlotTypes.PLOT_HILLS then
 				return p[1], p[2];
 			end
@@ -96,14 +129,17 @@ function TryPlaceFjordPeninsulaIsland(plotTypes, opts)
 	local wrapY = opts.wrapY or false;
 
 	local candidates = findCoastCandidates(plotTypes, iW, iH, wrapX, wrapY);
-	if #candidates < 10 then return false; end
+	if #candidates < 6 then return false; end
 
-	for attempt = 1, math.min(80, #candidates * 2) do
+	local maxAttempts = math.min(500, math.max(320, #candidates * 4));
+	for attempt = 1, maxAttempts do
 		local c = candidates[Map.Rand(#candidates, "") + 1];
 		local oceanPick = c.oceanDirs[Map.Rand(#c.oceanDirs, "") + 1];
 		local dir = oceanPick.dir;
 		local startX, startY = oceanPick.x, oceanPick.y;
 
+		if not IsHexAdjacent(c.cx, c.cy, startX, startY) then
+		else
 		local len = 8 + Map.Rand(5, "");
 		if not hasSpaceForPeninsula(plotTypes, startX, startY, dir, len - 1, iW, iH, wrapX, wrapY) then
 		else
@@ -119,38 +155,57 @@ function TryPlaceFjordPeninsulaIsland(plotTypes, opts)
 				iW, iH, wrapX, wrapY
 			);
 			if landTiles and #landTiles >= 10 then
+				mergeCoastMouth(plotTypes, c.cx, c.cy, landTiles, iW, iH, wrapX, wrapY);
 				carveInlets(landTiles, spineTiles, dir, iW, iH, wrapX, wrapY);
-				paintMainlandConnection(plotTypes, c.cx, c.cy, startX, startY, ridgeTiles, iW, iH, wrapX, wrapY);
-				DrawFjordPeninsula(plotTypes, landTiles, ridgeTiles, iW, iH);
+				jaggedFringe(plotTypes, landTiles, spineTiles, dir, iW, iH, wrapX, wrapY);
+				roughenOutline(plotTypes, landTiles, iW, iH, wrapX, wrapY);
+				paintMainlandConnection(plotTypes, c.cx, c.cy, ridgeTiles, iW, iH, wrapX, wrapY);
+				DrawFjordPeninsula(plotTypes, landTiles, ridgeTiles, iW, iH, wrapX, wrapY);
 				if not _island_placed then _island_placed = {}; end
 				_island_placed.fjordPeninsula = true;
 				return true;
 			end
+		end
 		end
 	end
 	return false;
 end
 
 function buildPeninsulaShape(plotTypes, baseX, baseY, startX, startY, dir, len, baseWidth, ridgeOffset, iW, iH, wrapX, wrapY)
-	local leftDir = ((dir + 2) % 6) + 1;
-	local rightDir = ((dir + 4) % 6) + 1;
-
 	local landTiles = {};
 	local spineTiles = {};
 	local ridgeTiles = {};
 	local landSet = {};
 
 	local x, y = startX, startY;
+	if not isOcean(plotTypes, x, y, iW, iH) then return nil; end
+	if not IsHexAdjacent(baseX, baseY, x, y) then return nil; end
+
+	local leftDir = ((dir + 2) % 6) + 1;
+	local rightDir = ((dir + 4) % 6) + 1;
+
 	for i = 0, len - 1 do
 		if i > 0 then
 			local d = (y % 2 ~= 0) and firstRingYIsOdd[dir] or firstRingYIsEven[dir];
 			x = WrapCoord(x + d[1], iW, wrapX);
 			y = WrapCoord(y + d[2], iH, wrapY);
-			if y < 0 or y >= iH then break; end
+			if y < 0 or y >= iH then return nil; end
+			if not isOcean(plotTypes, x, y, iW, iH) then return nil; end
+			if Map.Rand(100, "") < 30 then
+				local tryDir = (Map.Rand(2, "") == 0) and leftDir or rightDir;
+				local ring = (y % 2 ~= 0) and firstRingYIsOdd or firstRingYIsEven;
+				local dd = ring[tryDir];
+				local tx = WrapCoord(x + dd[1], iW, wrapX);
+				local ty = WrapCoord(y + dd[2], iH, wrapY);
+				if ty >= 0 and ty < iH and isOcean(plotTypes, tx, ty, iW, iH) then
+					x, y = tx, ty;
+				end
+			end
 		end
 
 		local t = (len > 1) and (1 - i / (len - 1)) or 1;
-		local w = math.max(1, math.floor(baseWidth * t + 0.5));
+		local wobble = Map.Rand(9, "") - 4;
+		local w = math.max(1, math.min(baseWidth + 2, math.floor(baseWidth * t + 0.5) + wobble));
 		spineTiles[#spineTiles + 1] = {x, y, i};
 		landTiles[#landTiles + 1] = {x, y};
 		landSet[x .. "," .. y] = true;
@@ -163,7 +218,7 @@ function buildPeninsulaShape(plotTypes, baseX, baseY, startX, startY, dir, len, 
 			local d = ring[leftDir];
 			lx = WrapCoord(lx + d[1], iW, wrapX);
 			ly = WrapCoord(ly + d[2], iH, wrapY);
-			if ly >= 0 and ly < iH and not landSet[lx .. "," .. ly] then
+			if ly >= 0 and ly < iH and not landSet[lx .. "," .. ly] and isOcean(plotTypes, lx, ly, iW, iH) then
 				landTiles[#landTiles + 1] = {lx, ly};
 				landSet[lx .. "," .. ly] = true;
 			end
@@ -174,7 +229,7 @@ function buildPeninsulaShape(plotTypes, baseX, baseY, startX, startY, dir, len, 
 			local d = ring[rightDir];
 			rx = WrapCoord(rx + d[1], iW, wrapX);
 			ry = WrapCoord(ry + d[2], iH, wrapY);
-			if ry >= 0 and ry < iH and not landSet[rx .. "," .. ry] then
+			if ry >= 0 and ry < iH and not landSet[rx .. "," .. ry] and isOcean(plotTypes, rx, ry, iW, iH) then
 				landTiles[#landTiles + 1] = {rx, ry};
 				landSet[rx .. "," .. ry] = true;
 			end
@@ -194,6 +249,45 @@ function buildPeninsulaShape(plotTypes, baseX, baseY, startX, startY, dir, len, 
 	ridgeTiles[#ridgeTiles + 1] = spineTiles[#spineTiles];
 
 	return landTiles, spineTiles, ridgeTiles;
+end
+
+function jaggedFringe(plotTypes, landTiles, spineTiles, dir, iW, iH, wrapX, wrapY)
+	local landSet = {};
+	for _, t in ipairs(landTiles) do landSet[t[1] .. "," .. t[2]] = true; end
+	local leftDir = ((dir + 2) % 6) + 1;
+	local rightDir = ((dir + 4) % 6) + 1;
+	for si = 1, math.max(1, #spineTiles - 1) do
+		if Map.Rand(100, "") < 68 then
+			local st = spineTiles[si];
+			local sideDir = (Map.Rand(2, "") == 0) and leftDir or rightDir;
+			local ring = (st[2] % 2 ~= 0) and firstRingYIsOdd or firstRingYIsEven;
+			local d = ring[sideDir];
+			local nx = WrapCoord(st[1] + d[1], iW, wrapX);
+			local ny = WrapCoord(st[2] + d[2], iH, wrapY);
+			if ny >= 0 and ny < iH and not landSet[nx .. "," .. ny] and isOcean(plotTypes, nx, ny, iW, iH) then
+				landTiles[#landTiles + 1] = {nx, ny};
+				landSet[nx .. "," .. ny] = true;
+			end
+		end
+	end
+end
+
+function roughenOutline(plotTypes, landTiles, iW, iH, wrapX, wrapY)
+	for pass = 1, 4 do
+		local landSet = {};
+		for _, t in ipairs(landTiles) do landSet[t[1] .. "," .. t[2]] = true; end
+		local pct = (pass == 1) and 58 or ((pass == 2) and 42 or ((pass == 3) and 28 or 18));
+		for _, t in ipairs(landTiles) do
+			if Map.Rand(100, "") < pct then
+				local d = 1 + Map.Rand(6, "");
+				local nx, ny = GetHexNeighbor(t[1], t[2], d, iW, iH, wrapX, wrapY);
+				if nx >= 0 and nx < iW and ny >= 0 and ny < iH and not landSet[nx .. "," .. ny] and isOcean(plotTypes, nx, ny, iW, iH) then
+					landTiles[#landTiles + 1] = {nx, ny};
+					landSet[nx .. "," .. ny] = true;
+				end
+			end
+		end
+	end
 end
 
 function carveInlets(landTiles, spineTiles, dir, iW, iH, wrapX, wrapY)
@@ -241,7 +335,9 @@ function carveInlets(landTiles, spineTiles, dir, iW, iH, wrapX, wrapY)
 	end
 end
 
-function DrawFjordPeninsula(plotTypes, landTiles, ridgeTiles, iW, iH)
+function DrawFjordPeninsula(plotTypes, landTiles, ridgeTiles, iW, iH, wrapX, wrapY)
+	wrapX = wrapX ~= false;
+	wrapY = wrapY or false;
 	local ridgeSet = {};
 	for _, t in ipairs(ridgeTiles) do
 		ridgeSet[t[1] .. "," .. t[2]] = true;
@@ -254,7 +350,7 @@ function DrawFjordPeninsula(plotTypes, landTiles, ridgeTiles, iW, iH)
 
 	local function isCoast(x, y)
 		for dir = 1, 6 do
-			local nx, ny = GetHexNeighbor(x, y, dir, iW, iH, false, false);
+			local nx, ny = GetHexNeighbor(x, y, dir, iW, iH, wrapX, wrapY);
 			if nx < 0 or nx >= iW or ny < 0 or ny >= iH then return true; end
 			if not landSet[nx .. "," .. ny] then return true; end
 		end
@@ -263,7 +359,7 @@ function DrawFjordPeninsula(plotTypes, landTiles, ridgeTiles, iW, iH)
 
 	local function adjToMountain(x, y)
 		for dir = 1, 6 do
-			local nx, ny = GetHexNeighbor(x, y, dir, iW, iH, false, false);
+			local nx, ny = GetHexNeighbor(x, y, dir, iW, iH, wrapX, wrapY);
 			if nx >= 0 and nx < iW and ny >= 0 and ny < iH and ridgeSet[nx .. "," .. ny] then return true; end
 		end
 		return false;
@@ -271,7 +367,7 @@ function DrawFjordPeninsula(plotTypes, landTiles, ridgeTiles, iW, iH)
 
 	for _, t in ipairs(landTiles) do
 		local x, y = t[1], t[2];
-		local idx = y * iW + x;
+		local idx = pidx(x, y, iW);
 		if ridgeSet[x .. "," .. y] then
 			plotTypes[idx] = PlotTypes.PLOT_MOUNTAIN;
 		elseif adjToMountain(x, y) then

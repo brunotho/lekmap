@@ -1,7 +1,5 @@
-------------------------------------------------------------------------------
---	BarbellIsland.lua
---	7-10 tiles. Two lobes (2-3 each) + narrow neck (1-2). Mountain on neck.
-------------------------------------------------------------------------------
+-- Two small lobes linked by a short neck, usually with a peak on the neck.
+
 include("X_IslandHelpers");
 
 local function isLand(plotTypes, x, y, iW, iH)

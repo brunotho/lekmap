@@ -1,16 +1,12 @@
-------------------------------------------------------------------------------
---	EllipseArchipelagoIsland.lua
---	3-5 islands (2-4 tiles each) along ellipse perimeter. Center is water.
---	Ellipse 6-9 x 4-6 (shrinks on placement retries). 60% hills, 40% flat, no mountains.
---	Footprint check. Random orientation.
-------------------------------------------------------------------------------
+-- Several small islands spaced on an ellipse around open water, hills and flat only.
+
 include("X_IslandHelpers");
 
 local HILLS_PCT = 60;
 
 local function isLand(plotTypes, x, y, iW, iH)
 	if x < 0 or x >= iW or y < 0 or y >= iH then return false; end
-	local t = plotTypes[y * iW + x];
+	local t = plotTypes[y * iW + x + 1];
 	return t == PlotTypes.PLOT_LAND or t == PlotTypes.PLOT_HILLS or t == PlotTypes.PLOT_MOUNTAIN;
 end
 
@@ -123,7 +119,7 @@ end
 function DrawEllipseArchipelagoIsland(plotTypes, landTiles, iW)
 	for _, t in ipairs(landTiles) do
 		local x, y = t[1], t[2];
-		local idx = y * iW + x;
+		local idx = y * iW + x + 1;
 		plotTypes[idx] = (Map.Rand(100, "") < HILLS_PCT) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
 	end
 end

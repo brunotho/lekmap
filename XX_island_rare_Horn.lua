@@ -52,8 +52,7 @@ local function hasSpaceForHorn(plotTypes, startX, startY, dir, len, iW, iH, wrap
 	return true;
 end
 
-function TryPlaceCoastalHornIsland(plotTypes, opts)
-	if _island_placed and _island_placed.coastalHorn then return false; end
+function TryPlaceHornIsland(plotTypes, opts)
 	local iW, iH = opts.iW, opts.iH;
 	local wrapX = opts.wrapX or true;
 	local wrapY = opts.wrapY or false;
@@ -63,30 +62,32 @@ function TryPlaceCoastalHornIsland(plotTypes, opts)
 
 	for attempt = 1, math.min(60, #candidates * 3) do
 		local c = candidates[Map.Rand(#candidates, "") + 1];
-		local oceanPick = c.oceanDirs[Map.Rand(#c.oceanDirs, "") + 1];
-		local outDir = oceanPick.dir;
-		local startX, startY = oceanPick.x, oceanPick.y;
+		local baseY = c.baseY;
+		local distFromEdge = math.min(baseY, iH - 1 - baseY);
+		if distFromEdge >= 10 then
+			local oceanPick = c.oceanDirs[Map.Rand(#c.oceanDirs, "") + 1];
+			local outDir = oceanPick.dir;
+			local startX, startY = oceanPick.x, oceanPick.y;
 
-		local len = 4 + Map.Rand(4, "");
-		if not hasSpaceForHorn(plotTypes, startX, startY, outDir, len - 1, iW, iH, wrapX, wrapY) then
-		else
-			local width = 1 + Map.Rand(2, "");
-			local curveStart = 2 + Map.Rand(2, "");
-			local curveSide = (Map.Rand(2, "") == 0) and -1 or 1;
-			local ridgeExtend = 2 + Map.Rand(3, "");
-			local mtnPct = 40 + Map.Rand(31, "");
+			local len = 4 + Map.Rand(4, "");
+			if not hasSpaceForHorn(plotTypes, startX, startY, outDir, len - 1, iW, iH, wrapX, wrapY) then
+			else
+				local width = 1 + Map.Rand(2, "");
+				local curveStart = 2 + Map.Rand(2, "");
+				local curveSide = (Map.Rand(2, "") == 0) and -1 or 1;
+				local ridgeExtend = 2 + Map.Rand(3, "");
+				local mtnPct = 40 + Map.Rand(31, "");
 
-			local landTiles, spineTiles, ridgeTiles = buildHornShape(
-				plotTypes, c.baseX, c.baseY, startX, startY, outDir, len, width,
-				curveStart, curveSide, iW, iH, wrapX, wrapY
-			);
-			if landTiles and #landTiles >= 6 then
-				extendRidgeOntoMainland(plotTypes, c.baseX, c.baseY, outDir, ridgeExtend,
-					mtnPct, iW, iH, wrapX, wrapY);
-				DrawCoastalHorn(plotTypes, landTiles, ridgeTiles, mtnPct, iW);
-				if not _island_placed then _island_placed = {}; end
-				_island_placed.coastalHorn = true;
-				return true;
+				local landTiles, spineTiles, ridgeTiles = buildHornShape(
+					plotTypes, c.baseX, c.baseY, startX, startY, outDir, len, width,
+					curveStart, curveSide, iW, iH, wrapX, wrapY
+				);
+				if landTiles and #landTiles >= 6 then
+					extendRidgeOntoMainland(plotTypes, c.baseX, c.baseY, outDir, ridgeExtend,
+						mtnPct, iW, iH, wrapX, wrapY);
+					DrawHorn(plotTypes, landTiles, ridgeTiles, mtnPct, iW);
+					return true;
+				end
 			end
 		end
 	end
@@ -110,6 +111,9 @@ function buildHornShape(plotTypes, baseX, baseY, startX, startY, outDir, len, wi
 			if i == curveStart + 1 then
 				dir = rotDir(dir, curveSide);
 			end
+			if i == len then
+				dir = rotDir(dir, curveSide);
+			end
 			local nx, ny = GetHexNeighbor(x, y, dir, iW, iH, wrapX, wrapY);
 			if nx < 0 or nx >= iW or ny < 0 or ny >= iH then break; end
 			if not isOcean(plotTypes, nx, ny, iW, iH) then break; end
@@ -128,6 +132,18 @@ function buildHornShape(plotTypes, baseX, baseY, startX, startY, outDir, len, wi
 				landTiles[#landTiles + 1] = {wx, wy};
 				landSet[wx .. "," .. wy] = true;
 			end
+		end
+	end
+
+	if #spineTiles > 0 and Map.Rand(100, "") < 80 then
+		local extraIdx = Map.Rand(#spineTiles, "") + 1;
+		local tx, ty = spineTiles[extraIdx][1], spineTiles[extraIdx][2];
+		local perpDir = (Map.Rand(2, "") == 0) and leftDir or rightDir;
+		local ex, ey = GetHexNeighbor(tx, ty, perpDir, iW, iH, wrapX, wrapY);
+		if ex >= 0 and ex < iW and ey >= 0 and ey < iH and isOcean(plotTypes, ex, ey, iW, iH)
+			and not landSet[ex .. "," .. ey] then
+			landTiles[#landTiles + 1] = {ex, ey};
+			landSet[ex .. "," .. ey] = true;
 		end
 	end
 
@@ -160,7 +176,7 @@ function extendRidgeOntoMainland(plotTypes, baseX, baseY, outDir, ridgeExtend,
 	end
 end
 
-function DrawCoastalHorn(plotTypes, landTiles, ridgeTiles, mtnPct, iW)
+function DrawHorn(plotTypes, landTiles, ridgeTiles, mtnPct, iW)
 	local ridgeSet = {};
 	for _, t in ipairs(ridgeTiles) do
 		ridgeSet[t[1] .. "," .. t[2]] = true;

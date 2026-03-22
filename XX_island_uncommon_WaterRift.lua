@@ -1,17 +1,15 @@
-------------------------------------------------------------------------------
---	WaterRift.lua
---	3-radius disk, curved/splintered water rift. Inner (r1-2): hills/land. Outer (r3): land/ocean.
-------------------------------------------------------------------------------
+-- A curved water cut through a small hex disk, leaving hills and land around it like a rift inlet.
+
 include("X_IslandHelpers");
 
 local CONFIG = {
 	DISK_RADIUS = 3,
 	INNER_HILLS_PCT = 70,
-	OUTER_LAND_PCT_INNER = 65, OUTER_LAND_PCT_OUTER = 35,  -- gradient: inner r3 vs outer r3
+	OUTER_LAND_PCT_INNER = 65, OUTER_LAND_PCT_OUTER = 35,
 	OUTER_TILE_APPEAR_PCT = 82,
-	RIFT_TURN_LEFT_PCT = 30, RIFT_TURN_RIGHT_PCT = 15, RIFT_DOUBLE_TURN_PCT = 12,  -- less zigzag, natural inlet
+	RIFT_TURN_LEFT_PCT = 30, RIFT_TURN_RIGHT_PCT = 15, RIFT_DOUBLE_TURN_PCT = 12,
 	RIFT_STEPS_MIN = 5, RIFT_STEPS_RANGE = 3,
-	BRANCH_COUNT_MIN = 0, BRANCH_COUNT_RANGE = 2,  -- 0-2 branches, fewer
+	BRANCH_COUNT_MIN = 0, BRANCH_COUNT_RANGE = 2,
 	BRANCH_STEPS_MIN = 1, BRANCH_STEPS_RANGE = 1,
 	BRANCH_DIR_CHANGE_PCT = 25,
 };
@@ -31,7 +29,6 @@ function TryPlaceWaterRift(plotTypes, centerX, centerY, islLandInRing, params)
 	local diskSet = {};
 	for _, t in ipairs(disk) do diskSet[t[1] .. "," .. t[2]] = true; end
 
-	-- Curved/splintered cut: walk from center in two opposite directions, meandering with more noise
 	local riftDir = Map.Rand(6, "") + 1;
 	local oppDir = ((riftDir + 2) % 6) + 1;
 	local riftSet = {};
@@ -44,7 +41,6 @@ function TryPlaceWaterRift(plotTypes, centerX, centerY, islLandInRing, params)
 			px, py = GetHexNeighbor(px, py, dir, params.iW, params.iH, params.wrapX, params.wrapY);
 			if px >= 0 and px < params.iW and py >= 0 and py < params.iH and diskSet[px .. "," .. py] then
 				riftSet[px .. "," .. py] = true;
-				-- More noise: 50% turn left, 30% straight, 20% turn right; occasional double-turn
 				local r = Map.Rand(100, "");
 				if r < CONFIG.RIFT_TURN_LEFT_PCT then dir = ((dir - 2) % 6) + 1;
 				elseif r >= (100 - CONFIG.RIFT_TURN_RIGHT_PCT) then dir = ((dir + 2) % 6) + 1; end
@@ -64,6 +60,51 @@ function TryPlaceWaterRift(plotTypes, centerX, centerY, islLandInRing, params)
 				riftSet[bx .. "," .. by] = true;
 				if Map.Rand(100, "") < CONFIG.BRANCH_DIR_CHANGE_PCT then branchDir = ((branchDir + (Map.Rand(2, "") == 0 and -1 or 1)) % 6) + 1; end
 			else break; end
+		end
+	end
+
+	local riftList = {};
+	for k in pairs(riftSet) do
+		local x, y = k:match("^(%d+),(%d+)$");
+		if x then riftList[#riftList + 1] = {tonumber(x), tonumber(y)}; end
+	end
+	local function axialQ(x, y) return x; end
+	local function axialR(x, y) return y - math.floor(x / 2); end
+	local minQ, maxQ, minR, maxR, minQR, maxQR = 1e9, -1e9, 1e9, -1e9, 1e9, -1e9;
+	for _, t in ipairs(riftList) do
+		local x, y = t[1], t[2];
+		local q, r = axialQ(x, y), axialR(x, y);
+		local qr = q + r;
+		if q < minQ then minQ = q; end
+		if q > maxQ then maxQ = q; end
+		if r < minR then minR = r; end
+		if r > maxR then maxR = r; end
+		if qr < minQR then minQR = qr; end
+		if qr > maxQR then maxQR = qr; end
+	end
+	local isPerfectLine = (#riftList >= 2) and ((maxQ - minQ == 0) or (maxR - minR == 0) or (maxQR - minQR == 0));
+	if isPerfectLine then
+		local jitterCandidates = {};
+		for _, t in ipairs(riftList) do
+			local x, y = t[1], t[2];
+			for d = 1, 6 do
+				local nx, ny = GetHexNeighbor(x, y, d, params.iW, params.iH, params.wrapX, params.wrapY);
+				if nx >= 0 and nx < params.iW and ny >= 0 and ny < params.iH then
+					local key = nx .. "," .. ny;
+					if diskSet[key] and not riftSet[key] then jitterCandidates[key] = {nx, ny}; end
+				end
+			end
+		end
+		local jitterList = {};
+		for _, v in pairs(jitterCandidates) do jitterList[#jitterList + 1] = v; end
+		local numJitter = math.min(1 + Map.Rand(2, ""), #jitterList);
+		for i = 1, numJitter do
+			if #jitterList == 0 then break; end
+			local idx = Map.Rand(#jitterList, "") + 1;
+			local t = jitterList[idx];
+			riftSet[t[1] .. "," .. t[2]] = true;
+			jitterList[idx] = jitterList[#jitterList];
+			jitterList[#jitterList] = nil;
 		end
 	end
 

@@ -1,14 +1,13 @@
-------------------------------------------------------------------------------
---	StripIsland.lua
---	4-6 tiles, linear chain. Terrain odds in CONFIG.
-------------------------------------------------------------------------------
+-- A short wiggly chain of four to six tiles along hex steps.
+
 include("X_IslandHelpers");
 
 local CONFIG = {
 	HILLS_PCT_MIN = 50, HILLS_PCT_RANGE = 11,
 	MTN_CHANCE_SMALL = 0, MTN_CHANCE_LARGE = 0,
 	SIZE_THRESHOLD = 6,
-	TURN_PCT = 40,
+	TURN_PCT = 48,
+	GILL_PCT = 26,
 };
 
 local function isLand(plotTypes, x, y, iW, iH)
@@ -44,7 +43,8 @@ function TryPlaceStripIsland(plotTypes, centerX, centerY, islLandInRing, params)
 
 	for _ = 1, size - 1 do
 		if #landTiles == 4 then
-			dir = ((dir + Map.Rand(2, "") - 1) % 6) + 1;
+			local delta = (Map.Rand(2, "") == 0) and -1 or 1;
+			dir = ((dir + delta + 5) % 6) + 1;
 		elseif Map.Rand(100, "") < CONFIG.TURN_PCT then
 			dir = ((dir + Map.Rand(2, "") - 1) % 6) + 1;
 		end
@@ -77,5 +77,13 @@ function DrawStripIsland(plotTypes, landTiles, iW)
 			mt = PlotTypes.PLOT_MOUNTAIN;
 		end
 		plotTypes[idx] = mt;
+	end
+	if n >= 4 and Map.Rand(100, "") < CONFIG.GILL_PCT then
+		local lo, hi = 2, n - 1;
+		if lo <= hi then
+			local i = lo + Map.Rand(hi - lo + 1, "");
+			local t = landTiles[i];
+			plotTypes[t[2] * iW + t[1]] = PlotTypes.PLOT_OCEAN;
+		end
 	end
 end

@@ -1,10 +1,8 @@
-------------------------------------------------------------------------------
---	TwinBayIslands.lua
---	Two S-curved islands 5-8 tiles each, concave bays facing each other.
---	Uses SShape spine logic rotated so curves face inward. Gap 1-2 water tiles.
---	Hills 40-50% on outer edges, flat on bay-facing. No mountains.
-------------------------------------------------------------------------------
+-- Two S-curved islands facing each other so their inner sides form twin bays.
+
 include("X_IslandHelpers");
+
+local GILL_PCT = 30;
 
 local function isLand(plotTypes, x, y, iW, iH)
 	if x < 0 or x >= iW or y < 0 or y >= iH then return false; end
@@ -71,7 +69,6 @@ function TryPlaceTwinBayIslands(plotTypes, centerX, centerY, islLandInRing, para
 		if isl2X < 0 or isl2X >= params.iW or isl2Y < 0 or isl2Y >= params.iH then return false; end
 	end
 
-	-- S-curves rotated so concavities face each other. Isle1 starts toward isle2, isle2 toward isle1.
 	local oppDir = ((dir + 2) % 6) + 1;
 	local tiles1 = buildSSpine(isl1X, isl1Y, dir, params.iW, params.iH, params.wrapX, params.wrapY);
 	local tiles2 = buildSSpine(isl2X, isl2Y, oppDir, params.iW, params.iH, params.wrapX, params.wrapY);
@@ -100,4 +97,14 @@ function DrawTwinBayIslands(plotTypes, landTiles, tiles1, tiles2, iW)
 		local idx = y * iW + x + 1;
 		plotTypes[idx] = (Map.Rand(100, "") < hillsPct) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
 	end
+	if Map.Rand(100, "") >= GILL_PCT then return; end
+	local which = Map.Rand(2, "") + 1;
+	local spine = (which == 1) and tiles1 or tiles2;
+	local n = #spine;
+	if n < 4 then return; end
+	local lo, hi = 2, n - 1;
+	local i = lo + Map.Rand(hi - lo + 1, "");
+	local t = spine[i];
+	local idx = t[2] * iW + t[1] + 1;
+	plotTypes[idx] = PlotTypes.PLOT_OCEAN;
 end

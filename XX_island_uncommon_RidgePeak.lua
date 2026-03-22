@@ -1,17 +1,15 @@
-------------------------------------------------------------------------------
---	RidgePeak.lua
---	Mountain ridge island: center ridge, land on one side, water gap + far land on other.
-------------------------------------------------------------------------------
+-- Linear mountain ridge with land on one flank, a water slot, then more land and optional satellites.
+
 include("X_IslandHelpers");
 
 local CONFIG = {
-	RIDGE_LEN_MIN = 3, RIDGE_LEN_RANGE = 3,  -- 3-5 tiles
+	RIDGE_LEN_MIN = 3, RIDGE_LEN_RANGE = 3,
 	RIDGE_TURN_PCT = 30,
-	RIDGE_RIFT_PCT = 70,  -- when ridge has 3+ tiles: % chance to add 1-2 water rifts (splinter)
-	LAND_SIDE_PCT_MIN = 50, LAND_SIDE_PCT_MAX = 85,  -- % of mountain-adjacent tiles that are land
+	RIDGE_RIFT_PCT = 70,
+	LAND_SIDE_PCT_MIN = 50, LAND_SIDE_PCT_MAX = 85,
 	WATER_GAP = 1,
-	FAR_LAND_MIN = 3, FAR_LAND_MAX = 5,  -- land tiles on water side
-	SATELLITE_PCT = 35,  -- % chance to add 1-2 satellite land tiles (1 water gap from main)
+	FAR_LAND_MIN = 3, FAR_LAND_MAX = 5,
+	SATELLITE_PCT = 35,
 	SATELLITE_MIN = 1, SATELLITE_MAX = 2,
 	HILLS_ADJ_PCT = 85, HILLS_2ND_PCT = 65, HILLS_3RD_PCT = 50,
 };
@@ -29,7 +27,6 @@ function TryPlaceRidgePeak(plotTypes, centerX, centerY, islLandInRing, params)
 	local cy = WrapCoord(centerY, iH, wrapY);
 	if cx < 0 or cx >= iW or cy < 0 or cy >= iH then return false; end
 
-	-- 1. Ridge in center (3-5 tiles, roughly line)
 	local ridgeLen = CONFIG.RIDGE_LEN_MIN + Map.Rand(CONFIG.RIDGE_LEN_RANGE, "");
 	local dir = Map.Rand(6, "") + 1;
 	local px, py = cx, cy;
@@ -65,7 +62,6 @@ function TryPlaceRidgePeak(plotTypes, centerX, centerY, islLandInRing, params)
 		plotTypes[y * iW + x] = riftSet[key] and PlotTypes.PLOT_OCEAN or PlotTypes.PLOT_MOUNTAIN;
 	end
 
-	-- 2. Land side: tiles adjacent to ridge, 40-80% land (rolled once per island)
 	local landSidePct = CONFIG.LAND_SIDE_PCT_MIN + Map.Rand(CONFIG.LAND_SIDE_PCT_MAX - CONFIG.LAND_SIDE_PCT_MIN + 1, "");
 	local landSideDir = dir;
 	local waterSideDir = ((dir + 2) % 6) + 1;
@@ -90,7 +86,6 @@ function TryPlaceRidgePeak(plotTypes, centerX, centerY, islLandInRing, params)
 		end
 	end
 
-	-- 3. Water side: 1 tile water gap, then 2-4 land tiles
 	local numFarLand = CONFIG.FAR_LAND_MIN + Map.Rand(CONFIG.FAR_LAND_MAX - CONFIG.FAR_LAND_MIN + 1, "");
 	local gapTiles = {};
 	for key in pairs(adjToRidge) do
@@ -131,7 +126,6 @@ function TryPlaceRidgePeak(plotTypes, centerX, centerY, islLandInRing, params)
 		plotTypes[y * iW + x] = PlotTypes.PLOT_OCEAN;
 	end
 
-	-- 4. Satellite islands: 1-2 land tiles with 1 water gap from main (occasionally)
 	local allLandSet = {};
 	for k in pairs(landSet) do allLandSet[k] = true; end
 	for k in pairs(farLandSet) do allLandSet[k] = true; end

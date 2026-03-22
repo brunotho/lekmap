@@ -1,9 +1,5 @@
-------------------------------------------------------------------------------
---	MountainWallIsland.lua
---
---	Layout: Curved mountain ridge (3-6 tiles), land behind. Longer ridges: less depth.
---	Ridge 5-6: mandatory 1-2 tile gap (hill/flat) inside ridge. Shorter: 65% chance gap.
-------------------------------------------------------------------------------
+-- Curved wall of mountains with a band of land on one side, sometimes a gap inside the wall.
+
 include("X_IslandHelpers");
 
 local function isLand(plotTypes, x, y, iW, iH)
@@ -70,7 +66,6 @@ function TryPlaceMountainWallIsland(plotTypes, centerX, centerY, islLandInRing, 
 		landTiles[#landTiles + 1] = {x, y, distFromRidge};
 	end
 
-	-- Curved ridge: bend every 1-2 steps
 	local x, y = cx, cy;
 	local curRidgeDir = ridgeDir;
 	local bendFreq = 1 + Map.Rand(2, "");
