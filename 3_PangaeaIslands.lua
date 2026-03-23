@@ -17,16 +17,17 @@ include("XX_island_uncommon_TwinBay");
 include("XX_island_uncommon_MountainWall");
 include("XX_island_uncommon_RidgePeak");
 include("XX_island_uncommon_LakeRidge");
+include("XX_island_uncommon_ClusterOfTiny");
 include("XX_island_rare_PolarMerge");
 include("XX_island_rare_Horn");
 include("XX_island_rare_ShatteredRing");
 include("XX_island_rare_SteppingStone");
-include("XX_island_rare_ClusterOfTiny");
 include("XX_island_rare_JunglePeak");
 include("XX_island_rare_SinaiIsland");
 include("XX_island_rare_Crescent");
-include("XX_island_rare_ElDoradoIsland");
+include("XX_island_rare_SolomonsMinesIsland");
 include("XX_island_rare_VolcanicRing");
+include("XX_island_rare_GeothermalIsland");
 -- include("XX_island_rare_FjordPeninsula");
 -- include("XX_island_rare_BrokenHeart");
 -- include("XX_island_rare_EdgeOfWorld");
@@ -34,37 +35,37 @@ include("XX_island_rare_VolcanicRing");
 -- include("XX_island_rare_RiverDelta");
 
 local CommonIslands = {
-	{ type = "dot",                  odds = 5, pullBack = 0, effMin = 2, effMax = 4, budget = 0.13 },
-	{ type = "strip",                odds = 1, pullBack = 0, effMin = 2, effMax = 4, budget = 0.42 },
-	{ type = "pebble",               odds = 0, pullBack = 0, effMin = 2, effMax = 4, budget = 0.38 },
-	{ type = "splinteredCliffsTiny", odds = 0, pullBack = 0, effMin = 2, effMax = 4, budget = 0.23 },
+	{ type = "dot",                  odds = 5, pullBack = 2, effMin = 0, effMax = 0, budget = 0.13 },
+	{ type = "pebble",               odds = 3, pullBack = 2, effMin = 0, effMax = 0, budget = 0.38 },
+	{ type = "strip",                odds = 2, pullBack = 2, effMin = 0, effMax = 1, budget = 0.42 },
+	{ type = "splinteredCliffsTiny", odds = 3, pullBack = 1, effMin = 0, effMax = 3, budget = 0.23 },
 };
 
 local UncommonIslands = {
-	{ type = "waterRift",           odds = 0, pullBack = 0, effMin = 6, effMax = 6, budget = 1.17 },
-	{ type = "chunk",               odds = 0, pullBack = 1, effMin = 3, effMax = 6, budget = 0.66 },
-	{ type = "barbell",             odds = 0, pullBack = 1, effMin = 1, effMax = 6, budget = 0.67 },
-	{ type = "snake",               odds = 0, pullBack = 2, effMin = 2, effMax = 5, budget = 1.13 },
-	{ type = "lollipop",            odds = 0, pullBack = 2, effMin = 2, effMax = 5, budget = 1.02 },
-	{ type = "wishbone",            odds = 0, pullBack = 2, effMin = 2, effMax = 4, budget = 0.75 },
-	{ type = "splinteredMountains", odds = 1, pullBack = 0, effMin = 4, effMax = 6, budget = 0.71, fragile = true },
-	{ type = "twinBay",             odds = 0, pullBack = 2, effMin = 2, effMax = 5, budget = 1.08 },
-	{ type = "shatteredRing",       odds = 0, pullBack = 2, effMin = 3, effMax = 6, budget = 1.67 },
-	{ type = "mountainWall",        odds = 0, pullBack = 0, effMin = 1, effMax = 5, budget = 0.60 },
-	{ type = "ridgePeak",           odds = 0, pullBack = 0, effMin = 1, effMax = 6, budget = 1.31 },
-	{ type = "splinteredCliffs",    odds = 0, pullBack = 0, effMin = 3, effMax = 6, budget = 0.72, fragile = true },
+	{ type = "mountainWall",        odds = 2, pullBack = 0, effMin = 1, effMax = 5, budget = 0.60 },
+	{ type = "ridgePeak",           odds = 2, pullBack = 0, effMin = 1, effMax = 6, budget = 1.31 },
+	{ type = "splinteredCliffs",    odds = 2, pullBack = 0, effMin = 3, effMax = 6, budget = 0.72, fragile = true },
+	{ type = "chunk",               odds = 2, pullBack = 1, effMin = 3, effMax = 6, budget = 0.66 },
+	{ type = "barbell",             odds = 2, pullBack = 1, effMin = 1, effMax = 6, budget = 0.67 },
+	{ type = "snake",               odds = 2, pullBack = 2, effMin = 2, effMax = 5, budget = 1.13 },
+	{ type = "lollipop",            odds = 2, pullBack = 3, effMin = 2, effMax = 5, budget = 1.02 },
+	{ type = "wishbone",            odds = 3, pullBack = 2, effMin = 2, effMax = 4, budget = 0.75 },
+	{ type = "twinBay",             odds = 2, pullBack = 2, effMin = 2, effMax = 5, budget = 1.08 },
+	{ type = "shatteredRing",       odds = 2, pullBack = 2, effMin = 3, effMax = 6, budget = 1.67 },
+	{ type = "clusterOfTiny",      	odds = 5, pullBack = 1, effMin = 1, effMax = 4, budget = 0.50, fragile = true },
+	{ type = "waterRift",           odds = 2, pullBack = 0, effMin = 6, effMax = 6, budget = 1.17 },
 };
 
 local RareIslands = {
-	{ type = "polarMerge",         odds = 1, pullBack = 3, effMin = 3, effMax = 5, budget = 4.0 },
-	{ type = "steppingStone",      odds = 0, pullBack = 3, effMin = 3, effMax = 5, budget = 1.0 },
-	{ type = "clusterOfTiny",      odds = 0, pullBack = 4, effMin = 5, effMax = 6, budget = 0.85, fragile = true },
-	{ type = "junglePeak",         odds = 0, pullBack = 3, effMin = 2, effMax = 6, budget = 1.65 },
-	{ type = "sinaiIsland",        odds = 0, pullBack = 2, effMin = 2, effMax = 5, budget = 1.5 },
-	{ type = "crescent",           odds = 0, pullBack = 3, effMin = 3, effMax = 5, budget = 1.62 },
-	{ type = "elDoradoIsland",     odds = 1, pullBack = 3, effMin = 2, effMax = 6, budget = 1.67 },
-	{ type = "volcanicRing",       odds = 0, pullBack = 3, effMin = 3, effMax = 6, budget = 1.85 },
-	{ type = "lakeRidge",          odds = 0, pullBack = 0, effMin = 0, effMax = 0, budget = 0 },
+	{ type = "polarMerge",         	odds = 5, pullBack = 3, effMin = 3, effMax = 5, budget = 2.5 },
+	{ type = "steppingStone",      	odds = 1, pullBack = 3, effMin = 3, effMax = 5, budget = 1.0 },
+	{ type = "crescent",           	odds = 1, pullBack = 3, effMin = 3, effMax = 5, budget = 1.62 },
+	{ type = "volcanicRing",       	odds = 1, pullBack = 2, effMin = 3, effMax = 6, budget = 1.85 },
+	{ type = "solomonsMinesIsland", odds = 1, pullBack = 2, effMin = 2, effMax = 6, budget = 1.67 },
+	{ type = "sinaiIsland",        	odds = 1, pullBack = 2, effMin = 2, effMax = 5, budget = 1.5 },
+	{ type = "geothermalIsland",  	odds = 2, pullBack = 2, effMin = 2, effMax = 6, budget = 1.2 },
+	{ type = "junglePeak",         	odds = 2, pullBack = 3, effMin = 2, effMax = 5, budget = 1.65 },
+	{ type = "lakeRidge",          	odds = 2, pullBack = 0, effMin = 0, effMax = 0, budget = 0 },
 	-- { type = "fjordPeninsula",     odds = 1, pullBack = 4, effMin = 4, effMax = 6, budget = 0.65 },
 	-- { type = "BrokenHeart",        odds = 1, pullBack = 2, effMin = 2, effMax = 5, budget = 1 },
 	-- { type = "EdgeOfWorld",        odds = 1, pullBack = 0, effMin = 0, effMax = 7, budget = 1 },
@@ -95,12 +96,14 @@ local IslandTypePlace = {
 	junglePeak = TryPlaceJunglePeakIsland,
 	sinaiIsland = TryPlaceSinaiIsland,
 	crescent = TryPlaceCrescentIsland,
-	elDoradoIsland = TryPlaceElDoradoIsland,
+	solomonsMinesIsland = TryPlaceSolomonsMinesIsland,
 	volcanicRing = TryPlaceVolcanicRing,
+	geothermalIsland = TryPlaceGeothermalIsland,
 	-- fjordPeninsula = TryPlaceFjordPeninsulaIsland,
 	-- BrokenHeart = TryPlaceBrokenHeartIsland,
 	-- EdgeOfWorld = TryPlaceEdgeOfWorldIsland,
 	-- EllipseArchipelago = TryPlaceEllipseArchipelagoIsland,
+	-- riverDelta = TryPlaceRiverDeltaIsland,
 };
 
 local AllIslandTypeTables = {
@@ -108,6 +111,9 @@ local AllIslandTypeTables = {
 	{ tier = "uncommon", pool = UncommonIslands },
 	{ tier = "rare", pool = RareIslands },
 };
+
+local PANGAEA_ISLAND_TOTAL_BUDGET = 10;
+local PANGAEA_COMMON_FILL_MAX_PASSES = 10000;
 
 local function GetOptEntry(islandType)
 	for _, t in ipairs(AllIslandTypeTables) do
@@ -193,10 +199,13 @@ function GeneratePangaeaIslands(self)
 	dbg2("### GeneratePangaeaIslands: start [" .. os.date("%H:%M:%S") .. "] ###");
 	_island_placed = {};
 	_sri_pada_island_plot = nil;
-	_solomons_ridge_mines_plot = nil;
+	_solomons_island_mines_plot = nil;
 	_krakatoa_island_plot = nil;
 	_sinai_island_plot = nil;
-	_el_dorado_island_plot = nil;
+	_geothermal_island_plot = nil;
+	_geothermal_island_nw_type = nil;
+	_geothermal_snow_plot_indices = nil;
+	_geothermal_forest_ring_indices = nil;
 	local iW, iH = Map.GetGridSize();
 	local wrapX = Map:IsWrapX();
 	local wrapY = false;
@@ -211,8 +220,7 @@ function GeneratePangaeaIslands(self)
 		end
 	end
 
-	local TOTAL_BUDGET    = 12;
-	local BUDGET_TOLERANCE = 0.2;
+	local TOTAL_BUDGET = PANGAEA_ISLAND_TOTAL_BUDGET;
 
 	local opts = {
 		iW = iW, iH = iH, wrapX = wrapX, wrapY = wrapY,
@@ -221,6 +229,7 @@ function GeneratePangaeaIslands(self)
 
 	local excludeSet = {};
 	local drafted = {};
+	local draftEstimate = 0;
 
 	local function draftAdd(t)
 		if t then
@@ -229,14 +238,32 @@ function GeneratePangaeaIslands(self)
 		end
 	end
 
-	local numRare        = 3;
-	local numUncommon    = 6;
+	local numRare = 1 + Map.Rand(4, "");
+	local numUncommon = 2 + Map.Rand(7, "");
 
-	for i = 1, numRare do
-		draftAdd(DraftOneFromTier(RareIslands, excludeSet));
+	for _ = 1, numRare do
+		for _try = 1, 50 do
+			local pick = DraftOneFromTier(RareIslands, excludeSet);
+			if not pick then break; end
+			local b = GetBudget(pick);
+			if draftEstimate + b <= TOTAL_BUDGET then
+				draftAdd(pick);
+				draftEstimate = draftEstimate + b;
+				break;
+			end
+		end
 	end
-	for i = 1, numUncommon do
-		draftAdd(DraftOneFromTier(UncommonIslands, excludeSet));
+	for _ = 1, numUncommon do
+		for _try = 1, 50 do
+			local pick = DraftOneFromTier(UncommonIslands, excludeSet);
+			if not pick then break; end
+			local b = GetBudget(pick);
+			if draftEstimate + b <= TOTAL_BUDGET then
+				draftAdd(pick);
+				draftEstimate = draftEstimate + b;
+				break;
+			end
+		end
 	end
 
 	table.sort(drafted, function(a, b)
@@ -253,35 +280,78 @@ function GeneratePangaeaIslands(self)
 			y = nil;
 		end
 		if y == nil then
-	if forceType == "junglePeak" then
-			if attempt and attempt >= 25 then
-				y = 3 + Map.Rand((iH - 6), "");
-			else
-				local bandHeight = 6 + Map.Rand(5, "");
-				local centerY = math.floor(iH / 2);
-				local jungleMin = math.max(2, centerY - math.floor(bandHeight / 2));
-				local jungleMax = math.min(iH - 3, jungleMin + bandHeight - 1);
-				y = jungleMin + Map.Rand(math.max(1, jungleMax - jungleMin + 1), "");
-			end
-		elseif forceType == "sinaiIsland" then
-			if attempt and attempt >= 25 then
-				y = 3 + Map.Rand((iH - 6), "");
-			else
-				local northMin = math.max(2, math.floor(0.25 * iH));
-				local northMax = math.min(iH - 3, math.floor(0.4 * iH));
-				local southMin = math.max(2, math.floor(0.6 * iH));
-				local southMax = math.min(iH - 3, math.floor(0.75 * iH));
-				if Map.Rand(2, "") == 0 and northMax >= northMin then
-					y = northMin + Map.Rand(math.max(1, northMax - northMin + 1), "");
-				elseif southMax >= southMin then
-					y = southMin + Map.Rand(math.max(1, southMax - southMin + 1), "");
+			if forceType == "junglePeak" then
+				if attempt and attempt >= 25 then
+					y = 3 + Map.Rand((iH - 6), "");
 				else
-					y = northMin + Map.Rand(math.max(1, northMax - northMin + 1), "");
+					local bandHeight = 6 + Map.Rand(5, "");
+					local centerY = math.floor(iH / 2);
+					local jungleMin = math.max(2, centerY - math.floor(bandHeight / 2));
+					local jungleMax = math.min(iH - 3, jungleMin + bandHeight - 1);
+					y = jungleMin + Map.Rand(math.max(1, jungleMax - jungleMin + 1), "");
 				end
+			elseif forceType == "solomonsMinesIsland" then
+				if attempt and attempt >= 60 then
+					y = 3 + Map.Rand((iH - 6), "");
+				else
+					local bandHeight = 5 + Map.Rand(4, "");
+					if Map.Rand(2, "") == 0 then
+						local dMin = math.max(2, math.floor(0.22 * iH));
+						local dMax = math.min(iH - 3, math.floor(0.34 * iH));
+						if dMax >= dMin then
+							local c0 = dMin + Map.Rand(math.max(1, dMax - dMin + 1), "");
+							local lo = math.max(2, c0 - math.floor(bandHeight / 2));
+							local hi = math.min(iH - 3, lo + bandHeight - 1);
+							y = lo + Map.Rand(math.max(1, hi - lo + 1), "");
+						else
+							y = 3 + Map.Rand((iH - 6), "");
+						end
+					else
+						local dMin = math.max(2, math.floor(0.66 * iH));
+						local dMax = math.min(iH - 3, math.floor(0.78 * iH));
+						if dMax >= dMin then
+							local c0 = dMin + Map.Rand(math.max(1, dMax - dMin + 1), "");
+							local lo = math.max(2, c0 - math.floor(bandHeight / 2));
+							local hi = math.min(iH - 3, lo + bandHeight - 1);
+							y = lo + Map.Rand(math.max(1, hi - lo + 1), "");
+						else
+							y = 3 + Map.Rand((iH - 6), "");
+						end
+					end
+				end
+			elseif forceType == "geothermalIsland" then
+				if attempt and attempt >= 25 then
+					y = 3 + Map.Rand((iH - 6), "");
+				else
+					if iH > 8 then
+						if Map.Rand(2, "") == 0 then
+							y = 3 + Map.Rand(2, "");
+						else
+							y = (iH - 4) + Map.Rand(2, "");
+						end
+					else
+						y = 3 + Map.Rand(math.max(1, iH - 6), "");
+					end
+				end
+			elseif forceType == "sinaiIsland" then
+				if attempt and attempt >= 50 then
+					y = 3 + Map.Rand((iH - 6), "");
+				else
+					local northMin = math.max(2, math.floor(0.22 * iH));
+					local northMax = math.min(iH - 3, math.floor(0.36 * iH));
+					local southMin = math.max(2, math.floor(0.64 * iH));
+					local southMax = math.min(iH - 3, math.floor(0.78 * iH));
+					if Map.Rand(2, "") == 0 and northMax >= northMin then
+						y = northMin + Map.Rand(math.max(1, northMax - northMin + 1), "");
+					elseif southMax >= southMin then
+						y = southMin + Map.Rand(math.max(1, southMax - southMin + 1), "");
+					else
+						y = northMin + Map.Rand(math.max(1, northMax - northMin + 1), "");
+					end
+				end
+			else
+				y = 3 + Map.Rand((iH - 6), "");
 			end
-		else
-			y = 3 + Map.Rand((iH - 6), "");
-		end
 		end
 		if x < 0 or x >= iW or y < 0 or y >= iH then return false; end
 		local plotIndex = y * iW + x + 1;
@@ -325,6 +395,11 @@ function GeneratePangaeaIslands(self)
 			if islLandInRing ~= 0 then break; end
 		end
 		if islLandInRing == 0 or self.plotTypes[landPlot] == PlotTypes.PLOT_OCEAN then return false; end
+		if forceType == "clusterOfTiny" and islLandInRing > 0 and attempt ~= nil and attempt < 50 then
+			if islLandInRing >= 5 then return false; end
+			if islLandInRing >= 4 and Map.Rand(100, "") < 78 then return false; end
+			if islLandInRing == 3 and Map.Rand(100, "") < 35 then return false; end
+		end
 		spotOpts.landX = landX;
 		spotOpts.landY = landY;
 		spotOpts.nearPangea = pangeaTiles[landPlot];  -- landPlot is 1-based
@@ -332,6 +407,27 @@ function GeneratePangaeaIslands(self)
 	end
 
 	local spentBudget = 0;
+	local function placeAndCount(islandType, attemptsCap)
+		local placed = false;
+		local attempts = 0;
+		local cap = attemptsCap or 180;
+		while not placed and attempts < cap do
+			placed = tryOneSpot(islandType, attempts);
+			attempts = attempts + 1;
+		end
+		if placed then
+			spentBudget = spentBudget + GetBudget(islandType);
+			islandsPlaced = islandsPlaced + 1;
+		end
+		return placed;
+	end
+
+	-- shoreline seeding while mainland adjacency is easiest
+	local shoreDots = 8 + Map.Rand(3, "");
+	local shorePebbles = Map.Rand(3, "");
+	for _ = 1, shoreDots do placeAndCount("dot", 60); end
+	for _ = 1, shorePebbles do placeAndCount("pebble", 60); end
+
 	dbg2("### GeneratePangaeaIslands: placing drafted islands ###");
 
 	for _, islandType in ipairs(drafted) do
@@ -370,29 +466,20 @@ function GeneratePangaeaIslands(self)
 				islandsPlaced = islandsPlaced + 1;
 			end
 		elseif IslandTypePlace[islandType] then
-			local placed = false;
-			local attempts = 0;
 			local maxAttempts = 180;
-			while not placed and attempts < maxAttempts do
-				placed = tryOneSpot(islandType, attempts);
-				attempts = attempts + 1;
+			if islandType == "solomonsMinesIsland" then
+				maxAttempts = 300;
 			end
-			if placed then
-				spentBudget = spentBudget + GetBudget(islandType);
-				islandsPlaced = islandsPlaced + 1;
-			end
+			placeAndCount(islandType, maxAttempts);
 		end
 	end
 
-	dbg2("### GeneratePangaeaIslands: drafted done, filling commons ###");
-	local escapeCommon = 500;
-	local commonAttempts = 0;
-	local consecutiveFails = 0;
-	local CONSECUTIVE_FAIL_CAP = 80;
-	while spentBudget < TOTAL_BUDGET and escapeCommon > 0 do
-		commonAttempts = commonAttempts + 1;
-		if commonAttempts == 1 or commonAttempts % 100 == 0 then
-			dbg2("### common fill attempt " .. commonAttempts .. ", budget " .. spentBudget .. "/" .. TOTAL_BUDGET .. " ###");
+	dbg2("### GeneratePangaeaIslands: drafted done, filling commons (until spent >= " .. TOTAL_BUDGET .. ", est at draft was " .. draftEstimate .. ") ###");
+	local commonPass = 0;
+	while spentBudget < TOTAL_BUDGET and commonPass < PANGAEA_COMMON_FILL_MAX_PASSES do
+		commonPass = commonPass + 1;
+		if commonPass == 1 or commonPass % 200 == 0 then
+			dbg2("### common fill pass " .. commonPass .. ", spent " .. spentBudget .. "/" .. TOTAL_BUDGET .. " ###");
 		end
 		local islandType = DraftOneFromTier(CommonIslands, {});
 		if islandType then
@@ -404,16 +491,8 @@ function GeneratePangaeaIslands(self)
 			if placed then
 				spentBudget = spentBudget + GetBudget(islandType);
 				islandsPlaced = islandsPlaced + 1;
-				consecutiveFails = 0;
-			else
-				consecutiveFails = consecutiveFails + 1;
-				if consecutiveFails >= CONSECUTIVE_FAIL_CAP then
-					dbg2("### common fill: " .. consecutiveFails .. " consecutive fails, exiting early ###");
-					break;
-				end
 			end
 		end
-		escapeCommon = escapeCommon - 1;
 	end
 
 	dbg2("### GeneratePangaeaIslands: islands placed = " .. tostring(islandsPlaced) .. " ###");

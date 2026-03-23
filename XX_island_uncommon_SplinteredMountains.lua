@@ -1,33 +1,20 @@
--- Many separate one-tile mountain dots in an area, with rare hill fringes and tiny land blobs.
-
 include("X_IslandHelpers");
 
 local CONFIG = {
-	RADIUS = 4,
-	MIN_ISLAND_DIST = 2,
-	NUM_ISLANDS_MIN = 10,
-	NUM_ISLANDS_MAX = 16,
-	HILL_ADJACENT_PCT = 12,
-	BLOB_SIZE_MIN = 2,
-	BLOB_SIZE_MAX = 3,
-	BLOB_CHANCE_PCT = 5,
-	TWO_TILE_PCT = 12,
+	OVAL_SEMI_MAJOR = 7,
+	OVAL_SEMI_MINOR = 4,
+	BLOB_HALF_LEN_MIN = 3, BLOB_HALF_LEN_MAX = 5,
+	BLOB_HALF_W_MIN = 1, BLOB_HALF_W_MAX = 2,
+	GAP_WIDTH = 1,
+	SPLINTER_COUNT_MIN = 4, SPLINTER_COUNT_MAX = 7,
+	SPLINTER_LEN_MIN = 1, SPLINTER_LEN_MAX = 3,
+	OUTER_LAND_PER_BLOB_MIN = 2, OUTER_LAND_PER_BLOB_MAX = 4,
 };
 
 local function isLand(plotTypes, x, y, iW, iH)
 	if x < 0 or x >= iW or y < 0 or y >= iH then return false; end
 	local t = plotTypes[y * iW + x];
 	return t == PlotTypes.PLOT_LAND or t == PlotTypes.PLOT_HILLS or t == PlotTypes.PLOT_MOUNTAIN;
-end
-
-local function manhattanDist(ax, ay, bx, by, iW, wrapX)
-	local dx = math.abs(bx - ax);
-	if wrapX and dx > iW / 2 then dx = iW - dx; end
-	return dx + math.abs(by - ay);
-end
-
-local function distToCenter(nx, ny, cx, cy, iW, wrapX)
-	return manhattanDist(nx, ny, cx, cy, iW, wrapX);
 end
 
 local function footprintClear(plotTypes, tiles, iW, iH)
@@ -48,141 +35,156 @@ function TryPlaceSplinteredMountainsIsland(plotTypes, centerX, centerY, islLandI
 	local cx = WrapCoord(centerX, params.iW, params.wrapX);
 	local cy = WrapCoord(centerY, params.iH, params.wrapY);
 	if cx < 0 or cx >= params.iW or cy < 0 or cy >= params.iH then return false; end
+	local orient = Map.Rand(2, "");
+	local alongA = (orient == 0) and 1 or 4;
+	local alongB = ((alongA + 2) % 6) + 1;
+	local splitDir = ((alongA + 1) % 6) + 1;
+	local splitOpp = ((splitDir + 2) % 6) + 1;
 
-	local disk = GetHexDisk(cx, cy, CONFIG.RADIUS, params.iW, params.iH, params.wrapX, params.wrapY);
-	local shuffled = {};
-	for i = 1, #disk do shuffled[i] = disk[i]; end
-	for i = #shuffled, 2, -1 do
-		local j = Map.Rand(i, "") + 1;
-		shuffled[i], shuffled[j] = shuffled[j], shuffled[i];
+	local function inOval(tx, ty)
+		local dx = tx - cx;
+		local dy = ty - cy;
+		if params.wrapX and math.abs(dx) > params.iW / 2 then
+			dx = dx - (dx > 0 and params.iW or -params.iW);
+		end
+		local ex, ey;
+		if orient == 0 then
+			ex = dx / CONFIG.OVAL_SEMI_MAJOR;
+			ey = dy / CONFIG.OVAL_SEMI_MINOR;
+		else
+			ex = dy / CONFIG.OVAL_SEMI_MAJOR;
+			ey = dx / CONFIG.OVAL_SEMI_MINOR;
+		end
+		return ex * ex + ey * ey <= 1;
 	end
 
-	local centers = {};
-	for _, t in ipairs(shuffled) do
-		local x, y = t[1], t[2];
-		local ok = true;
-		for _, c in ipairs(centers) do
-			if manhattanDist(x, y, c[1], c[2], params.iW, params.wrapX) < CONFIG.MIN_ISLAND_DIST then
-				ok = false;
-				break;
+	local allSet = {};
+	local mountainSet = {};
+	local landType = {};
+	local allTiles = {};
+
+	local function markMountain(x, y)
+		if x < 0 or x >= params.iW or y < 0 or y >= params.iH or not inOval(x, y) then return; end
+		local k = y * params.iW + x;
+		if not allSet[k] then
+			allSet[k] = true;
+			allTiles[#allTiles + 1] = {x, y};
+		end
+		mountainSet[k] = true;
+		landType[k] = "mountain";
+	end
+	local function markLand(x, y, t)
+		if x < 0 or x >= params.iW or y < 0 or y >= params.iH or not inOval(x, y) then return; end
+		local k = y * params.iW + x;
+		if not allSet[k] then
+			allSet[k] = true;
+			allTiles[#allTiles + 1] = {x, y};
+		end
+		if not mountainSet[k] then landType[k] = t; end
+	end
+
+	local cAx, cAy = GetHexNeighbor(cx, cy, splitDir, params.iW, params.iH, params.wrapX, params.wrapY);
+	local cBx, cBy = GetHexNeighbor(cx, cy, splitOpp, params.iW, params.iH, params.wrapX, params.wrapY);
+	if cAx < 0 or cAx >= params.iW or cAy < 0 or cAy >= params.iH then return false; end
+	if cBx < 0 or cBx >= params.iW or cBy < 0 or cBy >= params.iH then return false; end
+
+	local lenA = CONFIG.BLOB_HALF_LEN_MIN + Map.Rand(CONFIG.BLOB_HALF_LEN_MAX - CONFIG.BLOB_HALF_LEN_MIN + 1, "");
+	local lenB = CONFIG.BLOB_HALF_LEN_MIN + Map.Rand(CONFIG.BLOB_HALF_LEN_MAX - CONFIG.BLOB_HALF_LEN_MIN + 1, "");
+	local hwA = CONFIG.BLOB_HALF_W_MIN + Map.Rand(CONFIG.BLOB_HALF_W_MAX - CONFIG.BLOB_HALF_W_MIN + 1, "");
+	local hwB = CONFIG.BLOB_HALF_W_MIN + Map.Rand(CONFIG.BLOB_HALF_W_MAX - CONFIG.BLOB_HALF_W_MIN + 1, "");
+
+	local function drawBlob(seedX, seedY, alongDir, len, halfW)
+		local x, y = seedX, seedY;
+		for i = 1, len do
+			markMountain(x, y);
+			for w = 1, halfW do
+				local ldir = ((alongDir + 4) % 6) + 1;
+				local rdir = ((alongDir) % 6) + 1;
+				local lx, ly = x, y;
+				local rx, ry = x, y;
+				for _ = 1, w do lx, ly = GetHexNeighbor(lx, ly, ldir, params.iW, params.iH, params.wrapX, params.wrapY); end
+				for _ = 1, w do rx, ry = GetHexNeighbor(rx, ry, rdir, params.iW, params.iH, params.wrapX, params.wrapY); end
+				if lx >= 0 and lx < params.iW and ly >= 0 and ly < params.iH then markMountain(lx, ly); end
+				if rx >= 0 and rx < params.iW and ry >= 0 and ry < params.iH then markMountain(rx, ry); end
+			end
+			if i < len then
+				if Map.Rand(100, "") < 30 then alongDir = alongA; else alongDir = alongB; end
+				local nx, ny = GetHexNeighbor(x, y, alongDir, params.iW, params.iH, params.wrapX, params.wrapY);
+				if nx < 0 or nx >= params.iW or ny < 0 or ny >= params.iH then break; end
+				x, y = nx, ny;
 			end
 		end
-		if ok then
-			centers[#centers + 1] = {x, y};
-			if #centers >= CONFIG.NUM_ISLANDS_MAX then break; end
+	end
+
+	drawBlob(cAx, cAy, alongA, lenA, hwA);
+	drawBlob(cBx, cBy, alongB, lenB, hwB);
+
+	-- Single split cleft between the two blobs.
+	do
+		local gx, gy = cx, cy;
+		for _ = 1, CONFIG.GAP_WIDTH do
+			local k = gy * params.iW + gx;
+			allSet[k] = nil;
+			mountainSet[k] = nil;
+			landType[k] = nil;
+			local nx, ny = GetHexNeighbor(gx, gy, splitDir, params.iW, params.iH, params.wrapX, params.wrapY);
+			if nx < 0 or nx >= params.iW or ny < 0 or ny >= params.iH then break; end
+			gx, gy = nx, ny;
 		end
 	end
 
-	if #centers < CONFIG.NUM_ISLANDS_MIN then return false; end
+	-- Mountain splinters mostly extending from each blob.
+	local spl = CONFIG.SPLINTER_COUNT_MIN + Map.Rand(CONFIG.SPLINTER_COUNT_MAX - CONFIG.SPLINTER_COUNT_MIN + 1, "");
+	local seeds = {
+		{ cAx, cAy, splitDir },
+		{ cBx, cBy, splitOpp },
+	};
+	for _ = 1, spl do
+		local s = seeds[1 + Map.Rand(#seeds, "")];
+		local sx, sy, sdir = s[1], s[2], s[3];
+		local px, py = sx, sy;
+		local n = CONFIG.SPLINTER_LEN_MIN + Map.Rand(CONFIG.SPLINTER_LEN_MAX - CONFIG.SPLINTER_LEN_MIN + 1, "");
+		for _j = 1, n do
+			local dir = sdir;
+			if Map.Rand(100, "") < 35 then dir = ((dir + ((Map.Rand(2, "") == 0) and -1 or 1) + 5) % 6) + 1; end
+			local nx, ny = GetHexNeighbor(px, py, dir, params.iW, params.iH, params.wrapX, params.wrapY);
+			if nx < 0 or nx >= params.iW or ny < 0 or ny >= params.iH then break; end
+			px, py = nx, ny;
+			markMountain(px, py);
+		end
+	end
+
+	-- Place a few land/hill tiles on the outer side of each blob (away from the split).
+	local outerCount = CONFIG.OUTER_LAND_PER_BLOB_MIN + Map.Rand(CONFIG.OUTER_LAND_PER_BLOB_MAX - CONFIG.OUTER_LAND_PER_BLOB_MIN + 1, "");
+	for _ = 1, outerCount do
+		local ox, oy = cAx, cAy;
+		local steps = 1 + Map.Rand(2, "");
+		for _s = 1, steps do
+			ox, oy = GetHexNeighbor(ox, oy, splitOpp, params.iW, params.iH, params.wrapX, params.wrapY);
+		end
+		if ox >= 0 and ox < params.iW and oy >= 0 and oy < params.iH then
+			markLand(ox, oy, (Map.Rand(100, "") < 55) and "hill" or "land");
+		end
+	end
+	for _ = 1, outerCount do
+		local ox, oy = cBx, cBy;
+		local steps = 1 + Map.Rand(2, "");
+		for _s = 1, steps do
+			ox, oy = GetHexNeighbor(ox, oy, splitDir, params.iW, params.iH, params.wrapX, params.wrapY);
+		end
+		if ox >= 0 and ox < params.iW and oy >= 0 and oy < params.iH then
+			markLand(ox, oy, (Map.Rand(100, "") < 55) and "hill" or "land");
+		end
+	end
 
 	local landTiles = {};
-	local mountainTiles = {};
-	local used = {};
-	local blobCenterIdx = (Map.Rand(100, "") < CONFIG.BLOB_CHANCE_PCT) and (1 + Map.Rand(#centers, "")) or nil;
-
-	for i, c in ipairs(centers) do
-		local x, y = c[1], c[2];
-		local key = y * params.iW + x;
-		if not used[key] then
-			local isBlob = (blobCenterIdx == i);
-
-			if isBlob then
-				local blobSize = CONFIG.BLOB_SIZE_MIN + Map.Rand(CONFIG.BLOB_SIZE_MAX - CONFIG.BLOB_SIZE_MIN + 1, "");
-				local blob = {{x, y, "land"}};
-				used[key] = true;
-				local frontier = {{x, y}};
-				for _ = 2, blobSize do
-					if #frontier == 0 then break; end
-					local idx = Map.Rand(#frontier, "") + 1;
-					local fx, fy = frontier[idx][1], frontier[idx][2];
-					table.remove(frontier, idx);
-					local adj = (fy % 2 ~= 0) and firstRingYIsOdd or firstRingYIsEven;
-					for d = 1, 6 do
-						local nx = fx + adj[d][1];
-						local ny = fy + adj[d][2];
-						nx = WrapCoord(nx, params.iW, params.wrapX);
-						ny = WrapCoord(ny, params.iH, params.wrapY);
-						if nx >= 0 and nx < params.iW and ny >= 0 and ny < params.iH then
-							local nkey = ny * params.iW + nx;
-							if not used[nkey] then
-								local isHill = (Map.Rand(100, "") < 60);
-								blob[#blob + 1] = {nx, ny, isHill and "hill" or "land"};
-								frontier[#frontier + 1] = {nx, ny};
-								used[nkey] = true;
-								break;
-							end
-						end
-					end
-				end
-				for _, b in ipairs(blob) do landTiles[#landTiles + 1] = b; end
-			else
-				local r = Map.Rand(100, "");
-				if r < (100 - CONFIG.TWO_TILE_PCT) then
-					landTiles[#landTiles + 1] = {x, y, "mountain"};
-					mountainTiles[#mountainTiles + 1] = {x, y};
-					used[key] = true;
-				else
-					landTiles[#landTiles + 1] = {x, y, "mountain"};
-					mountainTiles[#mountainTiles + 1] = {x, y};
-					used[key] = true;
-					local adj = (y % 2 ~= 0) and firstRingYIsOdd or firstRingYIsEven;
-					local candidates = {};
-					for d = 1, 6 do
-						local nx = x + adj[d][1];
-						local ny = y + adj[d][2];
-						nx = WrapCoord(nx, params.iW, params.wrapX);
-						ny = WrapCoord(ny, params.iH, params.wrapY);
-						if nx >= 0 and nx < params.iW and ny >= 0 and ny < params.iH then
-							local nkey = ny * params.iW + nx;
-							if not used[nkey] then
-								local dist = distToCenter(nx, ny, cx, cy, params.iW, params.wrapX);
-								candidates[#candidates + 1] = {nx, ny, nkey, dist};
-							end
-						end
-					end
-					if #candidates > 0 then
-						table.sort(candidates, function(a, b) return a[4] < b[4]; end);
-						local pick = (Map.Rand(100, "") < 70) and 1 or (1 + Map.Rand(math.min(2, #candidates), ""));
-						local nx, ny, nkey = candidates[pick][1], candidates[pick][2], candidates[pick][3];
-						local isHill = (Map.Rand(100, "") < 50);
-						landTiles[#landTiles + 1] = {nx, ny, isHill and "hill" or "mountain"};
-						if not isHill then mountainTiles[#mountainTiles + 1] = {nx, ny}; end
-						used[nkey] = true;
-					end
-				end
-			end
+	for _, t in ipairs(allTiles) do
+		local k = t[2] * params.iW + t[1];
+		if allSet[k] then
+			landTiles[#landTiles + 1] = { t[1], t[2], landType[k] or "mountain" };
 		end
 	end
-
-	for _, m in ipairs(mountainTiles) do
-		if Map.Rand(100, "") < CONFIG.HILL_ADJACENT_PCT then
-			local x, y = m[1], m[2];
-			local adj = (y % 2 ~= 0) and firstRingYIsOdd or firstRingYIsEven;
-			local candidates = {};
-			for d = 1, 6 do
-				local nx = x + adj[d][1];
-				local ny = y + adj[d][2];
-				nx = WrapCoord(nx, params.iW, params.wrapX);
-				ny = WrapCoord(ny, params.iH, params.wrapY);
-				if nx >= 0 and nx < params.iW and ny >= 0 and ny < params.iH then
-					local nkey = ny * params.iW + nx;
-					if not used[nkey] then
-						local dist = distToCenter(nx, ny, cx, cy, params.iW, params.wrapX);
-						candidates[#candidates + 1] = {nx, ny, nkey, dist};
-					end
-				end
-			end
-			if #candidates > 0 then
-				table.sort(candidates, function(a, b) return a[4] < b[4]; end);
-				local pick = (Map.Rand(100, "") < 75) and 1 or (1 + Map.Rand(math.min(2, #candidates), ""));
-				local nx, ny, nkey = candidates[pick][1], candidates[pick][2], candidates[pick][3];
-				landTiles[#landTiles + 1] = {nx, ny, "hill"};
-				used[nkey] = true;
-			end
-		end
-	end
-
-	if #landTiles < 8 then return false; end
+	if #landTiles < 12 then return false; end
 	if not footprintClear(plotTypes, landTiles, params.iW, params.iH) then return false; end
 
 	DrawSplinteredMountainsIsland(plotTypes, landTiles, params.iW);

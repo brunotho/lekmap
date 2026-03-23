@@ -1780,7 +1780,145 @@ function GenerateTerrain()
 	FixCoastLine()
 	
 	FixIslands();
+	FixSolomonsMinesIslandDesert();
+	FixSinaiIslandDesert();
+	FixGeothermalIslandSnow();
+	FixGeothermalIslandForest();
 
+end
+
+------------------------------------------------------------------------------
+function FixGeothermalIslandSnow()
+	if not _geothermal_snow_plot_indices then return; end
+	local iW, _ = Map.GetGridSize();
+	for _, idx in ipairs(_geothermal_snow_plot_indices) do
+		local x = (idx - 1) % iW;
+		local y = math.floor((idx - 1) / iW);
+		local plot = Map.GetPlot(x, y);
+		if plot and not plot:IsWater() then
+			local pt = plot:GetPlotType();
+			if pt == PlotTypes.PLOT_LAND or pt == PlotTypes.PLOT_HILLS or pt == PlotTypes.PLOT_MOUNTAIN then
+				plot:SetTerrainType(TerrainTypes.TERRAIN_SNOW, false, false);
+			end
+		end
+	end
+end
+
+------------------------------------------------------------------------------
+function FixGeothermalIslandForest()
+	if not _geothermal_forest_ring_indices then return; end
+	local iW, _ = Map.GetGridSize();
+	for _, idx in ipairs(_geothermal_forest_ring_indices) do
+		if Map.Rand(100, "") < 10 then
+			local x = (idx - 1) % iW;
+			local y = math.floor((idx - 1) / iW);
+			local plot = Map.GetPlot(x, y);
+			if plot and not plot:IsWater() then
+				local pt = plot:GetPlotType();
+				if (pt == PlotTypes.PLOT_LAND or pt == PlotTypes.PLOT_HILLS) and plot:GetFeatureType() == FeatureTypes.NO_FEATURE then
+					plot:SetFeatureType(FeatureTypes.FEATURE_FOREST, -1);
+				end
+			end
+		end
+	end
+end
+
+------------------------------------------------------------------------------
+function FixSolomonsMinesIslandDesert()
+	if not _solomons_island_mines_plot or not GetHexNeighbor then return; end
+	local iW, iH = Map.GetGridSize();
+	local wrapX = Map:IsWrapX();
+	local wrapY = Map.IsWrapY and Map:IsWrapY() or false;
+	local idx = _solomons_island_mines_plot;
+	local cx = (idx - 1) % iW;
+	local cy = math.floor((idx - 1) / iW);
+	local ring1Keys = {};
+	local ring1 = {};
+	for d = 1, 6 do
+		local nx, ny = GetHexNeighbor(cx, cy, d, iW, iH, wrapX, wrapY);
+		if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+			local k = nx .. "," .. ny;
+			ring1Keys[k] = true;
+			ring1[#ring1 + 1] = { nx, ny };
+		end
+	end
+	for _, p in ipairs(ring1) do
+		local plot = Map.GetPlot(p[1], p[2]);
+		if plot and not plot:IsWater() then
+			local pt = plot:GetPlotType();
+			if (pt == PlotTypes.PLOT_LAND or pt == PlotTypes.PLOT_HILLS) and Map.Rand(100, "") < 80 then
+				plot:SetTerrainType(TerrainTypes.TERRAIN_DESERT, false, false);
+			end
+		end
+	end
+	local ring2Seen = {};
+	for _, p in ipairs(ring1) do
+		for d = 1, 6 do
+			local nx, ny = GetHexNeighbor(p[1], p[2], d, iW, iH, wrapX, wrapY);
+			if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+				local k = nx .. "," .. ny;
+				if (nx ~= cx or ny ~= cy) and not ring1Keys[k] and not ring2Seen[k] then
+					ring2Seen[k] = true;
+					local plot = Map.GetPlot(nx, ny);
+					if plot and not plot:IsWater() then
+						local pt = plot:GetPlotType();
+						if (pt == PlotTypes.PLOT_LAND or pt == PlotTypes.PLOT_HILLS) and Map.Rand(100, "") < 20 then
+							plot:SetTerrainType(TerrainTypes.TERRAIN_DESERT, false, false);
+						end
+					end
+				end
+			end
+		end
+	end
+end
+
+------------------------------------------------------------------------------
+function FixSinaiIslandDesert()
+	if not _sinai_island_plot or not GetHexNeighbor then return; end
+	local iW, iH = Map.GetGridSize();
+	local wrapX = Map:IsWrapX();
+	local wrapY = Map.IsWrapY and Map:IsWrapY() or false;
+	local idx = _sinai_island_plot;
+	local cx = (idx - 1) % iW;
+	local cy = math.floor((idx - 1) / iW);
+	local ring1Keys = {};
+	local ring1 = {};
+	for d = 1, 6 do
+		local nx, ny = GetHexNeighbor(cx, cy, d, iW, iH, wrapX, wrapY);
+		if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+			local k = nx .. "," .. ny;
+			ring1Keys[k] = true;
+			ring1[#ring1 + 1] = { nx, ny };
+		end
+	end
+	for _, p in ipairs(ring1) do
+		local plot = Map.GetPlot(p[1], p[2]);
+		if plot and not plot:IsWater() then
+			local pt = plot:GetPlotType();
+			if (pt == PlotTypes.PLOT_LAND or pt == PlotTypes.PLOT_HILLS) and Map.Rand(100, "") < 65 then
+				plot:SetTerrainType(TerrainTypes.TERRAIN_DESERT, false, false);
+			end
+		end
+	end
+	local ring2Seen = {};
+	for _, p in ipairs(ring1) do
+		for d = 1, 6 do
+			local nx, ny = GetHexNeighbor(p[1], p[2], d, iW, iH, wrapX, wrapY);
+			if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+				local k = nx .. "," .. ny;
+				if (nx ~= cx or ny ~= cy) and not ring1Keys[k] and not ring2Seen[k] then
+					ring2Seen[k] = true;
+					local plot = Map.GetPlot(nx, ny);
+					if plot and not plot:IsWater() then
+						local pt = plot:GetPlotType();
+						if (pt == PlotTypes.PLOT_LAND or pt == PlotTypes.PLOT_HILLS) and Map.Rand(100, "") < 15 then
+							plot:SetTerrainType(TerrainTypes.TERRAIN_DESERT, false, false);
+						end
+					end
+				end
+			end
+		end
+	end
 end
 
 ------------------------------------------------------------------------------
