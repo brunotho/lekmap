@@ -188,6 +188,7 @@ function AssignStartingPlots.Create()
 		PlaceFish = AssignStartingPlots.PlaceFish,
 		PlaceFishMainland = AssignStartingPlots.PlaceFishMainland,
 		PlaceSexyBonusAtCivStarts = AssignStartingPlots.PlaceSexyBonusAtCivStarts,
+		PlaceCoastalBonusIslands = AssignStartingPlots.PlaceCoastalBonusIslands,
 		AddExtraBonusesToHillsRegions = AssignStartingPlots.AddExtraBonusesToHillsRegions,
 		AddModernMinorStrategicsToCityStates = AssignStartingPlots.AddModernMinorStrategicsToCityStates,
 		PlaceOilInTheSea = AssignStartingPlots.PlaceOilInTheSea,
@@ -13437,6 +13438,217 @@ function AssignStartingPlots:PlaceSexyBonusAtCivStarts()
 	end
 end
 ------------------------------------------------------------------------------
+function AssignStartingPlots:PlaceCoastalBonusIslands()
+	local iW, iH = Map.GetGridSize();
+	local wrapX = Map:IsWrapX();
+	local wrapY = Map:IsWrapY();
+	local odd = self.firstRingYIsOdd;
+	local even = self.firstRingYIsEven;
+	local forestID = -1;
+	for f in GameInfo.Features() do
+		if f.Type == "FEATURE_FOREST" then
+			forestID = f.ID;
+			break;
+		end
+	end
+
+	local function plotIndex(x, y) return y * iW + x + 1; end
+	local function inBounds(x, y) return x >= 0 and x < iW and y >= 0 and y < iH; end
+	local function getNeighbor(x, y, d)
+		local adj = (y % 2 ~= 0) and odd[d] or even[d];
+		local nx = x + adj[1];
+		local ny = y + adj[2];
+		if wrapX then nx = nx % iW; end
+		if wrapY then ny = ny % iH; end
+		return nx, ny;
+	end
+	local function countAdjacentLand(x, y, placedSet)
+		local n = 0;
+		for d = 1, 6 do
+			local nx, ny = getNeighbor(x, y, d);
+			if inBounds(nx, ny) then
+				if placedSet and placedSet[plotIndex(nx, ny)] then
+					n = n + 1;
+				else
+				local p = Map.GetPlot(nx, ny);
+				if p and not p:IsWater() then n = n + 1; end
+				end
+			end
+		end
+		return n;
+	end
+	local function hasLandAtRing2(x, y)
+		for d = 1, 6 do
+			local sx, sy = getNeighbor(x, y, d);
+			if inBounds(sx, sy) then
+				for dd = 1, 6 do
+					local rx, ry = getNeighbor(sx, sy, dd);
+					if inBounds(rx, ry) and not (rx == x and ry == y) then
+						local p = Map.GetPlot(rx, ry);
+						if p and not p:IsWater() then return true; end
+					end
+				end
+			end
+		end
+		return false;
+	end
+	local function capitalHasOpenWater(sx, sy, placedSet)
+		local waterAdj = 0;
+		for d = 1, 6 do
+			local nx, ny = getNeighbor(sx, sy, d);
+			if inBounds(nx, ny) then
+				local ii = plotIndex(nx, ny);
+				if not (placedSet and placedSet[ii]) then
+					local p = Map.GetPlot(nx, ny);
+					if p and p:IsWater() then waterAdj = waterAdj + 1; end
+				end
+			end
+		end
+		return waterAdj > 0;
+	end
+	local function placeOneIslandForStart(sx, sy, minRing, maxRing)
+		local candidates = {};
+		for ripple_radius = minRing, maxRing do
+			local currentX = sx - ripple_radius;
+			local currentY = sy;
+			for direction_index = 1, 6 do
+				for _ = 1, ripple_radius do
+					local plot_adjustments = (currentY / 2 > math.floor(currentY / 2)) and odd[direction_index] or even[direction_index];
+					local nextX = currentX + plot_adjustments[1];
+					local nextY = currentY + plot_adjustments[2];
+					if wrapX == false and (nextX < 0 or nextX >= iW) then
+					elseif wrapY == false and (nextY < 0 or nextY >= iH) then
+					else
+						local realX = nextX;
+						local realY = nextY;
+						if wrapX then realX = realX % iW; end
+						if wrapY then realY = realY % iH; end
+						local p = Map.GetPlot(realX, realY);
+						if p and p:IsWater()
+							and not p:IsLake()
+							and countAdjacentLand(realX, realY) == 0
+							and hasLandAtRing2(realX, realY)
+						then
+							candidates[#candidates + 1] = { realX, realY };
+						end
+					end
+					currentX, currentY = nextX, nextY;
+				end
+			end
+		end
+		if #candidates == 0 then return false; end
+
+		local seedPool = math.min(8, #candidates);
+		local seed = candidates[1 + Map.Rand(seedPool, "")];
+		local islandTiles = { {seed[1], seed[2]} };
+		local used = {};
+		used[plotIndex(seed[1], seed[2])] = true;
+		local target = 2 + Map.Rand(5, ""); -- 2..6
+		if Map.Rand(100, "") < 6 then
+			target = 7 + Map.Rand(2, ""); -- rare 7..8
+		end
+		local fi = 1;
+		while #islandTiles < target and fi <= #islandTiles do
+			local fx = islandTiles[fi][1];
+			local fy = islandTiles[fi][2];
+			local d0 = 1 + Map.Rand(6, "");
+			local added = false;
+			for j = 0, 5 do
+				local d = ((d0 + j - 1) % 6) + 1;
+				local nx, ny = getNeighbor(fx, fy, d);
+				if inBounds(nx, ny) then
+					local ii = plotIndex(nx, ny);
+					local p = Map.GetPlot(nx, ny);
+					if not used[ii] and p and p:IsWater() and not p:IsLake() then
+						local dCap = nil;
+						if Map.PlotDistance then
+							dCap = Map.PlotDistance(sx, sy, nx, ny);
+						elseif PlotDistance then
+							dCap = PlotDistance(sx, sy, nx, ny);
+						end
+						if dCap and dCap > 8 then
+						else
+							local adjLand = countAdjacentLand(nx, ny, used);
+							local nextTileNumber = #islandTiles + 1;
+							local ok = false;
+							if nextTileNumber == 2 then
+								ok = (adjLand == 1);
+							else
+								ok = (adjLand == 1 or adjLand == 2);
+								-- Add shape noise: occasionally allow slightly looser adjacency.
+								if not ok and Map.Rand(100, "") < 36 then
+									ok = (adjLand >= 0 and adjLand <= 3);
+								end
+							end
+							if ok then
+								used[ii] = true;
+								islandTiles[#islandTiles + 1] = { nx, ny };
+								added = true;
+								break;
+							end
+						end
+					end
+				end
+			end
+			if not added then fi = fi + 1; end
+		end
+		if #islandTiles < 2 then return false; end
+
+		local backup = {};
+		local placedSet = {};
+		for _, t in ipairs(islandTiles) do
+			local p = Map.GetPlot(t[1], t[2]);
+			if p and p:IsWater() then
+				placedSet[plotIndex(t[1], t[2])] = true;
+				backup[#backup + 1] = {
+					x = t[1], y = t[2],
+					pt = p:GetPlotType(),
+					tt = p:GetTerrainType(),
+					ft = p:GetFeatureType()
+				};
+				p:SetPlotType((Map.Rand(100, "") < 70) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND, false, false);
+				if p:GetTerrainType() == TerrainTypes.TERRAIN_COAST then
+					p:SetTerrainType((Map.Rand(100, "") < 62) and TerrainTypes.TERRAIN_GRASS or TerrainTypes.TERRAIN_PLAINS, false, false);
+				end
+			end
+		end
+		-- 65% forest over island (where allowed).
+		if forestID ~= -1 then
+			for _, t in ipairs(islandTiles) do
+				local p = Map.GetPlot(t[1], t[2]);
+				if p and not p:IsWater() and p:GetFeatureType() == FeatureTypes.NO_FEATURE and Map.Rand(100, "") < 65 then
+					p:SetFeatureType(forestID, -1);
+				end
+			end
+		end
+		local checkStart = Map.GetPlot(sx, sy);
+		if not (checkStart and checkStart:IsCoastalLand(300) and capitalHasOpenWater(sx, sy, placedSet)) then
+			for _, b in ipairs(backup) do
+				local p = Map.GetPlot(b.x, b.y);
+				if p then
+					p:SetPlotType(b.pt, false, false);
+					p:SetTerrainType(b.tt, false, false);
+					p:SetFeatureType(b.ft, -1);
+				end
+			end
+			return false;
+		end
+		return true;
+	end
+
+	for region_number = 1, self.iNumCivs do
+		local sx = self.startingPlots[region_number][1];
+		local sy = self.startingPlots[region_number][2];
+		local startPlot = Map.GetPlot(sx, sy);
+		if startPlot and startPlot:IsCoastalLand() then
+			placeOneIslandForStart(sx, sy, 3, 6);
+			if Map.Rand(100, "") < 20 then
+				placeOneIslandForStart(sx, sy, 5, 8);
+			end
+		end
+	end
+end
+------------------------------------------------------------------------------
 function AssignStartingPlots:AddExtraBonusesToHillsRegions()
 	-- Hills regions are very low on food, yet not deemed by the fertility measurements to be so.
 	-- Spreading some food bonus around in these regions will help bring them up closer to par.
@@ -14346,6 +14558,7 @@ function AssignStartingPlots:PlaceResourcesAndCityStates()
 	-- system as accessible and powerful as any ever before offered.
 
 	print("Map Generation - Assigning Luxury Resource Distribution");
+	self:PlaceCoastalBonusIslands()
 	self:AssignLuxuryRoles()
 	self:PlaceCityStates()
 	-- Generate global plot lists for resource distribution.

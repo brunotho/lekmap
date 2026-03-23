@@ -43,14 +43,14 @@ include("XX_island_rare_GeothermalIsland");
 -- lower pullBack/eff* -> generally closer to mainland.
 local CommonIslands = {
 	{ type = "dot",                  odds = 5, pullBack = 1, effMin = 0, effMax = 0, budget = 0.10 },
-	{ type = "pebble",               odds = 4, pullBack = 1, effMin = 0, effMax = 0, budget = 0.38 },
+	{ type = "pebble",               odds = 2, pullBack = 1, effMin = 0, effMax = 0, budget = 0.38 },
 	{ type = "strip",                odds = 2, pullBack = 1, effMin = 0, effMax = 1, budget = 0.42 },
 	{ type = "splinteredCliffsTiny", odds = 3, pullBack = 1, effMin = 0, effMax = 2, budget = 0.23 },
 };
 
 local UncommonIslands = {
 	{ type = "mountainWall",        odds = 2, pullBack = 0, effMin = 0, effMax = 4, budget = 0.60 },
-	{ type = "ridgePeak",           odds = 2, pullBack = 0, effMin = 0, effMax = 5, budget = 1.31 },
+	{ type = "ridgePeak",           odds = 2, pullBack = 0, effMin = 0, effMax = 3, budget = 1.31 },
 	{ type = "splinteredCliffs",    odds = 2, pullBack = 0, effMin = 2, effMax = 5, budget = 0.72, fragile = true },
 	{ type = "chunk",               odds = 2, pullBack = 1, effMin = 2, effMax = 5, budget = 0.66 },
 	{ type = "barbell",             odds = 4, pullBack = 1, effMin = 0, effMax = 5, budget = 0.67 },
@@ -65,12 +65,12 @@ local UncommonIslands = {
 
 local RareIslands = {
 	{ type = "polarMerge",         	odds = 5, pullBack = 3, effMin = 3, effMax = 5, budget = 2.5 },
-	{ type = "steppingStone",      	odds = 1, pullBack = 2, effMin = 2, effMax = 4, budget = 1.0 },
+	{ type = "steppingStone",      	odds = 1, pullBack = 2, effMin = 2, effMax = 4, budget = 0.9 },
 	{ type = "crescent",           	odds = 1, pullBack = 2, effMin = 2, effMax = 4, budget = 1.62 },
 	{ type = "volcanicRing",       	odds = 1, pullBack = 1, effMin = 2, effMax = 5, budget = 1.85 },
-	{ type = "solomonsMinesIsland", odds = 1, pullBack = 2, effMin = 2, effMax = 6, budget = 1.67 },
+	{ type = "solomonsMinesIsland", odds = 1, pullBack = 2, effMin = 2, effMax = 5, budget = 1.67 },
 	{ type = "sinaiIsland",        	odds = 1, pullBack = 2, effMin = 2, effMax = 5, budget = 1.5 },
-	{ type = "geothermalIsland",  	odds = 2, pullBack = 2, effMin = 2, effMax = 6, budget = 1.2 },
+	{ type = "geothermalIsland",  	odds = 2, pullBack = 2, effMin = 2, effMax = 5, budget = 1.2 },
 	{ type = "junglePeak",         	odds = 2, pullBack = 3, effMin = 2, effMax = 5, budget = 1.65 },
 	{ type = "lakeRidge",          	odds = 2, pullBack = 0, effMin = 0, effMax = 0, budget = 0 },
 	-- { type = "fjordPeninsula",     odds = 1, pullBack = 4, effMin = 4, effMax = 6, budget = 0.65 },
