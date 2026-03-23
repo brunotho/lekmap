@@ -1,67 +1,15 @@
-Lekmap v5.3 — changes since v5.2
-================================
+Lekmap v5.3 (since v5.2)
+========================
 
-This file is the release changelog for the map script: what actually changed
-from v5.2 to v5.3. Add new bullets here only when a change is finished (not
-WIP notes). Over time it should read as one coherent v5.3 story.
+Fractal / pipeline (LekmapPangaeaFractalv5.3.lua)
+- plotTypes writes use 1-based indices (y*iW+x+1) wherever they must match 4_HBMapGenerator.SetPlotTypes.
+- Inland sea spray: after rounding, eligible tiles are rebuilt from the full connected component, not only the last rounding pass.
 
+Islands (3_PangaeaIslands.lua + XX_island_*.lua)
+- Added and extended several island type modules; each paints into the shared plotTypes table before SetPlotTypes (terrain pass still runs after).
+- Rough flow: build a draft queue of rare + uncommon types (random how many per tier) using per-type odds and a running estimated budget under one total cap; run a short shoreline micro-pass (counts toward budget); place each drafted type with capped retries; then repeatedly draft common types and place until real spend reaches the budget. tryOneSpot picks ocean seeds and checks ring distance to land (pullBack + effMin/effMax), then calls that type’s TryPlace* handler.
+- Island scripts use the same 1-based plotTypes indexing as the fractal pipeline.
 
-Fractal / plot pipeline (LekmapPangaeaFractalv5.3.lua)
------------------------------------------------------
-- Fixed plotTypes indexing: terrain and downstream passes that write
-  self.plotTypes now use 1-based indices (y*iW+x+1), matching
-  4_HBMapGenerator.SetPlotTypes, which indexes the Lua table with i+1 per plot.
-  v5.2 mixed 0-based fractal writes with 1-based consumers, which shifted
-  coast/land relative to islands and broke wedge alignment.
-- Inland sea rounding: after rounding/enlarging, the tile list used for inland
-  sea “spray” is rebuilt from the full connected component so every tile in the
-  region is eligible, not only tiles touched in the last rounding iteration.
-
-
-Island orchestration (3_PangaeaIslands.lua)
--------------------------------------------
-- Island layer continues to edit the same plotTypes table before SetPlotTypes;
-  placement order unchanged in spirit (special branches first, then drafted
-  types via tryOneSpot where applicable).
-- Increased max tryOneSpot attempts for drafted island placement so rare picks
-  that depend on random ocean seeds get more rolls.
-- Rare roster: some types removed from active draft (commented includes + table
-  entries, parked at bottom of rare lists) while tuning; odds/params adjusted on
-  types still in rotation.
-- River delta disabled from draft (commented include, table entry, placement
-  branch) alongside other paused rares.
-- Per-island `budget` values retargeted to ≈ (expected flat+hills tiles +
-  0.5×mountain tiles) / 12, using script header / footprint estimates.
-
-
-Island scripts (general)
-------------------------
-- Aligned island scripts that read/write plotTypes to 1-based indexing
-  (y*iW+x+1) where they touch the shared table, consistent with the fractal
-  fix above.
-- Individual island geometry and behavior tweaks are not listed here; see git
-  history per XX_island_*.lua. Broad areas touched include river delta
-  experiments (when enabled: outer-ocean check, coast-centered wedge, E/W
-  coast filter), crescent rename and experiments, jungle peak anchors / NW hooks,
-  broken heart / edge-of-world / ellipse work then removal from draft, and
-  assorted common/uncommon/rare fixes where plot indexing mattered.
-
-
-Starting plots / NW layer (4a_HBAssignStartingPlots.lua)
---------------------------------------------------------
-- Adjustments where island targets interact with starts or natural wonders
-  (e.g. jungle peak), as needed for the island changes above.
-
-
-Repo / docs
------------
-- Removed standalone markdown specs (`MAP_GENERATION_SEQUENCE.md`,
-  `XX_island_rare_PolarMerge_SPEC_SEQUENCE.md`, `docs/DRAGON_SHAPE_HANDOFF.md`);
-  pipeline and shape intent remain in script comments + this changelog.
-
-
-Maintenance note
-----------------
-When you complete another map-script change for v5.3, add a short bullet under
-the right section (or a new section if it’s a new subsystem). Avoid describing
-“current debugging state”; describe what shipped relative to v5.2.
+Starts / NW (4a_HBAssignStartingPlots.lua)
+- Natural wonders that belong on island-spawn plots use one shared wiring path (reserve where applicable, eligibility, candidates, forced plot–type pairs).
+- Coastal capitals: optional small near-shore bonus island; rolls back if the start would stop being coastal.
