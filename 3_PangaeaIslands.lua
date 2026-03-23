@@ -34,33 +34,40 @@ include("XX_island_rare_GeothermalIsland");
 -- include("XX_island_rare_EllipseArchipelago");
 -- include("XX_island_rare_RiverDelta");
 
+-- Island placement knobs:
+-- islLandInRing = nearest-land ring from candidate ocean seed.
+-- effRadius = islLandInRing - pullBack
+-- placement passes when effMin <= effRadius <= effMax
+-- Equivalent ring bounds:
+--   (pullBack + effMin) <= islLandInRing <= (pullBack + effMax)
+-- lower pullBack/eff* -> generally closer to mainland.
 local CommonIslands = {
-	{ type = "dot",                  odds = 5, pullBack = 2, effMin = 0, effMax = 0, budget = 0.13 },
-	{ type = "pebble",               odds = 3, pullBack = 2, effMin = 0, effMax = 0, budget = 0.38 },
-	{ type = "strip",                odds = 2, pullBack = 2, effMin = 0, effMax = 1, budget = 0.42 },
-	{ type = "splinteredCliffsTiny", odds = 3, pullBack = 1, effMin = 0, effMax = 3, budget = 0.23 },
+	{ type = "dot",                  odds = 5, pullBack = 1, effMin = 0, effMax = 0, budget = 0.10 },
+	{ type = "pebble",               odds = 4, pullBack = 1, effMin = 0, effMax = 0, budget = 0.38 },
+	{ type = "strip",                odds = 2, pullBack = 1, effMin = 0, effMax = 1, budget = 0.42 },
+	{ type = "splinteredCliffsTiny", odds = 3, pullBack = 1, effMin = 0, effMax = 2, budget = 0.23 },
 };
 
 local UncommonIslands = {
-	{ type = "mountainWall",        odds = 2, pullBack = 0, effMin = 1, effMax = 5, budget = 0.60 },
-	{ type = "ridgePeak",           odds = 2, pullBack = 0, effMin = 1, effMax = 6, budget = 1.31 },
-	{ type = "splinteredCliffs",    odds = 2, pullBack = 0, effMin = 3, effMax = 6, budget = 0.72, fragile = true },
-	{ type = "chunk",               odds = 2, pullBack = 1, effMin = 3, effMax = 6, budget = 0.66 },
-	{ type = "barbell",             odds = 2, pullBack = 1, effMin = 1, effMax = 6, budget = 0.67 },
-	{ type = "snake",               odds = 2, pullBack = 2, effMin = 2, effMax = 5, budget = 1.13 },
-	{ type = "lollipop",            odds = 2, pullBack = 3, effMin = 2, effMax = 5, budget = 1.02 },
-	{ type = "wishbone",            odds = 3, pullBack = 2, effMin = 2, effMax = 4, budget = 0.75 },
-	{ type = "twinBay",             odds = 2, pullBack = 2, effMin = 2, effMax = 5, budget = 1.08 },
-	{ type = "shatteredRing",       odds = 2, pullBack = 2, effMin = 3, effMax = 6, budget = 1.67 },
-	{ type = "clusterOfTiny",      	odds = 5, pullBack = 1, effMin = 1, effMax = 4, budget = 0.50, fragile = true },
-	{ type = "waterRift",           odds = 2, pullBack = 0, effMin = 6, effMax = 6, budget = 1.17 },
+	{ type = "mountainWall",        odds = 2, pullBack = 0, effMin = 0, effMax = 4, budget = 0.60 },
+	{ type = "ridgePeak",           odds = 2, pullBack = 0, effMin = 0, effMax = 5, budget = 1.31 },
+	{ type = "splinteredCliffs",    odds = 2, pullBack = 0, effMin = 2, effMax = 5, budget = 0.72, fragile = true },
+	{ type = "chunk",               odds = 2, pullBack = 1, effMin = 2, effMax = 5, budget = 0.66 },
+	{ type = "barbell",             odds = 4, pullBack = 1, effMin = 0, effMax = 5, budget = 0.67 },
+	{ type = "snake",               odds = 3, pullBack = 1, effMin = 1, effMax = 4, budget = 1.13 },
+	{ type = "lollipop",            odds = 2, pullBack = 2, effMin = 1, effMax = 4, budget = 1.02 },
+	{ type = "wishbone",            odds = 5, pullBack = 1, effMin = 1, effMax = 3, budget = 0.75 },
+	{ type = "twinBay",             odds = 1, pullBack = 1, effMin = 1, effMax = 4, budget = 1.08 },
+	{ type = "shatteredRing",       odds = 2, pullBack = 1, effMin = 2, effMax = 5, budget = 1.67 },
+	{ type = "clusterOfTiny",      	odds = 5, pullBack = 1, effMin = 0, effMax = 3, budget = 0.5, fragile = true },
+	{ type = "waterRift",           odds = 2, pullBack = 0, effMin = 4, effMax = 5, budget = 1.17 },
 };
 
 local RareIslands = {
 	{ type = "polarMerge",         	odds = 5, pullBack = 3, effMin = 3, effMax = 5, budget = 2.5 },
-	{ type = "steppingStone",      	odds = 1, pullBack = 3, effMin = 3, effMax = 5, budget = 1.0 },
-	{ type = "crescent",           	odds = 1, pullBack = 3, effMin = 3, effMax = 5, budget = 1.62 },
-	{ type = "volcanicRing",       	odds = 1, pullBack = 2, effMin = 3, effMax = 6, budget = 1.85 },
+	{ type = "steppingStone",      	odds = 1, pullBack = 2, effMin = 2, effMax = 4, budget = 1.0 },
+	{ type = "crescent",           	odds = 1, pullBack = 2, effMin = 2, effMax = 4, budget = 1.62 },
+	{ type = "volcanicRing",       	odds = 1, pullBack = 1, effMin = 2, effMax = 5, budget = 1.85 },
 	{ type = "solomonsMinesIsland", odds = 1, pullBack = 2, effMin = 2, effMax = 6, budget = 1.67 },
 	{ type = "sinaiIsland",        	odds = 1, pullBack = 2, effMin = 2, effMax = 5, budget = 1.5 },
 	{ type = "geothermalIsland",  	odds = 2, pullBack = 2, effMin = 2, effMax = 6, budget = 1.2 },
@@ -239,7 +246,7 @@ function GeneratePangaeaIslands(self)
 	end
 
 	local numRare = 1 + Map.Rand(4, "");
-	local numUncommon = 2 + Map.Rand(7, "");
+	local numUncommon = 4 + Map.Rand(7, "");
 
 	for _ = 1, numRare do
 		for _try = 1, 50 do
