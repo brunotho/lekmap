@@ -3,6 +3,7 @@ include("X_IslandHelpers");
 local DISK_R = 3;
 local NW_BARRINGER = "FEATURE_CRATER";
 local NW_GEYSER = "FEATURE_GEYSER";
+local NW_FOUNTAIN_YOUTH = "FEATURE_FOUNTAIN_YOUTH";
 
 local function pidx(x, y, iW)
 	return y * iW + x + 1;
@@ -80,12 +81,12 @@ function TryPlaceGeothermalIsland(plotTypes, centerX, centerY, islLandInRing, pa
 	if not footprintClear(plotTypes, landTiles, params.iW, params.iH) then return false; end
 
 	local roll = Map.Rand(100, "");
-	if roll < 65 then
+	if roll < 70 then
 		_geothermal_island_nw_type = NW_BARRINGER;
 	elseif roll < 90 then
 		_geothermal_island_nw_type = NW_GEYSER;
 	else
-		_geothermal_island_nw_type = nil;
+		_geothermal_island_nw_type = NW_FOUNTAIN_YOUTH;
 	end
 	DrawGeothermalIsland(plotTypes, landTiles, landSet, cx, cy, params.iW, params.iH, params.wrapX, params.wrapY);
 	if not _island_placed then _island_placed = {}; end
@@ -103,7 +104,6 @@ function DrawGeothermalIsland(plotTypes, landTiles, landSet, cx, cy, iW, iH, wra
 	end
 
 	local dist = ringDistances(cx, cy, landSet, iW, iH, wrapX, wrapY);
-	local nwMode = _geothermal_island_nw_type;
 
 	local function randOuter()
 		local r = Map.Rand(100, "");
@@ -121,11 +121,7 @@ function DrawGeothermalIsland(plotTypes, landTiles, landSet, cx, cy, iW, iH, wra
 		if rd == nil then rd = 99; end
 		if gx == cx and gy == cy then
 			_geothermal_island_plot = idx;
-			if nwMode == nil then
-				plotTypes[idx] = PlotTypes.PLOT_MOUNTAIN;
-			else
-				plotTypes[idx] = PlotTypes.PLOT_LAND;
-			end
+			plotTypes[idx] = PlotTypes.PLOT_LAND;
 			markSnow(gx, gy);
 		elseif rd == 1 then
 			local r1 = Map.Rand(100, "");

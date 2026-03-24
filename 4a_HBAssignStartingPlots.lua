@@ -7861,6 +7861,7 @@ function AssignStartingPlots:PlaceNaturalWonders(wonderargs)
 		{ var = _solomons_island_mines_plot, type = "FEATURE_SOLOMONS_MINES" },
 		{ var = _geothermal_island_plot, type = "FEATURE_CRATER" },
 		{ var = _geothermal_island_plot, type = "FEATURE_GEYSER" },
+		{ var = _geothermal_island_plot, type = "FEATURE_FOUNTAIN_YOUTH" },
 	};
 	for _, pair in ipairs(forced_pairs) do
 		if pair.var then
