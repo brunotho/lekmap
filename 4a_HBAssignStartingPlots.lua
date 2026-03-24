@@ -13607,7 +13607,14 @@ function AssignStartingPlots:PlaceCoastalBonusIslands()
 					ft = p:GetFeatureType()
 				};
 				p:SetPlotType((Map.Rand(100, "") < 70) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND, false, false);
-				if p:GetTerrainType() == TerrainTypes.TERRAIN_COAST then
+				local tg = _lekmap_terrain_generator;
+				local tt;
+				if tg and tg.GenerateTerrainAtPlot then
+					tt = tg:GenerateTerrainAtPlot(t[1], t[2]);
+				end
+				if tt and tt ~= TerrainTypes.NO_TERRAIN then
+					p:SetTerrainType(tt, false, false);
+				else
 					p:SetTerrainType((Map.Rand(100, "") < 62) and TerrainTypes.TERRAIN_GRASS or TerrainTypes.TERRAIN_PLAINS, false, false);
 				end
 			end

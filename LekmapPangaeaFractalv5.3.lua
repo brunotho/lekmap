@@ -24,7 +24,7 @@ print("### LekmapPangaeaFractal: includes done ###");
 function GetMapScriptInfo()
 	local world_age, temperature, rainfall, sea_level, resources = GetCoreMapOptions()
 	return {
-		Name = "A Fractal Pangaea -- Lekmap v5.3",
+		Name = "A Fractal Pangaea - Lekmap v5.3",
 		Description = "A map script made for Lekmod based of HB's Mapscript v8.1. Pangaea - Fractal",
 		IsAdvancedMap = false,
 		IconIndex = 0,
@@ -371,7 +371,7 @@ function GetMapInitData(worldSize)
 	local LandSizeXTiny = 36 + (Map.GetCustomOption(11) * 2);
 	local LandSizeYTiny = 30 + (Map.GetCustomOption(12) * 2);
 
-	local LandSizeXSmall = 46 + (Map.GetCustomOption(11) * 2);
+	local LandSizeXSmall = 26 + (Map.GetCustomOption(11) * 2);
 	local LandSizeYSmall = 40 + (Map.GetCustomOption(12) * 2);
 
 	local LandSizeXStandard = 54 + (Map.GetCustomOption(11) * 2);
@@ -750,6 +750,13 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		local sea_level_low = 64;
 		local sea_level_normal = 67;
 		local sea_level_high = 70;
+		local world_size_for_sea = Map.GetWorldSize();
+		if world_size_for_sea == GameInfo.Worlds.WORLDSIZE_SMALL.ID then
+			-- Small canvas (reduced X): lower water threshold to keep comparable pangaea mass.
+			sea_level_low = 54;
+			sea_level_normal = 57;
+			sea_level_high = 60;
+		end
 		local world_age_old = 3;
 		local world_age_normal = 4;
 		local world_age_new = 5;
@@ -1688,22 +1695,30 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		-- Round thin inland seas (elongated from BuildRidges) so center can fit islands.
 		RoundInlandSeas(self);
 
-		local ok, islandsPlaced = pcall(GeneratePangaeaIslands, self);
-		if not ok then
-			print("### GeneratePangaeaIslands ERROR (islands skipped): " .. tostring(islandsPlaced) .. " ###");
-			islandsPlaced = 0;
-		else
-			islandsPlaced = tonumber(islandsPlaced) or 0;
-		end
-
-		-- Minimum islands required: from Islands setting (15). Value 1 = No Islands (min 0), 2 = "1", ... 6 = "4", etc.
 		local islandsOpt = Map.GetCustomOption(15);
 		local minIslands = (islandsOpt and islandsOpt > 1) and (islandsOpt - 1) or 0;
+		local islandGenOpts = nil;
+		if minIslands == 0 then
+			islandGenOpts = { budgetRetry = false };
+		end
+
+		local islandsPlaced = 0;
+		local islandsBudgetOk = true;
+		local ok, retPlaced, retBudgetOk = pcall(GeneratePangaeaIslands, self, islandGenOpts);
+		if not ok then
+			print("### GeneratePangaeaIslands ERROR (islands skipped): " .. tostring(retPlaced) .. " ###");
+			islandsPlaced = 0;
+			islandsBudgetOk = false;
+		else
+			islandsPlaced = tonumber(retPlaced) or 0;
+			islandsBudgetOk = (retBudgetOk ~= false);
+		end
 
 		--check to make sure map has not failed
 		local iNumLandTilesInUse = 0;
 		local iW, iH = Map.GetGridSize();
-		local iPercent = (iW * iH) * 0.30;
+		local landFloorFrac = 0.30;
+		local iPercent = (iW * iH) * landFloorFrac;
 
 		for y = 0, iH - 1 do
 			for x = 0, iW - 1 do
@@ -1715,11 +1730,11 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		end
 
 		print("######### Map Failure Check #########");
-		print("30% Of Map Area: ", iPercent);
+		print(tostring(math.floor(landFloorFrac * 100)) .. "% Of Map Area: ", iPercent);
 		print("Map Land Tiles: ", iNumLandTilesInUse);
-		print("Islands Placed: ", islandsPlaced, "(min ", minIslands, " required)");
+		print("Islands Placed: ", islandsPlaced, "(min ", minIslands, " required)", " budgetOk=", tostring(islandsBudgetOk));
 
-		if iNumLandTilesInUse >= iPercent and islandsPlaced >= minIslands then
+		if iNumLandTilesInUse >= iPercent and islandsPlaced >= minIslands and islandsBudgetOk then
 			allcomplete = true;
 			print("######### Map Pass #########");
 		else
@@ -1771,6 +1786,7 @@ function GenerateTerrain()
 			};
 
 	local terraingen = TerrainGenerator.Create(args);
+	_lekmap_terrain_generator = terraingen;
 
 	terrainTypes = terraingen:GenerateTerrain();
 	

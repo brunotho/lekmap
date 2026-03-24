@@ -52,7 +52,7 @@ local UncommonIslands = {
 	{ type = "mountainWall",        odds = 2, pullBack = 0, effMin = 0, effMax = 4, budget = 0.60 },
 	{ type = "ridgePeak",           odds = 2, pullBack = 0, effMin = 0, effMax = 3, budget = 1.31 },
 	{ type = "splinteredCliffs",    odds = 2, pullBack = 0, effMin = 2, effMax = 5, budget = 0.72, fragile = true },
-	{ type = "chunk",               odds = 2, pullBack = 1, effMin = 2, effMax = 5, budget = 0.66 },
+	{ type = "chunk",               odds = 1, pullBack = 1, effMin = 2, effMax = 5, budget = 0.66 },
 	{ type = "barbell",             odds = 4, pullBack = 1, effMin = 0, effMax = 5, budget = 0.67 },
 	{ type = "snake",               odds = 3, pullBack = 1, effMin = 1, effMax = 4, budget = 1.13 },
 	{ type = "lollipop",            odds = 2, pullBack = 2, effMin = 1, effMax = 4, budget = 1.02 },
@@ -119,8 +119,15 @@ local AllIslandTypeTables = {
 	{ tier = "rare", pool = RareIslands },
 };
 
-local PANGAEA_ISLAND_TOTAL_BUDGET = 10;
+local PANGAEA_ISLAND_TOTAL_BUDGET = 9;
 local PANGAEA_COMMON_FILL_MAX_PASSES = 10000;
+local PANGAEA_ISLAND_BUDGET_RETRY = true;
+local PANGAEA_ISLAND_MAX_TRIES_PER_BUDGET = 80;
+local PANGAEA_ISLAND_BUDGET_FLOOR = 5;
+local PANGAEA_SHORE_SMALL_ISLAND_ATTEMPTS = 600;
+local PANGAEA_COMMON_SMALL_ISLAND_TRIES_TIGHT = 500;
+local PANGAEA_COMMON_SMALL_ISLAND_TRIES_LOOSE = 350;
+local PANGAEA_COMMON_FILL_IDLE_BREAK = 800;
 
 local function GetOptEntry(islandType)
 	for _, t in ipairs(AllIslandTypeTables) do
@@ -201,38 +208,61 @@ local function GetDraftPriority(islandType)
 	return TIER_BASE_PRIORITY[e.tier] or 99;
 end
 
-function GeneratePangaeaIslands(self)
+function GeneratePangaeaIslands(self, genOpts)
+	genOpts = genOpts or {};
+	local budgetRetry = genOpts.budgetRetry;
+	if budgetRetry == nil then budgetRetry = PANGAEA_ISLAND_BUDGET_RETRY; end
+	local maxTriesPerBudget = genOpts.maxTriesPerBudget or PANGAEA_ISLAND_MAX_TRIES_PER_BUDGET;
+	local budgetFloor = genOpts.budgetFloor or PANGAEA_ISLAND_BUDGET_FLOOR;
+
 	local function dbg2(msg) print(msg); end
 	dbg2("### GeneratePangaeaIslands: start [" .. os.date("%H:%M:%S") .. "] ###");
-	_island_placed = {};
-	_sri_pada_island_plot = nil;
-	_solomons_island_mines_plot = nil;
-	_krakatoa_island_plot = nil;
-	_sinai_island_plot = nil;
-	_geothermal_island_plot = nil;
-	_geothermal_island_nw_type = nil;
-	_geothermal_snow_plot_indices = nil;
-	_geothermal_forest_ring_indices = nil;
 	local iW, iH = Map.GetGridSize();
-	local wrapX = Map:IsWrapX();
-	local wrapY = false;
-	local odd = firstRingYIsOdd;
-	local even = firstRingYIsEven;
+	local n = iW * iH;
+	local snapshot = {};
+	for i = 1, n do
+		snapshot[i] = self.plotTypes[i];
+	end
 
 	local pangeaTiles = {};
 	for i = 0, (iW * iH) - 1 do
-		local t = self.plotTypes[i + 1];
+		local t = snapshot[i + 1];
 		if t == PlotTypes.PLOT_LAND or t == PlotTypes.PLOT_HILLS or t == PlotTypes.PLOT_MOUNTAIN then
 			pangeaTiles[i + 1] = true;
 		end
 	end
 
-	local TOTAL_BUDGET = PANGAEA_ISLAND_TOTAL_BUDGET;
+	local wrapX = Map:IsWrapX();
+	local wrapY = false;
+	local odd = firstRingYIsOdd;
+	local even = firstRingYIsEven;
 
 	local opts = {
 		iW = iW, iH = iH, wrapX = wrapX, wrapY = wrapY,
 		landX = 0, landY = 0
 	};
+
+	local function resetIslandGlobals()
+		_island_placed = {};
+		_sri_pada_island_plot = nil;
+		_solomons_island_mines_plot = nil;
+		_krakatoa_island_plot = nil;
+		_sinai_island_plot = nil;
+		_geothermal_island_plot = nil;
+		_geothermal_island_nw_type = nil;
+		_geothermal_snow_plot_indices = nil;
+		_geothermal_forest_ring_indices = nil;
+	end
+
+	local function restorePlotTypes()
+		for i = 1, n do
+			self.plotTypes[i] = snapshot[i];
+		end
+	end
+
+	local function runOnce(TOTAL_BUDGET)
+		restorePlotTypes();
+		resetIslandGlobals();
 
 	local excludeSet = {};
 	local drafted = {};
@@ -246,7 +276,7 @@ function GeneratePangaeaIslands(self)
 	end
 
 	local numRare = 1 + Map.Rand(4, "");
-	local numUncommon = 4 + Map.Rand(7, "");
+	local numUncommon = 2 + Map.Rand(7, "");
 
 	for _ = 1, numRare do
 		for _try = 1, 50 do
@@ -429,11 +459,10 @@ function GeneratePangaeaIslands(self)
 		return placed;
 	end
 
-	-- shoreline seeding while mainland adjacency is easiest
-	local shoreDots = 8 + Map.Rand(3, "");
-	local shorePebbles = Map.Rand(3, "");
-	for _ = 1, shoreDots do placeAndCount("dot", 60); end
-	for _ = 1, shorePebbles do placeAndCount("pebble", 60); end
+	local shoreDots = 12 + Map.Rand(5, "");
+	local shorePebbles = 1 + Map.Rand(4, "");
+	for _ = 1, shoreDots do placeAndCount("dot", PANGAEA_SHORE_SMALL_ISLAND_ATTEMPTS); end
+	for _ = 1, shorePebbles do placeAndCount("pebble", PANGAEA_SHORE_SMALL_ISLAND_ATTEMPTS); end
 
 	dbg2("### GeneratePangaeaIslands: placing drafted islands ###");
 
@@ -483,25 +512,69 @@ function GeneratePangaeaIslands(self)
 
 	dbg2("### GeneratePangaeaIslands: drafted done, filling commons (until spent >= " .. TOTAL_BUDGET .. ", est at draft was " .. draftEstimate .. ") ###");
 	local commonPass = 0;
-	while spentBudget < TOTAL_BUDGET and commonPass < PANGAEA_COMMON_FILL_MAX_PASSES do
+	local idleCommonPasses = 0;
+	while spentBudget + 0.004 < TOTAL_BUDGET and commonPass < PANGAEA_COMMON_FILL_MAX_PASSES do
 		commonPass = commonPass + 1;
 		if commonPass == 1 or commonPass % 200 == 0 then
 			dbg2("### common fill pass " .. commonPass .. ", spent " .. spentBudget .. "/" .. TOTAL_BUDGET .. " ###");
 		end
-		local islandType = DraftOneFromTier(CommonIslands, {});
+		local remaining = TOTAL_BUDGET - spentBudget;
+		local islandType;
+		if remaining <= 0.15 then
+			islandType = "dot";
+		elseif remaining <= 0.45 then
+			islandType = (Map.Rand(2, "") == 0) and "dot" or "pebble";
+		elseif remaining <= 0.95 and Map.Rand(100, "") < 55 then
+			islandType = (Map.Rand(2, "") == 0) and "pebble" or "splinteredCliffsTiny";
+		else
+			islandType = DraftOneFromTier(CommonIslands, {});
+		end
 		if islandType then
 			local placed = false;
-			for i = 1, 15 do
+			local tries = (remaining <= 0.55) and PANGAEA_COMMON_SMALL_ISLAND_TRIES_TIGHT or PANGAEA_COMMON_SMALL_ISLAND_TRIES_LOOSE;
+			for i = 1, tries do
 				placed = tryOneSpot(islandType, nil, nil);
 				if placed then break; end
 			end
 			if placed then
 				spentBudget = spentBudget + GetBudget(islandType);
 				islandsPlaced = islandsPlaced + 1;
+				idleCommonPasses = 0;
+			else
+				idleCommonPasses = idleCommonPasses + 1;
+				if idleCommonPasses >= PANGAEA_COMMON_FILL_IDLE_BREAK then
+					dbg2("### common fill stall break at " .. spentBudget .. "/" .. TOTAL_BUDGET .. " ###");
+					break;
+				end
 			end
 		end
 	end
 
-	dbg2("### GeneratePangaeaIslands: islands placed = " .. tostring(islandsPlaced) .. " ###");
-	return islandsPlaced;
+		return islandsPlaced, spentBudget;
+	end
+
+	if not budgetRetry then
+		local ip, sp = runOnce(PANGAEA_ISLAND_TOTAL_BUDGET);
+		dbg2("### GeneratePangaeaIslands: islands placed = " .. tostring(ip) .. " spent " .. string.format("%.2f", sp) .. "/" .. PANGAEA_ISLAND_TOTAL_BUDGET .. " ###");
+		return ip, true;
+	end
+
+	local b = PANGAEA_ISLAND_TOTAL_BUDGET;
+	local budgetSlack = 0.06;
+	while b >= budgetFloor do
+		for _t = 1, maxTriesPerBudget do
+			local ip, sp = runOnce(b);
+			if sp + budgetSlack >= b then
+				dbg2("### GeneratePangaeaIslands: islands placed = " .. tostring(ip) .. ", budget target " .. b .. " met ###");
+				return ip, true;
+			end
+		end
+		dbg2("### GeneratePangaeaIslands: budget " .. b .. " not met in " .. maxTriesPerBudget .. " attempts, lowering target ###");
+		b = b - 1;
+	end
+
+	restorePlotTypes();
+	resetIslandGlobals();
+	dbg2("### GeneratePangaeaIslands: budget retry exhausted, islands cleared ###");
+	return 0, false;
 end
