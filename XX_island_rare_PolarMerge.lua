@@ -18,7 +18,15 @@ local CONFIG = {
 	EDGE_EXPAND_ROWS = 3,
 	EDGE_EXPAND_PCT = 45,
 	MERGE_GAP_THRESHOLD = 6,
+	MERGE_GAP_THRESHOLD_FRAC = 0.24,
 	MERGE_PCT = 18,
+	PANGAEA_EDGE_SCAN_DEPTH_MAX = 25,
+	MIN_PANGAEA_EDGE_SPAN_FRAC = 0.38,
+	MIN_PANGAEA_EDGE_SPAN_CAP = 15,
+	MIN_PANGAEA_EDGE_SPAN_FLOOR = 7,
+	ARM_ANCHOR_SEPARATION_FRAC = 0.34,
+	ARM_ANCHOR_SEPARATION_MIN = 3,
+	ARM_ANCHOR_SEPARATION_CAP = 5,
 	THICKEN_TOWARD_EDGE_PCT = 80,
 	SOFTER_CURVE_PCT = 25,
 	GENTLER_FREQ_PCT = 45,
@@ -117,10 +125,15 @@ local function drawPangaeaEmbrace(plotTypes, iW, iH, wrapX, wrapY)
 	local southEdge = (Map.Rand(2, "") == 0);
 	local edgeY = southEdge and 0 or (iH - 1);
 
-	local extent = findPangeaExtentAtEdge(plotTypes, iW, iH, southEdge, 25);
+	local scanDepth = math.min(CONFIG.PANGAEA_EDGE_SCAN_DEPTH_MAX, math.max(6, iH - 2));
+	local extent = findPangeaExtentAtEdge(plotTypes, iW, iH, southEdge, scanDepth);
 
 	local span = extent.east - extent.west;
-	if span < 15 then return false; end
+	local minSpan = math.max(
+		CONFIG.MIN_PANGAEA_EDGE_SPAN_FLOOR,
+		math.min(CONFIG.MIN_PANGAEA_EDGE_SPAN_CAP, math.floor(iW * CONFIG.MIN_PANGAEA_EDGE_SPAN_FRAC + 0.001))
+	);
+	if span < minSpan then return false; end
 
 	local armCount;
 	do
@@ -143,8 +156,12 @@ local function drawPangaeaEmbrace(plotTypes, iW, iH, wrapX, wrapY)
 	local jitterE = math.floor(span * (Map.Rand(jitterPct * 2 + 1, "") - jitterPct) / 100);
 	local westAnchor = extent.west + inset + jitterW;
 	local eastAnchor = extent.east - inset + jitterE;
-	westAnchor = math.max(extent.west, math.min(westAnchor, extent.east - 5));
-	eastAnchor = math.min(extent.east, math.max(eastAnchor, extent.west + 5));
+	local anchorSep = math.max(
+		CONFIG.ARM_ANCHOR_SEPARATION_MIN,
+		math.min(CONFIG.ARM_ANCHOR_SEPARATION_CAP, math.floor(span * CONFIG.ARM_ANCHOR_SEPARATION_FRAC + 0.001))
+	);
+	westAnchor = math.max(extent.west, math.min(westAnchor, extent.east - anchorSep));
+	eastAnchor = math.min(extent.east, math.max(eastAnchor, extent.west + anchorSep));
 	if westAnchor >= eastAnchor then return false; end
 
 	local drawWest = (armCount == 1 and Map.Rand(2, "") == 0) or (armCount >= 2);
@@ -170,7 +187,8 @@ local function drawPangaeaEmbrace(plotTypes, iW, iH, wrapX, wrapY)
 	end
 	local gap = seaMaxX - seaMinX;
 	if gap < 0 then return false; end
-	local mergeAtEdge = (armCount == 2 and gap <= CONFIG.MERGE_GAP_THRESHOLD and Map.Rand(100, "") < CONFIG.MERGE_PCT);
+	local mergeGapMax = math.min(CONFIG.MERGE_GAP_THRESHOLD, math.max(4, math.floor(iW * (CONFIG.MERGE_GAP_THRESHOLD_FRAC or 0.24) + 0.001)));
+	local mergeAtEdge = (armCount == 2 and gap <= mergeGapMax and Map.Rand(100, "") < CONFIG.MERGE_PCT);
 
 	local embraceNarrow = (span > 0 and (gap <= math.floor(span * 0.5)));
 	local extendedInland = embraceNarrow and (Map.Rand(100, "") < (CONFIG.EXTENDED_INLAND_PCT or 0));

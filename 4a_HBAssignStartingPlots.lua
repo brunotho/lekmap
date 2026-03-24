@@ -7532,7 +7532,9 @@ function AssignStartingPlots:GenerateNaturalWondersCandidatePlotLists()
 				table.insert(self.eligibility_lists[wn], 1, _sri_pada_island_plot);
 			elseif (nw_type == "FEATURE_MTS_SINAI" or nw_type == "FEATURE_MT_SINAI" or nw_type == "FEATURE_SINA") and _sinai_island_plot then
 				table.insert(self.eligibility_lists[wn], 1, _sinai_island_plot);
-			elseif (nw_type == "FEATURE_KING_SOLOMONS_MINES" or nw_type == "FEATURE_SOLOMONS_MINES") and _solomons_island_mines_plot then
+			elseif (nw_type == "FEATURE_KING_SOLOMONS_MINES" or nw_type == "FEATURE_SOLOMONS_MINES") and _solomons_island_mines_plot and _solomons_island_nw_type ~= "FEATURE_GEYSER" then
+				table.insert(self.eligibility_lists[wn], 1, _solomons_island_mines_plot);
+			elseif nw_type == "FEATURE_GEYSER" and _solomons_island_mines_plot and _solomons_island_nw_type == "FEATURE_GEYSER" then
 				table.insert(self.eligibility_lists[wn], 1, _solomons_island_mines_plot);
 			elseif _geothermal_island_plot and _geothermal_island_nw_type and nw_type == _geothermal_island_nw_type then
 				table.insert(self.eligibility_lists[wn], 1, _geothermal_island_plot);
@@ -7676,7 +7678,8 @@ function AssignStartingPlots:AttemptToPlaceNaturalWonder(wonder_number, row_numb
 		for i = 2, #candidate_plot_list do rest[#rest + 1] = candidate_plot_list[i]; end
 		rest = GetShuffledCopyOfTable(rest);
 		for i = 1, #rest do candidate_plot_list[i + 1] = rest[i]; end
-	elseif (self.wonder_list[wonder_number] == "FEATURE_KING_SOLOMONS_MINES" or self.wonder_list[wonder_number] == "FEATURE_SOLOMONS_MINES") and _solomons_island_mines_plot then
+	elseif (((self.wonder_list[wonder_number] == "FEATURE_KING_SOLOMONS_MINES" or self.wonder_list[wonder_number] == "FEATURE_SOLOMONS_MINES") and _solomons_island_mines_plot and _solomons_island_nw_type ~= "FEATURE_GEYSER")
+		or (self.wonder_list[wonder_number] == "FEATURE_GEYSER" and _solomons_island_mines_plot and _solomons_island_nw_type == "FEATURE_GEYSER")) then
 		local solp = _solomons_island_mines_plot;
 		candidate_plot_list = {solp};
 		for _, idx in ipairs(temp_table) do
@@ -7747,6 +7750,8 @@ function AssignStartingPlots:AttemptToPlaceNaturalWonder(wonder_number, row_numb
 			table.insert(self.placed_natural_wonder, wonder_number);
 			local nwRipple = math.floor(iH / 5);
 			if (self.wonder_list[wonder_number] == "FEATURE_KING_SOLOMONS_MINES" or self.wonder_list[wonder_number] == "FEATURE_SOLOMONS_MINES") and plotIndex == _solomons_island_mines_plot then
+				nwRipple = math.max(5, nwRipple);
+			elseif self.wonder_list[wonder_number] == "FEATURE_GEYSER" and plotIndex == _solomons_island_mines_plot and _solomons_island_nw_type == "FEATURE_GEYSER" then
 				nwRipple = math.max(5, nwRipple);
 			elseif _geothermal_island_plot and plotIndex == _geothermal_island_plot and _geothermal_island_nw_type and self.wonder_list[wonder_number] == _geothermal_island_nw_type then
 				nwRipple = math.max(5, nwRipple);
@@ -7857,12 +7862,18 @@ function AssignStartingPlots:PlaceNaturalWonders(wonderargs)
 		{ var = _sinai_island_plot, type = "FEATURE_MTS_SINAI" },
 		{ var = _sinai_island_plot, type = "FEATURE_MT_SINAI" },
 		{ var = _sinai_island_plot, type = "FEATURE_SINA" },
-		{ var = _solomons_island_mines_plot, type = "FEATURE_KING_SOLOMONS_MINES" },
-		{ var = _solomons_island_mines_plot, type = "FEATURE_SOLOMONS_MINES" },
-		{ var = _geothermal_island_plot, type = "FEATURE_CRATER" },
-		{ var = _geothermal_island_plot, type = "FEATURE_GEYSER" },
-		{ var = _geothermal_island_plot, type = "FEATURE_FOUNTAIN_YOUTH" },
 	};
+	if _solomons_island_mines_plot then
+		if _solomons_island_nw_type == "FEATURE_GEYSER" then
+			forced_pairs[#forced_pairs + 1] = { var = _solomons_island_mines_plot, type = "FEATURE_GEYSER" };
+		else
+			forced_pairs[#forced_pairs + 1] = { var = _solomons_island_mines_plot, type = "FEATURE_KING_SOLOMONS_MINES" };
+			forced_pairs[#forced_pairs + 1] = { var = _solomons_island_mines_plot, type = "FEATURE_SOLOMONS_MINES" };
+		end
+	end
+	if _geothermal_island_plot and _geothermal_island_nw_type then
+		forced_pairs[#forced_pairs + 1] = { var = _geothermal_island_plot, type = _geothermal_island_nw_type };
+	end
 	for _, pair in ipairs(forced_pairs) do
 		if pair.var then
 			for wn, nw_type in ipairs(self.wonder_list) do
@@ -13493,19 +13504,52 @@ function AssignStartingPlots:PlaceCoastalBonusIslands()
 		end
 		return false;
 	end
-	local function capitalHasOpenWater(sx, sy, placedSet)
-		local waterAdj = 0;
+	local function capitalReachesSaltWater(sx, sy, placedSet)
+		local visited = {};
+		local queue = {};
+		local maxVisit = math.min(iW * iH, 12000);
+		local visitCount = 0;
+		local function enqueue(nx, ny)
+			if visitCount >= maxVisit then return; end
+			if not inBounds(nx, ny) then return; end
+			local ii = plotIndex(nx, ny);
+			if placedSet and placedSet[ii] then return; end
+			local k = nx .. "," .. ny;
+			if visited[k] then return; end
+			local p = Map.GetPlot(nx, ny);
+			if not p or not p:IsWater() or p:IsLake() then return; end
+			visited[k] = true;
+			visitCount = visitCount + 1;
+			queue[#queue + 1] = { nx, ny };
+		end
 		for d = 1, 6 do
 			local nx, ny = getNeighbor(sx, sy, d);
-			if inBounds(nx, ny) then
-				local ii = plotIndex(nx, ny);
-				if not (placedSet and placedSet[ii]) then
-					local p = Map.GetPlot(nx, ny);
-					if p and p:IsWater() then waterAdj = waterAdj + 1; end
+			enqueue(nx, ny);
+		end
+		if #queue == 0 then return false; end
+		local qi = 1;
+		while qi <= #queue do
+			local x, y = queue[qi][1], queue[qi][2];
+			qi = qi + 1;
+			local p = Map.GetPlot(x, y);
+			if p then
+				if p:GetTerrainType() == TerrainTypes.TERRAIN_OCEAN then return true; end
+				if not wrapX and (x == 0 or x == iW - 1) then return true; end
+				if not wrapY and (y == 0 or y == iH - 1) then return true; end
+				for d = 1, 6 do
+					local nx, ny = getNeighbor(x, y, d);
+					if inBounds(nx, ny) then
+						local np = Map.GetPlot(nx, ny);
+						if np and np:GetTerrainType() == TerrainTypes.TERRAIN_OCEAN then return true; end
+					end
 				end
 			end
+			for d = 1, 6 do
+				local nx, ny = getNeighbor(x, y, d);
+				enqueue(nx, ny);
+			end
 		end
-		return waterAdj > 0;
+		return false;
 	end
 	local function placeOneIslandForStart(sx, sy, minRing, maxRing)
 		local candidates = {};
@@ -13630,7 +13674,7 @@ function AssignStartingPlots:PlaceCoastalBonusIslands()
 			end
 		end
 		local checkStart = Map.GetPlot(sx, sy);
-		if not (checkStart and checkStart:IsCoastalLand(300) and capitalHasOpenWater(sx, sy, placedSet)) then
+		if not (checkStart and checkStart:IsCoastalLand(300) and capitalReachesSaltWater(sx, sy, placedSet)) then
 			for _, b in ipairs(backup) do
 				local p = Map.GetPlot(b.x, b.y);
 				if p then

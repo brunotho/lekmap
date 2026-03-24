@@ -371,7 +371,7 @@ function GetMapInitData(worldSize)
 	local LandSizeXTiny = 36 + (Map.GetCustomOption(11) * 2);
 	local LandSizeYTiny = 30 + (Map.GetCustomOption(12) * 2);
 
-	local LandSizeXSmall = 26 + (Map.GetCustomOption(11) * 2);
+	local LandSizeXSmall = 30 + (Map.GetCustomOption(11) * 2);
 	local LandSizeYSmall = 40 + (Map.GetCustomOption(12) * 2);
 
 	local LandSizeXStandard = 54 + (Map.GetCustomOption(11) * 2);
@@ -737,7 +737,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 	
 	local allcomplete = false;
 	local outerAttempts = 0;
-	local MAX_OUTER = 15;
+	local MAX_OUTER = 25;
 
 	while allcomplete == false do
 		outerAttempts = outerAttempts + 1;
@@ -1717,7 +1717,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		--check to make sure map has not failed
 		local iNumLandTilesInUse = 0;
 		local iW, iH = Map.GetGridSize();
-		local landFloorFrac = 0.30;
+		local landFloorFrac = 0.40;
 		local iPercent = (iW * iH) * landFloorFrac;
 
 		for y = 0, iH - 1 do
@@ -1842,6 +1842,7 @@ end
 ------------------------------------------------------------------------------
 function FixSolomonsMinesIslandDesert()
 	if not _solomons_island_mines_plot or not GetHexNeighbor then return; end
+	if _solomons_island_nw_type == "FEATURE_GEYSER" then return; end
 	local iW, iH = Map.GetGridSize();
 	local wrapX = Map:IsWrapX();
 	local wrapY = Map.IsWrapY and Map:IsWrapY() or false;

@@ -2,7 +2,6 @@ include("X_IslandHelpers");
 
 local DISK_R = 3;
 local NW_BARRINGER = "FEATURE_CRATER";
-local NW_GEYSER = "FEATURE_GEYSER";
 local NW_FOUNTAIN_YOUTH = "FEATURE_FOUNTAIN_YOUTH";
 
 local function pidx(x, y, iW)
@@ -81,10 +80,8 @@ function TryPlaceGeothermalIsland(plotTypes, centerX, centerY, islLandInRing, pa
 	if not footprintClear(plotTypes, landTiles, params.iW, params.iH) then return false; end
 
 	local roll = Map.Rand(100, "");
-	if roll < 70 then
+	if roll < 80 then
 		_geothermal_island_nw_type = NW_BARRINGER;
-	elseif roll < 90 then
-		_geothermal_island_nw_type = NW_GEYSER;
 	else
 		_geothermal_island_nw_type = NW_FOUNTAIN_YOUTH;
 	end

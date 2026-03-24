@@ -2,6 +2,8 @@
 
 include("X_IslandHelpers");
 
+local SOLOMONS_EDGE_MARGIN = 10;
+
 local DRAGON_TEMPLATE = {
 	{5,0},{6,0},
 	{2,1},{3,1},{4,1},{5,1},{6,1},{7,1},
@@ -162,6 +164,16 @@ function TryPlaceSolomonsMinesIsland(plotTypes, centerX, centerY, islLandInRing,
 
 	if #landTiles < 24 then return false; end
 	if not footprintClear(plotTypes, landTiles, params.iW, params.iH) then return false; end
+
+	local iHy = params.iH;
+	if iHy < SOLOMONS_EDGE_MARGIN * 2 + 1 then return false; end
+	local yMax = iHy - 1 - SOLOMONS_EDGE_MARGIN;
+	for _, t in ipairs(landTiles) do
+		local gy = t[2];
+		if gy < SOLOMONS_EDGE_MARGIN or gy > yMax then return false; end
+	end
+
+	_solomons_island_nw_type = (Map.Rand(100, "") < 20) and "FEATURE_GEYSER" or nil;
 
 	DrawSolomonsMinesIsland(plotTypes, landTiles, params.iW, layout);
 	if not _island_placed then _island_placed = {}; end

@@ -246,6 +246,7 @@ function GeneratePangaeaIslands(self, genOpts)
 		_island_placed = {};
 		_sri_pada_island_plot = nil;
 		_solomons_island_mines_plot = nil;
+		_solomons_island_nw_type = nil;
 		_krakatoa_island_plot = nil;
 		_sinai_island_plot = nil;
 		_geothermal_island_plot = nil;
@@ -432,6 +433,7 @@ function GeneratePangaeaIslands(self, genOpts)
 			if islLandInRing ~= 0 then break; end
 		end
 		if islLandInRing == 0 or self.plotTypes[landPlot] == PlotTypes.PLOT_OCEAN then return false; end
+		if not pangeaTiles[landPlot] then return false; end
 		if forceType == "clusterOfTiny" and islLandInRing > 0 and attempt ~= nil and attempt < 50 then
 			if islLandInRing >= 5 then return false; end
 			if islLandInRing >= 4 and Map.Rand(100, "") < 78 then return false; end
