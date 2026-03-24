@@ -1842,7 +1842,6 @@ end
 ------------------------------------------------------------------------------
 function FixSolomonsMinesIslandDesert()
 	if not _solomons_island_mines_plot or not GetHexNeighbor then return; end
-	if _solomons_island_nw_type == "FEATURE_GEYSER" then return; end
 	local iW, iH = Map.GetGridSize();
 	local wrapX = Map:IsWrapX();
 	local wrapY = Map.IsWrapY and Map:IsWrapY() or false;
