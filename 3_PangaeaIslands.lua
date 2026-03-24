@@ -50,7 +50,7 @@ local CommonIslands = {
 
 local UncommonIslands = {
 	{ type = "mountainWall",        odds = 2, pullBack = 0, effMin = 0, effMax = 4, budget = 0.60 },
-	{ type = "ridgePeak",           odds = 2, pullBack = 0, effMin = 0, effMax = 3, budget = 1.31 },
+	{ type = "ridgePeak",           odds = 3, pullBack = 0, effMin = 0, effMax = 3, budget = 1.31 },
 	{ type = "splinteredCliffs",    odds = 2, pullBack = 0, effMin = 2, effMax = 5, budget = 0.72, fragile = true },
 	{ type = "chunk",               odds = 1, pullBack = 1, effMin = 2, effMax = 5, budget = 0.66 },
 	{ type = "barbell",             odds = 4, pullBack = 1, effMin = 0, effMax = 5, budget = 0.67 },
@@ -58,13 +58,13 @@ local UncommonIslands = {
 	{ type = "lollipop",            odds = 2, pullBack = 2, effMin = 1, effMax = 4, budget = 1.02 },
 	{ type = "wishbone",            odds = 5, pullBack = 1, effMin = 1, effMax = 3, budget = 0.75 },
 	{ type = "twinBay",             odds = 1, pullBack = 1, effMin = 1, effMax = 4, budget = 1.08 },
-	{ type = "shatteredRing",       odds = 2, pullBack = 1, effMin = 2, effMax = 5, budget = 1.67 },
+	{ type = "shatteredRing",       odds = 3, pullBack = 1, effMin = 2, effMax = 5, budget = 1.67 },
 	{ type = "clusterOfTiny",      	odds = 5, pullBack = 1, effMin = 0, effMax = 3, budget = 0.5, fragile = true },
 	{ type = "waterRift",           odds = 2, pullBack = 0, effMin = 4, effMax = 5, budget = 1.17 },
 };
 
 local RareIslands = {
-	{ type = "polarMerge",         	odds = 5, pullBack = 3, effMin = 3, effMax = 5, budget = 2.5 },
+	{ type = "polarMerge",         	odds = 6, pullBack = 3, effMin = 3, effMax = 5, budget = 2.5 },
 	{ type = "steppingStone",      	odds = 1, pullBack = 2, effMin = 2, effMax = 4, budget = 0.9 },
 	{ type = "crescent",           	odds = 1, pullBack = 2, effMin = 2, effMax = 4, budget = 1.62 },
 	{ type = "volcanicRing",       	odds = 1, pullBack = 1, effMin = 2, effMax = 5, budget = 1.85 },
