@@ -2022,6 +2022,122 @@ function StartPlotSystem()
 
 	local RegionalMethod = 1;
 
+	-- Debug helper: visualize region rectangles by recoloring land and clearing plot features.
+	-- This is intentionally executed *after* all start/resources/city-state placement so it
+	-- doesn't disrupt the functional placement logic.
+	local function DebugPaintRegionsTerrains(start_plot_database)
+		if not start_plot_database or not start_plot_database.regionData then return; end
+		local regionCount = table.maxn(start_plot_database.regionData);
+		print("### DebugPaintRegionsTerrains: regionCount=", tostring(regionCount));
+
+		local iW, iH = Map.GetGridSize();
+		local function paintIfLand(x, y, terrain)
+			local p = Map.GetPlot(x, y);
+			if not (p and not p:IsWater()) then return false; end
+			-- Paint a 3x3 block so the marker is easy to spot.
+			for dy = -1, 1 do
+				for dx = -1, 1 do
+					local nx, ny = x + dx, y + dy;
+					if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+						local np = Map.GetPlot(nx, ny);
+						if np and not np:IsWater() then
+							np:SetTerrainType(terrain, false, true);
+							np:SetFeatureType(FeatureTypes.NO_FEATURE, -1);
+						end
+					end
+				end
+			end
+			return true;
+		end
+
+		local function paint1IfLand(x, y, terrain)
+			local p = Map.GetPlot(x, y);
+			if not (p and not p:IsWater()) then return false; end
+			p:SetTerrainType(terrain, false, true);
+			p:SetFeatureType(FeatureTypes.NO_FEATURE, -1);
+			return true;
+		end
+		-- Outline can be expensive (many SetTerrainType calls). Keep it bounded.
+		local outlinePaintCount = 0;
+		local outlinePaintCountMax = 2000;
+		local function paintOutlineIfLand(x, y, terrain)
+			if outlinePaintCount >= outlinePaintCountMax then return false; end
+			local p = Map.GetPlot(x, y);
+			if not (p and not p:IsWater()) then return false; end
+			outlinePaintCount = outlinePaintCount + 1;
+			p:SetTerrainType(terrain, false, true);
+			-- Don't touch features for outline; terrain repaint is already visible.
+			return true;
+		end
+
+		local function regionCenter(region)
+			local westX, southY, width, height = region[1], region[2], region[3], region[4];
+			local cx = (westX + math.floor((width - 1) / 2)) % iW;
+			local cy = (southY + math.floor((height - 1) / 2)) % iH;
+			return cx, cy;
+		end
+
+		local function paintNearestLand(x, y, terrain, searchRadius)
+			searchRadius = searchRadius or 3;
+			if paintIfLand(x, y, terrain) then return true; end
+			for r = 1, searchRadius do
+				for dy = -r, r do
+					for dx = -r, r do
+						local nx, ny = x + dx, y + dy;
+						if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+							if paintIfLand(nx, ny, terrain) then return true; end
+						end
+					end
+				end
+			end
+			return false;
+		end
+
+		-- Sort roughly into "rows": higher centerY first (north row), then by centerX.
+		local regions = {};
+		for _, region in ipairs(start_plot_database.regionData) do
+			regions[#regions + 1] = region;
+		end
+		table.sort(regions, function(a, b)
+			local ax, ay = regionCenter(a);
+			local bx, by = regionCenter(b);
+			if ay == by then return ax < bx; end
+			return ay > by;
+		end);
+
+		for idx, region in ipairs(regions) do
+			local westX, southY, width, height = region[1], region[2], region[3], region[4];
+			-- Make region markers conspicuous: paint them all as SNOW.
+			local targetTerrain = TerrainTypes.TERRAIN_SNOW;
+
+			local rcx, rcy = regionCenter(region);
+			local ok = paintNearestLand(rcx, rcy, targetTerrain, 1);
+			if ok then
+				print("### DebugPaintRegionsTerrains: region", tostring(idx), "center approx", tostring(rcx), tostring(rcy), "painted")
+			else
+				print("### DebugPaintRegionsTerrains: region", tostring(idx), "center approx", tostring(rcx), tostring(rcy), "no land found")
+			end
+
+			-- Outline: draw the outer rectangle boundary (1 tile thick).
+			local stepX = math.max(1, math.floor(width / 25));
+			local stepY = math.max(1, math.floor(height / 25));
+			for localX = 0, width - 1, stepX do
+				local topY = (southY) % iH;
+				local botY = (southY + height - 1) % iH;
+				local x = (westX + localX) % iW;
+				paintOutlineIfLand(x, topY, targetTerrain);
+				paintOutlineIfLand(x, botY, targetTerrain);
+			end
+			for localY = 0, height - 1, stepY do
+				local leftX = (westX) % iW;
+				local rightX = (westX + width - 1) % iW;
+				local y = (southY + localY) % iH;
+				paintOutlineIfLand(leftX, y, targetTerrain);
+				paintOutlineIfLand(rightX, y, targetTerrain);
+			end
+		end
+	end
+
 	-- Get Resources setting input by user.
 	local AllowInlandSea = Map.GetCustomOption(18)
 	local res = Map.GetCustomOption(13)
@@ -2081,12 +2197,165 @@ function StartPlotSystem()
 		};
 	start_plot_database:GenerateRegions(args)
 
+	-- Paint region markers immediately after region creation so we can verify
+	-- region geometry even if later placement logic hangs.
+	print("### DEBUG region markers paint START")
+	DebugPaintRegionsTerrains(start_plot_database)
+	print("### DEBUG region markers paint END")
+
 	print("Choosing start locations for civilizations.");
 
 	start_plot_database:ChooseLocations()
 	
 	print("Normalizing start locations and assigning them to Players.");
 	start_plot_database:BalanceAndAssign(args)
+
+	-- Fail loudly if any major never received a starting plot (avoids loading into instant-loss with 0 units).
+	do
+		local missing = {};
+		for loop = 1, start_plot_database.iNumCivs do
+			local pid = start_plot_database.player_ID_list[loop];
+			local pl = Players[pid];
+			if pl and pl:IsEverAlive() and not pl:IsMinorCiv() then
+				local sp = pl:GetStartingPlot();
+				if sp == nil then
+					missing[#missing + 1] = "player " .. tostring(pid);
+				end
+			end
+		end
+		for r = 1, start_plot_database.iNumCivs do
+			local t = start_plot_database.startingPlots[r];
+			if not t or type(t[1]) ~= "number" or type(t[2]) ~= "number" then
+				missing[#missing + 1] = "region " .. tostring(r) .. " no start data";
+			else
+				local p = Map.GetPlot(t[1], t[2]);
+				if not p then
+					missing[#missing + 1] = "region " .. tostring(r) .. " bad coords";
+				else
+					local pt = p:GetPlotType();
+					if pt ~= PlotTypes.PLOT_LAND and pt ~= PlotTypes.PLOT_HILLS then
+						missing[#missing + 1] = "region " .. tostring(r) .. " not land/hills";
+					end
+				end
+			end
+		end
+		if #missing > 0 then
+			print("### Lekmap FATAL: start placement incomplete: " .. table.concat(missing, "; "));
+			error("Lekmap: incomplete major start placement — check map/assign logic");
+		end
+	end
+
+	-- Post-pass instrumentation: log major start spacing for 6-player games.
+	-- This gives us an objective baseline for "fairness" (nearest-neighbor distance + spread).
+	do
+		local iNumCivs = start_plot_database.iNumCivs or 0;
+		if iNumCivs == 6 then
+			local iW, iH = Map.GetGridSize();
+			local centerX, centerY = math.floor(iW / 2), math.floor(iH / 2);
+			local player_ID_list = start_plot_database.player_ID_list or {};
+
+			local starts = {}; -- { pid=, x=, y=, coastal=, dCenter= }
+			for _, pid in ipairs(player_ID_list) do
+				local pl = Players[pid];
+				if pl and pl:IsAlive() then
+					local sp = pl:GetStartingPlot();
+					if sp then
+						local x, y = sp:GetX(), sp:GetY();
+						local coast = sp:IsCoastalLand() or false;
+						starts[#starts + 1] = { pid = pid, x = x, y = y, coastal = coast };
+					end
+				end
+			end
+
+			if #starts == 6 then
+				local function appendToFile(lines)
+					-- Civ5 doesn't reliably append late-stage print() output into Lua.log.
+					-- So we persist the metrics to a file in Civ5's Logs folder.
+					local home = (os and os.getenv and os.getenv("HOME")) or "";
+					if home == "" then return; end
+					local path = home .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log";
+					local ok, err = pcall(function()
+						local f = io.open(path, "a");
+						if not f then return; end
+						for _, line in ipairs(lines) do
+							f:write(line);
+							f:write("\n");
+						end
+						f:close();
+					end);
+				end
+
+				local function dist(ax, ay, bx, by)
+					if Map.PlotDistance then return Map.PlotDistance(ax, ay, bx, by); end
+					if PlotDistance then return PlotDistance(ax, ay, bx, by); end
+					return nil;
+				end
+
+				for i = 1, 6 do
+					starts[i].dCenter = dist(starts[i].x, starts[i].y, centerX, centerY) or -1;
+				end
+
+				local nearest = {};
+				local secondNearest = {};
+				for i = 1, 6 do
+					local dists = {};
+					for j = 1, 6 do
+						if i ~= j then
+							local d = dist(starts[i].x, starts[i].y, starts[j].x, starts[j].y);
+							if d ~= nil then dists[#dists + 1] = d; end
+						end
+					end
+					table.sort(dists);
+					nearest[i] = dists[1] or -1;
+					secondNearest[i] = dists[2] or -1;
+				end
+
+				local nearestSorted = {};
+				local secondNearestSorted = {};
+				for i = 1, 6 do
+					nearestSorted[#nearestSorted + 1] = nearest[i];
+					secondNearestSorted[#secondNearestSorted + 1] = secondNearest[i];
+				end
+				table.sort(nearestSorted);
+				table.sort(secondNearestSorted);
+				local function median(arr)
+					local n = #arr;
+					if n == 0 then return -1; end
+					if n % 2 == 1 then return arr[(n + 1) / 2]; end
+					return (arr[n / 2] + arr[n / 2 + 1]) / 2;
+				end
+
+				local sum = 0;
+				for i = 1, 6 do sum = sum + nearestSorted[i]; end
+				local avgNearest = sum / 6;
+				local sum2 = 0;
+				for i = 1, 6 do sum2 = sum2 + secondNearestSorted[i]; end
+				local avgSecondNearest = sum2 / 6;
+
+				local lines = {};
+				local runId = math.floor((os.clock and os.clock() or 0) * 1000);
+				lines[#lines + 1] = "### StartSpacing6P runId=" .. tostring(runId) ..
+					" center=(" .. centerX .. "," .. centerY .. ")" ..
+					" nearestSorted=" .. tostring(table.concat(nearestSorted, ",")) ..
+					" avgNearest=" .. tostring(avgNearest) ..
+					" medianNearest=" .. tostring(median(nearestSorted)) ..
+					" secondNearestSorted=" .. tostring(table.concat(secondNearestSorted, ",")) ..
+					" avgSecondNearest=" .. tostring(avgSecondNearest) ..
+					" medianSecondNearest=" .. tostring(median(secondNearestSorted));
+				for i = 1, 6 do
+					lines[#lines + 1] = "### StartSpacing6P: pid=" .. tostring(starts[i].pid) ..
+						" x,y=(" .. starts[i].x .. "," .. starts[i].y .. ")" ..
+						" coastal=" .. tostring(starts[i].coastal) ..
+						" dCenter=" .. tostring(starts[i].dCenter) ..
+						" nearest=" .. tostring(nearest[i]) ..
+						" secondNearest=" .. tostring(secondNearest[i]);
+				end
+				appendToFile(lines);
+			else
+				print("### StartSpacing6P: could not collect 6 start plots, got " .. tostring(#starts));
+			end
+		end
+	end
 
 	print("Placing Natural Wonders.");
 	local wonders = Map.GetCustomOption(7)
@@ -2107,7 +2376,10 @@ function StartPlotSystem()
 		wonderamt = wonders,
 	};
 	start_plot_database:PlaceNaturalWonders(wonderargs);
-	print("Placing Resources and City States.");
+	print("Placing Resources and City States.")
 	start_plot_database:PlaceResourcesAndCityStates()
+
+	-- Debug region repaint can be heavy; keep it off while we debug stalls.
+	-- DebugPaintRegionsTerrains(start_plot_database)
 end
 ------------------------------------------------------------------------------

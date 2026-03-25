@@ -207,7 +207,6 @@ function AssignStartingPlots.Create()
 		plotDataIsCoastal = {},			-- Stores table of NextToSaltWater plots to reduce redundant calculations
 		plotDataIsNextToCoast = {},		-- Stores table of TwoAwayFromSaltWater plots to reduce redundant calculations
 		plotDataIsThreeFromCoast = {},	-- Stores table of ThreeAwayFromSaltWater plots to reduce redundant calculations
-		plotDataIsFourFromCoast = {},	-- Stores table of FourAwayFromSaltWater plots to reduce redundant calculations
 		regionData = {},				-- Stores data returned from regional division algorithm
 		regionTerrainCounts = {},		-- Stores counts of terrain elements for all regions
 		regionTypes = {},				-- Stores region types
@@ -3091,6 +3090,18 @@ function AssignStartingPlots:EvaluateCandidatePlot(plotIndex, region_type)
 	if plot and plot:GetTerrainType() == TerrainTypes.TERRAIN_SNOW then
 		return 0, false;
 	end
+	-- Bullseye avoidance: if a candidate is too close to the canvas center,
+	-- prevent it from being selected as an "eligible" start (but allow fallback).
+	local centerX = math.floor(iW / 2);
+	local centerY = math.floor(iH / 2);
+	local dCenter = nil;
+	if Map.PlotDistance then
+		dCenter = Map.PlotDistance(x, y, centerX, centerY);
+	elseif PlotDistance then
+		dCenter = PlotDistance(x, y, centerX, centerY);
+	end
+	local tooCloseToCenter = (dCenter ~= nil and dCenter < 8);
+	local tooFarToCenter = (dCenter ~= nil and dCenter > 25);
 	local goodSoFar = true;
 	local isEvenY = true;
 	if y / 2 > math.floor(y / 2) then
@@ -3359,6 +3370,11 @@ function AssignStartingPlots:EvaluateCandidatePlot(plotIndex, region_type)
 	local outerRingScore = foodTotal + prodTotal + goodTotal + riverTotal - (junkTotal * 2);
 	local finalScore = innerRingScore + middleRingScore + outerRingScore + coastScore;
 
+	if tooCloseToCenter or tooFarToCenter then
+		goodSoFar = false;
+		finalScore = finalScore - 10000;
+	end
+
 	-- Check Impact and Ripple data to see if candidate is near an already-placed start point.
 	if distance_bias > 0 then
 		-- This candidate is near an already placed start. This invalidates its 
@@ -3472,7 +3488,6 @@ function AssignStartingPlots:FindStart(region_number, NoCoast)
 	-- Assemble candidates lists.
 	local two_plots_from_ocean = {};
 	local three_plots_from_ocean = {};
-	local four_plots_from_ocean = {};
 	local center_candidates = {};
 	local center_river = {};
 	local center_coastal = {};
@@ -3858,6 +3873,7 @@ function AssignStartingPlots:FindCoastalStart(region_number)
 			forcePlot:SetFeatureType(FeatureTypes.NO_FEATURE, -1);
 			self.startingPlots[region_number] = {iWestX, iSouthY, 0};
 			self:PlaceImpactAndRipples(iWestX, iSouthY)
+			bSuccessFlag = true;
 		end
 		return bSuccessFlag, bForcedPlacementFlag
 	end
@@ -4134,13 +4150,13 @@ function AssignStartingPlots:FindCoastalStart(region_number)
 			-- This region cannot have a start and something has gone way wrong.
 			-- We'll force a one tile grass island in the SW corner of the region and put the start there.
 			local forcePlot = Map.GetPlot(iWestX, iSouthY);
-			bSuccessFlag = false;
 			bForcedPlacementFlag = true;
 			forcePlot:SetPlotType(PlotTypes.PLOT_LAND, false, true);
 			forcePlot:SetTerrainType(TerrainTypes.TERRAIN_GRASS, false, true);
 			forcePlot:SetFeatureType(FeatureTypes.NO_FEATURE, -1);
 			self.startingPlots[region_number] = {iWestX, iSouthY, 0};
 			self:PlaceImpactAndRipples(iWestX, iSouthY)
+			bSuccessFlag = true;
 		end
 	end
 
@@ -4311,13 +4327,13 @@ function AssignStartingPlots:FindStartWithoutRegardToAreaID(region_number, bMust
 		-- Somehow, this region has had no eligible plots of any kind.
 		-- We'll force a one tile grass island in the SW corner of the region and put the start there.
 		local forcePlot = Map.GetPlot(iWestX, iSouthY);
-		bSuccessFlag = false;
 		bForcedPlacementFlag = true;
 		forcePlot:SetPlotType(PlotTypes.PLOT_LAND, false, true);
 		forcePlot:SetTerrainType(TerrainTypes.TERRAIN_GRASS, false, true);
 		forcePlot:SetFeatureType(FeatureTypes.NO_FEATURE, -1);
 		self.startingPlots[region_number] = {iWestX, iSouthY, 0};
 		self:PlaceImpactAndRipples(iWestX, iSouthY)
+		bSuccessFlag = true;
 	end
 
 	return bSuccessFlag, bForcedPlacementFlag
