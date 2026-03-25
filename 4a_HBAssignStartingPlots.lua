@@ -3101,7 +3101,7 @@ function AssignStartingPlots:EvaluateCandidatePlot(plotIndex, region_type)
 		dCenter = PlotDistance(x, y, centerX, centerY);
 	end
 	local tooCloseToCenter = (dCenter ~= nil and dCenter < 8);
-	local tooFarToCenter = (dCenter ~= nil and dCenter > 25);
+	local tooFarToCenter = (dCenter ~= nil and dCenter > 16);
 	local goodSoFar = true;
 	local isEvenY = true;
 	if y / 2 > math.floor(y / 2) then
