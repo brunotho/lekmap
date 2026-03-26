@@ -118,7 +118,8 @@ function TryPlaceJunglePeakIsland(plotTypes, centerX, centerY, islLandInRing, pa
 	if not footprintClear(plotTypes, footprintTiles, params.iW, params.iH) then return false; end
 
 	DrawJunglePeakIsland(plotTypes, landTiles, calderaTiles, cx, cy, params.iW, params.iH);
-	if Map.Rand(2, "") == 0 then
+	-- TODO: set back to Map.Rand(2,"") == 0 after testing Krakatoa variant
+	if true then
 		_krakatoa_island_plot = plotIdx1(cx, cy, params.iW);
 		_sri_pada_island_plot = nil;
 	else

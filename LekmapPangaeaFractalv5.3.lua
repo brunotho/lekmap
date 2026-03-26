@@ -1959,32 +1959,51 @@ end
 ------------------------------------------------------------------------------
 function FixCoastLine()
 
-	-- MOD.EAP: Add a few more hills to the coast
 	local iW, iH = Map.GetGridSize();
 	local biggest_area = Map.FindBiggestArea(false);
 	local iAreaID = biggest_area:GetID();
 
+	-- Pass 1: collect all eligible flat coastal tiles.
+	local eligible = {};
 	for y = 0, iH - 1 do
 		for x = 0, iW - 1 do
-			local i = iW * y + x;
-			local plot = Map.GetPlotByIndex(i);
-			plotAreaID = plot:GetArea();
-			-- only the mainland please
-			if plotAreaID == iAreaID then
+			local plot = Map.GetPlotByIndex(iW * y + x);
+			local pt = plot:GetPlotType();
+			if pt == PlotTypes.PLOT_LAND
+				and plot:GetArea() == iAreaID
+				and plot:IsCoastalLand(8)
+				and not plot:IsRiverSide() then
+				eligible[y * iW + x] = true;
+			end
+		end
+	end
 
-				local plotType = plot:GetPlotType();
-				if plot:IsCoastalLand(25) then
-					if plotType ~= PlotTypes.PLOT_HILLS then
-					if not plot:IsRiverSide() then
-						local flatToHill = Map.Rand(100, "Plains Spawn Chance");
-						if flatToHill >= 80 then
-							print("Adding Hills to Coast");
-							plot:SetPlotType(PlotTypes.PLOT_HILLS, false, true);
-						end
-					end
+	-- Pass 2: for each eligible tile count hill neighbors among all adjacent land tiles.
+	-- 0-1 hill neighbors: 80%
+	-- 2-4 hill neighbors: 20%
+	-- 5+  hill neighbors: 0%
+	for y = 0, iH - 1 do
+		for x = 0, iW - 1 do
+			if eligible[y * iW + x] then
+				local plot = Map.GetPlotByIndex(iW * y + x);
+				local hillNeighbors = 0;
+				for d = 0, 5 do
+					local neighbor = Map.PlotDirection(x, y, d);
+					if neighbor and neighbor:GetPlotType() == PlotTypes.PLOT_HILLS then
+						hillNeighbors = hillNeighbors + 1;
 					end
 				end
-				
+				local threshold;
+				if hillNeighbors <= 1 then
+					threshold = 20;   -- 80% chance
+				elseif hillNeighbors <= 4 then
+					threshold = 80;   -- 20% chance
+				else
+					threshold = 101;  -- 0% chance
+				end
+				if Map.Rand(100, "") >= threshold then
+					plot:SetPlotType(PlotTypes.PLOT_HILLS, false, true);
+				end
 			end
 		end
 	end
@@ -2004,11 +2023,46 @@ function AddFeatures()
 
 	-- True = allow mountains on coast (skip coastal mountain demotion).
 	featuregen:AddFeatures(true);
+
+	-- Sparse forest on snow: 2% per snow flat tile, excluding the 3 rows at each map edge.
+	do
+		local iW, iH = Map.GetGridSize();
+		for y = 3, iH - 4 do
+			for x = 0, iW - 1 do
+				local plot = Map.GetPlot(x, y);
+				if plot
+					and plot:GetTerrainType() == TerrainTypes.TERRAIN_SNOW
+					and plot:GetPlotType() == PlotTypes.PLOT_LAND
+					and plot:GetFeatureType() == FeatureTypes.NO_FEATURE
+					and Map.Rand(100, "") < 2 then
+					plot:SetFeatureType(FeatureTypes.FEATURE_FOREST, -1);
+				end
+			end
+		end
+	end
 end
 ------------------------------------------------------------------------------
 
 ------------------------------------------------------------------------------
 function StartPlotSystem()
+	_lek_run_id = tostring(math.floor((os.clock and os.clock() or 0) * 1000));
+	local function appendLekLog(lines)
+		local home = (os and os.getenv and os.getenv("HOME")) or "";
+		if home == "" then return; end
+		local path = home .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log";
+		pcall(function()
+			local f = io.open(path, "a");
+			if not f then return; end
+			for _, line in ipairs(lines) do
+				f:write(line);
+				f:write("\n");
+			end
+			f:close();
+		end);
+	end
+	appendLekLog({
+		"### RunStage runId=" .. tostring(_lek_run_id) .. " stage=StartPlotSystem.begin"
+	});
 
 	local RegionalMethod = 1;
 
@@ -2230,8 +2284,13 @@ function StartPlotSystem()
 			end
 		end
 		if #missing > 0 then
-			print("### Lekmap FATAL: start placement incomplete: " .. table.concat(missing, "; "));
-			error("Lekmap: incomplete major start placement — check map/assign logic");
+			local msg = "### Lekmap FATAL runId=" .. tostring(_lek_run_id or "na") .. " start placement incomplete: " .. table.concat(missing, "; ");
+			print(msg);
+			appendLekLog({ msg });
+			-- Do NOT call error() here: in Civ5, error() inside a map script is caught by the
+			-- engine and the game still loads with the broken state. Calling error() only aborts
+			-- the rest of StartPlotSystem (CS, resources, wonders never run), making instant-death
+			-- even worse. Log the failure and let the pipeline continue instead.
 		end
 	end
 
@@ -2323,8 +2382,8 @@ function StartPlotSystem()
 				local avgSecondNearest = sum2 / 6;
 
 				local lines = {};
-				local runId = math.floor((os.clock and os.clock() or 0) * 1000);
-				lines[#lines + 1] = "### StartSpacing6P runId=" .. tostring(runId) ..
+				local runId = tostring(_lek_run_id or "na");
+				lines[#lines + 1] = "### StartSpacing6P runId=" .. runId ..
 					" center=(" .. centerX .. "," .. centerY .. ")" ..
 					" nearestSorted=" .. tostring(table.concat(nearestSorted, ",")) ..
 					" avgNearest=" .. tostring(avgNearest) ..
@@ -2367,7 +2426,13 @@ function StartPlotSystem()
 	};
 	start_plot_database:PlaceNaturalWonders(wonderargs);
 	print("Placing Resources and City States.")
+	appendLekLog({
+		"### RunStage runId=" .. tostring(_lek_run_id or "na") .. " stage=before.PlaceResourcesAndCityStates"
+	});
 	start_plot_database:PlaceResourcesAndCityStates()
+	appendLekLog({
+		"### RunStage runId=" .. tostring(_lek_run_id or "na") .. " stage=after.PlaceResourcesAndCityStates"
+	});
 
 	-- Debug region repaint can be heavy; keep it off while we debug stalls.
 	-- DebugPaintRegionsTerrains(start_plot_database)

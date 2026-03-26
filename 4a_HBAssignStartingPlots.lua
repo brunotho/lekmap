@@ -3101,7 +3101,7 @@ function AssignStartingPlots:EvaluateCandidatePlot(plotIndex, region_type)
 		dCenter = PlotDistance(x, y, centerX, centerY);
 	end
 	local tooCloseToCenter = (dCenter ~= nil and dCenter < 8);
-	local tooFarToCenter = (dCenter ~= nil and dCenter > 25);
+	local tooFarToCenter = false;
 	local goodSoFar = true;
 	local isEvenY = true;
 	if y / 2 > math.floor(y / 2) then
@@ -3370,7 +3370,7 @@ function AssignStartingPlots:EvaluateCandidatePlot(plotIndex, region_type)
 	local outerRingScore = foodTotal + prodTotal + goodTotal + riverTotal - (junkTotal * 2);
 	local finalScore = innerRingScore + middleRingScore + outerRingScore + coastScore;
 
-	if tooCloseToCenter or tooFarToCenter then
+	if tooCloseToCenter then
 		goodSoFar = false;
 		finalScore = finalScore - 10000;
 	end
@@ -4684,7 +4684,7 @@ function AssignStartingPlots:AttemptToPlaceBonusResourceAtPlot(x, y, bAllowOasis
 		if maxNumGranary > 0 then
 		plot:SetResourceType(self.deer_ID, 1);
 		print("Placed Deer.");
-		self.amounts_of_resources_placed[self.deer_ID + 1] = self.amounts_of_resources_placed[self.deer_ID + 1] + 1; 
+		self.amounts_of_resources_placed[self.deer_ID + 1] = self.amounts_of_resources_placed[self.deer_ID + 1] + 1;
 		maxNumGranary = maxNumGranary - 1;
 		return true, false, false
 		else
@@ -4698,7 +4698,8 @@ function AssignStartingPlots:AttemptToPlaceBonusResourceAtPlot(x, y, bAllowOasis
 	elseif plotType == PlotTypes.PLOT_HILLS and featureType == FeatureTypes.NO_FEATURE and terrainType ~= TerrainTypes.TERRAIN_DESERT then
 		-- add a sheep or deer, for deer add forest first
 		if maxNumGranary > 0 then
-			plot:SetFeatureType(FeatureTypes.FEATURE_FOREST, -1);
+			local hillsDeerPct = (terrainType == TerrainTypes.TERRAIN_TUNDRA) and 80 or 90;
+			if Map.Rand(100, "") < hillsDeerPct then plot:SetFeatureType(FeatureTypes.FEATURE_FOREST, -1); end
 			plot:SetResourceType(self.deer_ID, 1);
 			print("Placed Deer xx.");
 			self.amounts_of_resources_placed[self.deer_ID + 1] = self.amounts_of_resources_placed[self.deer_ID + 1] + 1;
@@ -4759,7 +4760,7 @@ function AssignStartingPlots:AttemptToPlaceBonusResourceAtPlot(x, y, bAllowOasis
 		local placethis = Map.Rand(100, "");
 		if placethis < 67 then
 			if maxNumGranary > 0 then
-				plot:SetFeatureType(FeatureTypes.FEATURE_FOREST, -1);
+				if Map.Rand(100, "") < 90 then plot:SetFeatureType(FeatureTypes.FEATURE_FOREST, -1); end
 				plot:SetResourceType(self.deer_ID, 1);
 				print("Placed Deer xx.");
 				self.amounts_of_resources_placed[self.deer_ID + 1] = self.amounts_of_resources_placed[self.deer_ID + 1] + 1;
@@ -4770,7 +4771,7 @@ function AssignStartingPlots:AttemptToPlaceBonusResourceAtPlot(x, y, bAllowOasis
 			end
 		else
 			if maxNumGranary > 0 then
-				plot:SetFeatureType(FeatureTypes.FEATURE_FOREST, -1);
+				if Map.Rand(100, "") < 90 then plot:SetFeatureType(FeatureTypes.FEATURE_FOREST, -1); end
 				plot:SetResourceType(self.deer_ID, 1);
 				plot:SetPlotType(PlotTypes.PLOT_HILLS, false, true); -- make it a hill
 				print("Placed Deer xx.");
@@ -4865,9 +4866,8 @@ function AssignStartingPlots:AttemptToPlaceBonusResourceAtPlot(x, y, bAllowOasis
 		
 	-- Tundra support, does not include granary limit since tundra bad (for now)
 	elseif terrainType == TerrainTypes.TERRAIN_TUNDRA and plotType == PlotTypes.PLOT_LAND and featureType == FeatureTypes.NO_FEATURE then -- Place Deer
-					--add forest to the location to make it even better
-					plot:SetFeatureType(FeatureTypes.FEATURE_FOREST, -1);
-					plot:SetResourceType(self.deer_ID, 1);
+				if Map.Rand(100, "") < 80 then plot:SetFeatureType(FeatureTypes.FEATURE_FOREST, -1); end
+				plot:SetResourceType(self.deer_ID, 1);
 					print("Placed Deer.");
 					self.amounts_of_resources_placed[self.deer_ID + 1] = self.amounts_of_resources_placed[self.deer_ID + 1] + 1;
 					return true, false, false
@@ -8701,6 +8701,20 @@ function AssignStartingPlots:PlaceCityStates()
 	-- This is because some city state placements are made in compensation for drawing
 	-- the short straw in regard to multiple regions being assigned the same luxury type.
 
+	do
+		local home = (os and os.getenv and os.getenv("HOME")) or "";
+		if home ~= "" then
+			local path = home .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log";
+			pcall(function()
+				local f = io.open(path, "a");
+				if f then
+					f:write("### CS begin: runId=" .. tostring(_lek_run_id or "na") .. " iNumCityStates=" .. tostring(self.iNumCityStates or "nil") .. "\n");
+					f:close();
+				end
+			end);
+		end
+	end
+
 	self._lek_cs_place_calls = 0;
 	self._lek_cs_refine_reached = 0;
 	self._lek_cs_place_success = 0;
@@ -8772,7 +8786,8 @@ function AssignStartingPlots:PlaceCityStates()
 				placed = placed + 1;
 			end
 		end
-		local line = "### CS placement status: assigned=" .. tostring(self.iNumCityStates) ..
+		local line = "### CS placement status: runId=" .. tostring(_lek_run_id or "na") ..
+			" assigned=" .. tostring(self.iNumCityStates) ..
 			" placed=" .. tostring(placed) ..
 			" discarded=" .. tostring(self.iNumCityStatesDiscarded);
 		local home = (os and os.getenv and os.getenv("HOME")) or "";
@@ -8809,7 +8824,8 @@ function AssignStartingPlots:PlaceCityStates()
 		end
 		local iNumLastChanceCandidates = table.maxn(cs_last_chance_plot_list);
 		do
-			local line = "### CS last-chance candidates: strict=" .. tostring(strictLastChanceCount) ..
+			local line = "### CS last-chance candidates: runId=" .. tostring(_lek_run_id or "na") ..
+				" strict=" .. tostring(strictLastChanceCount) ..
 				" proximityRelaxed=" .. tostring(relaxedProximityCount) ..
 				" discardedIncoming=" .. tostring(self.iNumCityStatesDiscarded);
 			local home = (os and os.getenv and os.getenv("HOME")) or "";
@@ -8888,7 +8904,8 @@ function AssignStartingPlots:PlaceCityStates()
 				missingIds[#missingIds + 1] = tostring(city_state_ID) .. "(not alive)";
 			end
 		end
-		local line = "### CS final status: target=" .. tostring(self.iNumCityStates) ..
+		local line = "### CS final status: runId=" .. tostring(_lek_run_id or "na") ..
+			" target=" .. tostring(self.iNumCityStates) ..
 			" actualPlaced=" .. tostring(placedActual) ..
 			" discarded=" .. tostring(self.iNumCityStatesDiscarded) ..
 			" validityPlaced=" .. tostring((function()
@@ -8899,7 +8916,8 @@ function AssignStartingPlots:PlaceCityStates()
 				return c;
 			end)()) ..
 			" missingMinorIDs=" .. tostring(table.concat(missingIds, ","));
-		local line2 = "### CS refine debug: placeCalls=" .. tostring(self._lek_cs_place_calls or 0) ..
+		local line2 = "### CS refine debug: runId=" .. tostring(_lek_run_id or "na") ..
+			" placeCalls=" .. tostring(self._lek_cs_place_calls or 0) ..
 			" refineReached=" .. tostring(self._lek_cs_refine_reached or 0) ..
 			" placeSuccess=" .. tostring(self._lek_cs_place_success or 0) ..
 			" selectedNil=" .. tostring(self._lek_cs_selected_nil or 0);
@@ -14189,9 +14207,10 @@ function AssignStartingPlots:FixResourceGraphics()
 	for y = 0, iH - 1 do
 		for x = 0, iW - 1 do
 			
-			local plot = Map.GetPlot(x, y)
-			local res_ID = plot:GetResourceType(-1)
-			local featureType = plot:GetFeatureType()
+		local plot = Map.GetPlot(x, y)
+		local res_ID = plot:GetResourceType(-1)
+		local featureType = plot:GetFeatureType()
+		local terrainType = plot:GetTerrainType()
 			
 			-- Mined/Quarried Resources
 			if res_ID == self.marble_ID or 
@@ -14223,14 +14242,19 @@ function AssignStartingPlots:FixResourceGraphics()
 				   res_ID == self.fur_ID or
 				   red_ID == self.coconut_ID or
 				   red_ID == self.rubber_ID or
-				   res_ID == self.hardwood_ID or
-				   res_ID == self.deer_ID then
-				
+			res_ID == self.hardwood_ID or
+			   res_ID == self.deer_ID then
+
+			local deerForestPct = (res_ID == self.deer_ID or res_ID == self.fur_ID)
+				and ((terrainType == TerrainTypes.TERRAIN_TUNDRA) and 80 or 90)
+				or 100;
+			if Map.Rand(100, "") < deerForestPct then
 				if (featureType ~= FeatureTypes.FEATURE_FOREST) then
 					plot:SetFeatureType(FeatureTypes.FEATURE_FOREST, -1)
 				elseif (featureType ~= FeatureTypes.FEATURE_JUNGLE) then
 					plot:SetFeatureType(FeatureTypes.FEATURE_JUNGLE, -1)
 				end
+			end
 				
 				if res_ID == self.fur_ID then
 					-- Always want it flat.  The foxes fall into the hills.
@@ -14261,23 +14285,10 @@ function AssignStartingPlots:FixResourceGraphics()
 					AvgJungleRange = 0.12
 				end
 				
-				-- Always want it covered for most tree resources.
-				if (featureType == FeatureTypes.FEATURE_MARSH) then
-					if res_ID == self.sugar_ID or res_ID == self.spices_ID or res_ID == self.dye_ID or res_ID == self.rubber_ID or res_ID == self.coconut_ID then
-						-- Keep it marsh for these resources.
-					else
-						-- Add some jungle or forest.
-						if lat <= AvgJungleRange then
-							if res_ID ~= self.deer_ID and res_ID ~= self.fur_ID then
-								plot:SetFeatureType(FeatureTypes.FEATURE_JUNGLE, -1)
-								plot:SetTerrainType(TerrainTypes.TERRAIN_PLAINS, false, true)
-							else
-								plot:SetFeatureType(FeatureTypes.FEATURE_FOREST, -1)
-							end
-						else
-							plot:SetFeatureType(FeatureTypes.FEATURE_FOREST, -1)
-						end	
-					end
+			-- Always want it covered for most tree resources.
+			if (featureType == FeatureTypes.FEATURE_MARSH) then
+				if res_ID == self.sugar_ID or res_ID == self.spices_ID or res_ID == self.dye_ID or res_ID == self.rubber_ID or res_ID == self.coconut_ID then
+					-- Keep it marsh for these resources.
 				else
 					-- Add some jungle or forest.
 					if lat <= AvgJungleRange then
@@ -14289,8 +14300,21 @@ function AssignStartingPlots:FixResourceGraphics()
 						end
 					else
 						plot:SetFeatureType(FeatureTypes.FEATURE_FOREST, -1)
-					end		
+					end	
 				end
+			else
+				-- Add some jungle or forest.
+				if lat <= AvgJungleRange then
+					if res_ID ~= self.deer_ID and res_ID ~= self.fur_ID then
+						plot:SetFeatureType(FeatureTypes.FEATURE_JUNGLE, -1)
+						plot:SetTerrainType(TerrainTypes.TERRAIN_PLAINS, false, true)
+					else
+						plot:SetFeatureType(FeatureTypes.FEATURE_FOREST, -1)
+					end
+				else
+					plot:SetFeatureType(FeatureTypes.FEATURE_FOREST, -1)
+				end		
+			end
 				
 			-- Open Land Resources
 			elseif res_ID == self.incense_ID or 
@@ -14819,9 +14843,45 @@ function AssignStartingPlots:PlaceResourcesAndCityStates()
 	-- system as accessible and powerful as any ever before offered.
 
 	print("Map Generation - Assigning Luxury Resource Distribution");
-	self:PlaceCoastalBonusIslands()
-	self:AssignLuxuryRoles()
-	self:PlaceCityStates()
+	do
+		local ok, err = pcall(function() self:PlaceCoastalBonusIslands() end);
+		if not ok then
+			local home = (os and os.getenv and os.getenv("HOME")) or "";
+			local msg = "### PRE-CS CRASH: runId=" .. tostring(_lek_run_id or "na") .. " stage=PlaceCoastalBonusIslands err=" .. tostring(err);
+			print(msg);
+			if home ~= "" then pcall(function()
+				local f = io.open(home .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log", "a");
+				if f then f:write(msg .. "\n"); f:close(); end
+			end); end
+		end
+	end
+	do
+		local ok, err = pcall(function() self:AssignLuxuryRoles() end);
+		if not ok then
+			local home = (os and os.getenv and os.getenv("HOME")) or "";
+			local msg = "### PRE-CS CRASH: runId=" .. tostring(_lek_run_id or "na") .. " stage=AssignLuxuryRoles err=" .. tostring(err);
+			print(msg);
+			if home ~= "" then pcall(function()
+				local f = io.open(home .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log", "a");
+				if f then f:write(msg .. "\n"); f:close(); end
+			end); end
+		end
+	end
+	do
+		local ok, err = pcall(function() self:PlaceCityStates() end);
+		if not ok then
+			local home = (os and os.getenv and os.getenv("HOME")) or "";
+			local msg = "### CS CRASH: runId=" .. tostring(_lek_run_id or "na") .. " err=" .. tostring(err);
+			print(msg);
+			if home ~= "" then
+				local path = home .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log";
+				pcall(function()
+					local f = io.open(path, "a");
+					if f then f:write(msg .. "\n"); f:close(); end
+				end);
+			end
+		end
+	end
 	-- Generate global plot lists for resource distribution.
 	self:GenerateGlobalResourcePlotLists()
 	
@@ -14833,7 +14893,32 @@ function AssignStartingPlots:PlaceResourcesAndCityStates()
 	self:NormalizeCityStateLocations()	
 	-- Fix Sugar graphics
 	self:FixResourceGraphics()
-	
+
+	-- Sparse deer on snow: 5% chance per snow tile that has at least one adjacent forest neighbor.
+	do
+		local iW, iH = Map.GetGridSize();
+		for _, i in ipairs(self.snow_flat_list) do
+			if self.playerCollisionData[i] ~= true then
+				local plot = Map.GetPlotByIndex(i - 1);
+				if plot and plot:GetResourceType(-1) == -1 then
+					local x, y = plot:GetX(), plot:GetY();
+					local hasForestNeighbor = false;
+					for d = 0, 5 do
+						local nb = Map.PlotDirection(x, y, d);
+						if nb and nb:GetFeatureType() == FeatureTypes.FEATURE_FOREST then
+							hasForestNeighbor = true;
+							break;
+						end
+					end
+					if hasForestNeighbor and Map.Rand(100, "") < 5 then
+						plot:SetFeatureType(FeatureTypes.FEATURE_FOREST, -1);
+						plot:SetResourceType(self.deer_ID, 1);
+					end
+				end
+			end
+		end
+	end
+
 	-- Necessary to implement placement of Natural Wonders, and possibly other plot-type changes.
 	-- This operation must be saved for last, as it invalidates all regional data by resetting Area IDs.
 	Map.RecalculateAreas();

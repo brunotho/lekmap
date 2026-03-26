@@ -3,6 +3,7 @@ include("X_IslandHelpers");
 local DISK_R = 3;
 local NW_BARRINGER = "FEATURE_CRATER";
 local NW_FOUNTAIN_YOUTH = "FEATURE_FOUNTAIN_YOUTH";
+local NW_KRAKATOA = "FEATURE_VOLCANO";
 
 local function pidx(x, y, iW)
 	return y * iW + x + 1;
@@ -58,6 +59,7 @@ function TryPlaceGeothermalIsland(plotTypes, centerX, centerY, islLandInRing, pa
 	local cx = WrapCoord(centerX, params.iW, params.wrapX);
 	local cy = WrapCoord(centerY, params.iH, params.wrapY);
 	if cx < 0 or cx >= params.iW or cy < 0 or cy >= params.iH then return false; end
+	if cy < 3 or cy >= params.iH - 3 then return false; end
 
 	local disk = GetHexDisk(cx, cy, DISK_R, params.iW, params.iH, params.wrapX, params.wrapY);
 	if #disk < 7 then return false; end
@@ -80,12 +82,23 @@ function TryPlaceGeothermalIsland(plotTypes, centerX, centerY, islLandInRing, pa
 	if not footprintClear(plotTypes, landTiles, params.iW, params.iH) then return false; end
 
 	local roll = Map.Rand(100, "");
-	if roll < 80 then
-		_geothermal_island_nw_type = NW_BARRINGER;
+	if roll < 100 then -- TODO: set back to 20 after testing
+		_geothermal_island_nw_type = NW_KRAKATOA;
+		_geothermal_is_krakatoa = true;
 	else
-		_geothermal_island_nw_type = NW_FOUNTAIN_YOUTH;
+		_geothermal_island_nw_type = NW_BARRINGER;
+		_geothermal_is_krakatoa = false;
 	end
 	DrawGeothermalIsland(plotTypes, landTiles, landSet, cx, cy, params.iW, params.iH, params.wrapX, params.wrapY);
+	if _geothermal_is_krakatoa then
+		-- Route through the shared _krakatoa_island_plot pathway so FEATURE_VOLCANO is
+		-- force-placed here by the NW system (same path JunglePeak uses). Clear
+		-- _geothermal_island_nw_type so the geothermal NW pathway doesn't also fire.
+		-- If JunglePeak is also on this map, whichever island was placed last wins the NW;
+		-- the other keeps its terrain shape without a wonder, which is fine.
+		_krakatoa_island_plot = _geothermal_island_plot;
+		_geothermal_island_nw_type = nil;
+	end
 	if not _island_placed then _island_placed = {}; end
 	_island_placed.geothermalIsland = true;
 	return true;
@@ -102,6 +115,53 @@ function DrawGeothermalIsland(plotTypes, landTiles, landSet, cx, cy, iW, iH, wra
 
 	local dist = ringDistances(cx, cy, landSet, iW, iH, wrapX, wrapY);
 
+	if _geothermal_is_krakatoa then
+		-- Krakatoa variant: center is hills, ring-1 is all ocean (water moat),
+		-- ring-2+ follows the same randOuter logic as Crater (scattered land/hills/ocean).
+		local function randOuter()
+			local r = Map.Rand(100, "");
+			if r < 40 then return PlotTypes.PLOT_OCEAN;
+			elseif r < 60 then return PlotTypes.PLOT_LAND;
+			elseif r < 80 then return PlotTypes.PLOT_HILLS;
+			else return PlotTypes.PLOT_MOUNTAIN; end
+		end
+		for _, t in ipairs(landTiles) do
+			local gx, gy = t[1], t[2];
+			local idx = pidx(gx, gy, iW);
+			local k = gx .. "," .. gy;
+			local rd = dist[k];
+			if rd == nil then rd = 99; end
+			if gx == cx and gy == cy then
+				_geothermal_island_plot = idx;
+				plotTypes[idx] = PlotTypes.PLOT_HILLS;
+			elseif rd == 1 then
+				plotTypes[idx] = PlotTypes.PLOT_OCEAN;
+			elseif rd >= 2 then
+				plotTypes[idx] = randOuter();
+				local pt = plotTypes[idx];
+				if pt == PlotTypes.PLOT_LAND or pt == PlotTypes.PLOT_HILLS or pt == PlotTypes.PLOT_MOUNTAIN then
+					markSnow(gx, gy);
+				end
+			end
+		end
+		for _, t in ipairs(landTiles) do
+			local gx, gy = t[1], t[2];
+			if gx ~= cx or gy ~= cy then
+				local k = gx .. "," .. gy;
+				local rd = dist[k];
+				if rd == 2 then
+					local idx = pidx(gx, gy, iW);
+					local pt = plotTypes[idx];
+					if pt == PlotTypes.PLOT_LAND or pt == PlotTypes.PLOT_HILLS then
+						_geothermal_forest_ring_indices[#_geothermal_forest_ring_indices + 1] = idx;
+					end
+				end
+			end
+		end
+		return;
+	end
+
+	-- Crater (default) variant below.
 	local function randOuter()
 		local r = Map.Rand(100, "");
 		if r < 40 then return PlotTypes.PLOT_OCEAN;
