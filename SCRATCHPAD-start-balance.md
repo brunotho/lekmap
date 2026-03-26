@@ -19,4 +19,13 @@
 - CS regional placement now first attempts legal plots within distance 8 of the major start in that region
 - CS filter tweak: removed non-mainland coastal adjacency-to-mainland requirement; method-1 biggest-area restriction no longer applies when area_ID = -1 (uninhabited/global lists)
 - Reliability requirement: always verify all majors have valid starts before proceeding; instant-loss guard stays mandatory
+- Investigate rare "0 CS visible" runs: log post-CS final actual minor starts (`GetStartingPlot`) to custom file and compare against validity table/discard count
+- Potential sequencing rethink for later: generate pangaea -> place majors -> generate islands -> place city states
+- Current 0-CS hypothesis: strict `cityStateData` proximity mask can blank all legal CS sites on some Small rolls; log strict vs proximity-relaxed last-chance candidate counts
+- 2026-03-26 hotfix: explicit contiguous fill of `city_state_region_assignments[1..iNumCityStates] = -1` at start of `AssignCityStatesToRegionsOrToUninhabited()` in `4a_HBAssignStartingPlots.lua` (around CS assignment setup, ~L7960-L7985) to prevent `ipairs` early-stop from nil gaps
+- 2026-03-26 hotfix: disabled horizontal strip-ocean repaint after Y-shift in `LekmapPangaeaFractalv5.3.lua` (`GeneratePlotTypes` centering block, around old north/south shift cleanup loops near ~L1350 and ~L1370) because it can cut across pangaea when wrap/fringe islands merge landmasses
+- 2026-03-26 hotfix follow-up: corrected centering/shift loop bounds in `LekmapPangaeaFractalv5.3.lua` from inclusive `0..iW / 0..iH` to `0..iW-1 / 0..iH-1` and added ocean fallback when shifted source index is out-of-range; target is to stop southern-edge full-row terrain corruption (mountain band artifact)
+- Rare instant-death remains low-frequency side risk; avoid brute-force reroll confidence testing for now
+- Keep instant-death as tracked side-thread: likely buckets = major-start assignment consistency edge case, post-start mutation side effects, sparse/iteration mismatch, centering/shift residual corruption
+- When needed later: add final major-start sanity log near gameplay handoff (`pid`, hasStartPlot, coords/plotType) to custom log; only add reroll gate after evidence
 - Next design direction: Small/6 virtual full-set solver with quality gates and placement/map retries

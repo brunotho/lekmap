@@ -3101,7 +3101,7 @@ function AssignStartingPlots:EvaluateCandidatePlot(plotIndex, region_type)
 		dCenter = PlotDistance(x, y, centerX, centerY);
 	end
 	local tooCloseToCenter = (dCenter ~= nil and dCenter < 8);
-	local tooFarToCenter = (dCenter ~= nil and dCenter > 21);
+	local tooFarToCenter = (dCenter ~= nil and dCenter > 25);
 	local goodSoFar = true;
 	local isEvenY = true;
 	if y / 2 > math.floor(y / 2) then
@@ -7964,6 +7964,11 @@ function AssignStartingPlots:AssignCityStatesToRegionsOrToUninhabited(args)
 	-- Lekmap tuning: keep at least one per region, but allow higher counts
 	-- when CS:civ ratio is very high.
 	local iW, iH = Map.GetGridSize()
+	-- Ensure contiguous assignment array every run; ipairs in PlaceCityStates
+	-- stops at first nil, so we must avoid sparse/nil gaps.
+	for cs_idx = 1, self.iNumCityStates do
+		self.city_state_region_assignments[cs_idx] = -1;
+	end
 	local ratio = self.iNumCityStates / self.iNumCivs;
 	if ratio > 14 then -- Extremely high CS counts.
 		self.iNumCityStatesPerRegion = 10;
@@ -8104,6 +8109,11 @@ function AssignStartingPlots:AssignCityStatesToRegionsOrToUninhabited(args)
 			self.iNumCityStatesUninhabited = 0;
 		end
 		self.iNumCityStatesUnassigned = self.iNumCityStatesUnassigned - self.iNumCityStatesUninhabited;
+		for idx = current_cs_index, current_cs_index + self.iNumCityStatesUninhabited - 1 do
+			if idx <= self.iNumCityStates then
+				self.city_state_region_assignments[idx] = -1;
+			end
+		end
 	end
 	--print("-"); print("City States assigned to Uninhabited Areas: ", self.iNumCityStatesUninhabited);
 	-- Update the city state number.
@@ -8325,6 +8335,81 @@ function AssignStartingPlots:PlaceCityState(coastal_plot_list, inland_plot_list,
 		print("Nil plot list incoming for PlaceCityState()");
 	end
 	local iW, iH = Map.GetGridSize()
+	self._lek_cs_place_calls = (self._lek_cs_place_calls or 0) + 1;
+	local candidate_pool = {};
+	for _, idx in ipairs(coastal_plot_list) do
+		candidate_pool[idx] = true;
+	end
+	for _, idx in ipairs(inland_plot_list) do
+		candidate_pool[idx] = true;
+	end
+
+	local function adjacent_land_count(x, y)
+		local count = 0;
+		local dirs = {
+			DirectionTypes.DIRECTION_NORTHEAST,
+			DirectionTypes.DIRECTION_EAST,
+			DirectionTypes.DIRECTION_SOUTHEAST,
+			DirectionTypes.DIRECTION_SOUTHWEST,
+			DirectionTypes.DIRECTION_WEST,
+			DirectionTypes.DIRECTION_NORTHWEST
+		};
+		for _, d in ipairs(dirs) do
+			local p = Map.PlotDirection(x, y, d);
+			if p then
+				local pt = p:GetPlotType();
+				if pt == PlotTypes.PLOT_LAND or pt == PlotTypes.PLOT_HILLS then
+					count = count + 1;
+				end
+			end
+		end
+		return count;
+	end
+
+	local function choose_preferred_nearby(selected_plot_index)
+		local sx = (selected_plot_index - 1) % iW;
+		local sy = (selected_plot_index - sx - 1) / iW;
+		local sp = Map.GetPlot(sx, sy);
+		local best_index = selected_plot_index;
+		local best_fresh = (sp and sp:IsFreshWater()) and 1 or 0;
+		local best_land = adjacent_land_count(sx, sy);
+		for idx, _ in pairs(candidate_pool) do
+			local x = (idx - 1) % iW;
+			local y = (idx - x - 1) / iW;
+			local d = nil;
+			if Map.PlotDistance then
+				d = Map.PlotDistance(x, y, sx, sy);
+			elseif PlotDistance then
+				d = PlotDistance(x, y, sx, sy);
+			end
+			if d ~= nil and d <= 1 then
+				local p = Map.GetPlot(x, y);
+				if p then
+					local fresh = p:IsFreshWater() and 1 or 0;
+					local land = adjacent_land_count(x, y);
+					if fresh > best_fresh or (fresh == best_fresh and land > best_land) then
+						best_index = idx;
+						best_fresh = fresh;
+						best_land = land;
+					end
+				end
+			end
+		end
+		return best_index;
+	end
+
+	local function finalize_selected_index(selected_plot_index)
+		self._lek_cs_refine_reached = (self._lek_cs_refine_reached or 0) + 1;
+		if selected_plot_index == nil then
+			self._lek_cs_selected_nil = (self._lek_cs_selected_nil or 0) + 1;
+			return 0, 0, false;
+		end
+		local chosen = choose_preferred_nearby(selected_plot_index);
+		local x = (chosen - 1) % iW;
+		local y = (chosen - x - 1) / iW;
+		self._lek_cs_place_success = (self._lek_cs_place_success or 0) + 1;
+		return x, y, true;
+	end
 
 	print("------------------------------------- CS PLOTS READOUT -------------------------------------");
 	print("Inc. Coastal List Size: ", table.maxn(coastal_plot_list));
@@ -8340,9 +8425,7 @@ function AssignStartingPlots:PlaceCityState(coastal_plot_list, inland_plot_list,
 			if check_collision == false then
 				local diceroll = 1 + Map.Rand(iNumCoastal, "Standard City State placement - LUA");
 				local selected_plot_index = coastal_plot_list[diceroll];
-				local x = (selected_plot_index - 1) % iW;
-				local y = (selected_plot_index - x - 1) / iW;
-				return x, y, true;
+				return finalize_selected_index(selected_plot_index);
 			else
 				local randomized_coastal = GetShuffledCopyOfTable(coastal_plot_list);
 				for loop, candidate_plot in ipairs(randomized_coastal) do
@@ -8352,9 +8435,7 @@ function AssignStartingPlots:PlaceCityState(coastal_plot_list, inland_plot_list,
 						-- Checks if city state is too close to another city state,
 						-- or proximity check is disabled
 						if check_proximity == false or self.cityStateData[candidate_plot] == 0 then
-							local x = (candidate_plot - 1) % iW;
-							local y = (candidate_plot - x - 1) / iW;
-							return x, y, true;
+							return finalize_selected_index(candidate_plot);
 						end
 					end
 				end
@@ -8366,17 +8447,13 @@ function AssignStartingPlots:PlaceCityState(coastal_plot_list, inland_plot_list,
 			if check_collision == false then
 				local diceroll = 1 + Map.Rand(iNumInland, "Standard City State placement - LUA");
 				local selected_plot_index = inland_plot_list[diceroll];
-				local x = (selected_plot_index - 1) % iW;
-				local y = (selected_plot_index - x - 1) / iW;
-				return x, y, true;
+				return finalize_selected_index(selected_plot_index);
 			else
 				local randomized_inland = GetShuffledCopyOfTable(inland_plot_list);
 				for loop, candidate_plot in ipairs(randomized_inland) do
 					if self.playerCollisionData[candidate_plot] == false then
 						if check_proximity == false or self.cityStateData[candidate_plot] == 0 then
-							local x = (candidate_plot - 1) % iW;
-							local y = (candidate_plot - x - 1) / iW;
-							return x, y, true;
+							return finalize_selected_index(candidate_plot);
 						end
 					end
 				end
@@ -8390,17 +8467,13 @@ function AssignStartingPlots:PlaceCityState(coastal_plot_list, inland_plot_list,
 			if check_collision == false then
 				local diceroll = 1 + Map.Rand(iNumInland, "Standard City State placement - LUA");
 				local selected_plot_index = inland_plot_list[diceroll];
-				local x = (selected_plot_index - 1) % iW;
-				local y = (selected_plot_index - x - 1) / iW;
-				return x, y, true;
+				return finalize_selected_index(selected_plot_index);
 			else
 				local randomized_inland = GetShuffledCopyOfTable(inland_plot_list);
 				for loop, candidate_plot in ipairs(randomized_inland) do
 					if self.playerCollisionData[candidate_plot] == false then
 						if check_proximity == false or self.cityStateData[candidate_plot] == 0 then
-							local x = (candidate_plot - 1) % iW;
-							local y = (candidate_plot - x - 1) / iW;
-							return x, y, true;
+							return finalize_selected_index(candidate_plot);
 						end
 					end
 				end
@@ -8412,17 +8485,13 @@ function AssignStartingPlots:PlaceCityState(coastal_plot_list, inland_plot_list,
 			if check_collision == false then
 				local diceroll = 1 + Map.Rand(iNumCoastal, "Standard City State placement - LUA");
 				local selected_plot_index = coastal_plot_list[diceroll];
-				local x = (selected_plot_index - 1) % iW;
-				local y = (selected_plot_index - x - 1) / iW;
-				return x, y, true;
+				return finalize_selected_index(selected_plot_index);
 			else
 				local randomized_coastal = GetShuffledCopyOfTable(coastal_plot_list);
 				for loop, candidate_plot in ipairs(randomized_coastal) do
 					if self.playerCollisionData[candidate_plot] == false then
 						if check_proximity == false or self.cityStateData[candidate_plot] == 0 then
-							local x = (candidate_plot - 1) % iW;
-							local y = (candidate_plot - x - 1) / iW;
-							return x, y, true;
+							return finalize_selected_index(candidate_plot);
 						end
 					end
 				end
@@ -8632,12 +8701,18 @@ function AssignStartingPlots:PlaceCityStates()
 	-- This is because some city state placements are made in compensation for drawing
 	-- the short straw in regard to multiple regions being assigned the same luxury type.
 
+	self._lek_cs_place_calls = 0;
+	self._lek_cs_refine_reached = 0;
+	self._lek_cs_place_success = 0;
+	self._lek_cs_selected_nil = 0;
+
 	self:AssignCityStatesToRegionsOrToUninhabited()
 	
 	--print("-"); print("--- City State Placement Results ---");
 
 	local iW, iH = Map.GetGridSize();
-	local iUninhabitedCandidatePlots = table.maxn(self.uninhabited_areas_coastal_plots) + table.maxn(self.uninhabited_areas_inland_plots);
+	-- For uninhabited/island-assigned CS, require water contact (coastal plots only).
+	local iUninhabitedCandidatePlots = table.maxn(self.uninhabited_areas_coastal_plots);
 	--print("-"); print("."); print(". NUMBER OF UNINHABITED CS CANDIDATE PLOTS: ", iUninhabitedCandidatePlots); print(".");
 	for cs_number, region_number in ipairs(self.city_state_region_assignments) do
 		if cs_number <= self.iNumCityStates then -- Make sure it's an active city state before processing.
@@ -8645,7 +8720,7 @@ function AssignStartingPlots:PlaceCityStates()
 				--print("Place City States, place in uninhabited called for City State", cs_number);
 				iUninhabitedCandidatePlots = iUninhabitedCandidatePlots - 1;
 				local cs_x, cs_y, success;
-				cs_x, cs_y, success = self:PlaceCityState(self.uninhabited_areas_coastal_plots, self.uninhabited_areas_inland_plots, true, true)
+				cs_x, cs_y, success = self:PlaceCityState(self.uninhabited_areas_coastal_plots, {}, true, true)
 				--
 				-- Disabling fallback methods that remove proximity and collision checks. Jon has decided
 				-- that city states that do not fit on the map will simply not be placed, but instead discarded.
@@ -8718,15 +8793,38 @@ function AssignStartingPlots:PlaceCityStates()
 	if self.iNumCityStatesDiscarded > 0 then
 		-- Assemble a global plot list of eligible City State sites that remain.
 		local cs_last_chance_plot_list = {};
+		local strictLastChanceCount = 0;
+		local relaxedProximityCount = 0;
 		for y = 0, iH - 1 do
 			for x = 0, iW - 1 do
 				if self:CanPlaceCityStateAt(x, y, -1, false, false) == true then
 					local i = y * iW + x + 1;
 					table.insert(cs_last_chance_plot_list, i);
+					strictLastChanceCount = strictLastChanceCount + 1;
+				end
+				if self:CanPlaceCityStateAt(x, y, -1, true, false) == true then
+					relaxedProximityCount = relaxedProximityCount + 1;
 				end
 			end
 		end
 		local iNumLastChanceCandidates = table.maxn(cs_last_chance_plot_list);
+		do
+			local line = "### CS last-chance candidates: strict=" .. tostring(strictLastChanceCount) ..
+				" proximityRelaxed=" .. tostring(relaxedProximityCount) ..
+				" discardedIncoming=" .. tostring(self.iNumCityStatesDiscarded);
+			local home = (os and os.getenv and os.getenv("HOME")) or "";
+			if home ~= "" then
+				local path = home .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log";
+				pcall(function()
+					local f = io.open(path, "a");
+					if f then
+						f:write(line);
+						f:write("\n");
+						f:close();
+					end
+				end);
+			end
+		end
 		-- If any eligible sites were found anywhere on the map, place as many of the remaining CS as possible.
 		if iNumLastChanceCandidates > 0 then
 			print("-"); print("-"); print("ALERT: Some City States failed to be placed due to overcrowding. Attempting 'last chance' placement method.");
@@ -8771,6 +8869,53 @@ function AssignStartingPlots:PlaceCityStates()
 			end
 		else
 			print("-"); print("-"); print("ALERT: No eligible city state sites remain. DISCARDING", self.iNumCityStatesDiscarded, "city states. BYE BYE!"); print("-");
+		end
+	end
+	do
+		local placedActual = 0;
+		local missingIds = {};
+		for cs_num = 1, self.iNumCityStates do
+			local city_state_ID = cs_num + GameDefines.MAX_MAJOR_CIVS - 1;
+			local cityState = Players[city_state_ID];
+			if cityState and cityState:IsEverAlive() then
+				local sp = cityState:GetStartingPlot();
+				if sp ~= nil then
+					placedActual = placedActual + 1;
+				else
+					missingIds[#missingIds + 1] = tostring(city_state_ID);
+				end
+			else
+				missingIds[#missingIds + 1] = tostring(city_state_ID) .. "(not alive)";
+			end
+		end
+		local line = "### CS final status: target=" .. tostring(self.iNumCityStates) ..
+			" actualPlaced=" .. tostring(placedActual) ..
+			" discarded=" .. tostring(self.iNumCityStatesDiscarded) ..
+			" validityPlaced=" .. tostring((function()
+				local c = 0;
+				for i = 1, self.iNumCityStates do
+					if self.city_state_validity_table[i] == true then c = c + 1; end
+				end
+				return c;
+			end)()) ..
+			" missingMinorIDs=" .. tostring(table.concat(missingIds, ","));
+		local line2 = "### CS refine debug: placeCalls=" .. tostring(self._lek_cs_place_calls or 0) ..
+			" refineReached=" .. tostring(self._lek_cs_refine_reached or 0) ..
+			" placeSuccess=" .. tostring(self._lek_cs_place_success or 0) ..
+			" selectedNil=" .. tostring(self._lek_cs_selected_nil or 0);
+		local home = (os and os.getenv and os.getenv("HOME")) or "";
+		if home ~= "" then
+			local path = home .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log";
+			pcall(function()
+				local f = io.open(path, "a");
+				if f then
+					f:write(line);
+					f:write("\n");
+					f:write(line2);
+					f:write("\n");
+					f:close();
+				end
+			end);
 		end
 	end
 end

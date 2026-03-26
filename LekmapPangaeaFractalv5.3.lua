@@ -1270,29 +1270,29 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		--clear area around pangaea
 		local iW, iH = Map.GetGridSize();
 		for x = 0, xstart - 1 do --clear west side of map
-			for y = 0, iH  do
+			for y = 0, iH - 1 do
 				destPlotIndex = iW * y + x + 1;
 				self.plotTypes[destPlotIndex] = PlotTypes.PLOT_OCEAN;
 			end
 		end
 
 
-		for x = xend + 1, iW  do --clear east side of map
-			for y = 0, iH  do
+		for x = xend + 1, iW - 1 do --clear east side of map
+			for y = 0, iH - 1 do
 				destPlotIndex = iW * y + x + 1;
 				self.plotTypes[destPlotIndex] = PlotTypes.PLOT_OCEAN;
 			end
 		end
 
 		for y = 0, ystart - 1 do --clear south side of map
-			for x = 0, iW  do
+			for x = 0, iW - 1 do
 				destPlotIndex = iW * y + x + 1;
 				self.plotTypes[destPlotIndex] = PlotTypes.PLOT_OCEAN;
 			end
 		end
 	
-		for y = yend + 1, iH  do --clear north side of map
-			for x = 0, iW  do
+		for y = yend + 1, iH - 1 do --clear north side of map
+			for x = 0, iW - 1 do
 				destPlotIndex = iW * y + x + 1;
 				self.plotTypes[destPlotIndex] = PlotTypes.PLOT_OCEAN;
 			end
@@ -1305,12 +1305,12 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 			print("Shifting East........");
 			print("-----------------------------------");
 
-			for x = iW, 0, -1 do
-				for y = iH, 0, -1 do
+			for x = iW - 1, 0, -1 do
+				for y = iH - 1, 0, -1 do
 					local destPlotIndex = iW * y + x + 1;
 					local sourcePlotIndex = destPlotIndex - math.abs(xshiftamt);
 					--print("Moving Plot: ", sourcePlotIndex, "To Location: ",destPlotIndex );
-					self.plotTypes[destPlotIndex] = self.plotTypes[sourcePlotIndex]
+					self.plotTypes[destPlotIndex] = self.plotTypes[sourcePlotIndex] or PlotTypes.PLOT_OCEAN;
 				end	
 			end
 		elseif xshift == 2 then --shift west
@@ -1318,12 +1318,12 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 			print("Shifting West........");
 			print("-----------------------------------");
 
-			for x = 0, iW do
-				for y = 0, iH do
+			for x = 0, iW - 1 do
+				for y = 0, iH - 1 do
 					local destPlotIndex = iW * y + x + 1;
 					local sourcePlotIndex = destPlotIndex + math.abs(xshiftamt);
 					--print("Moving Plot: ", sourcePlotIndex, "To Location: ",destPlotIndex );
-					self.plotTypes[destPlotIndex] = self.plotTypes[sourcePlotIndex]
+					self.plotTypes[destPlotIndex] = self.plotTypes[sourcePlotIndex] or PlotTypes.PLOT_OCEAN;
 				end	
 			end
 
@@ -1339,44 +1339,34 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 			print("Shifting North........");
 			print("-----------------------------------");
 
-			for y = iH, 0, -1 do
-				for x = iW, 0, -1 do
+			for y = iH - 1, 0, -1 do
+				for x = iW - 1, 0, -1 do
 					local destPlotIndex = iW * y + x + 1;
 					local sourcePlotIndex = destPlotIndex - iW * (math.abs(yshiftamt));
 					--print("Moving Plot: ", sourcePlotIndex, "To Location: ",destPlotIndex );
-					self.plotTypes[destPlotIndex] = self.plotTypes[sourcePlotIndex]
+					self.plotTypes[destPlotIndex] = self.plotTypes[sourcePlotIndex] or PlotTypes.PLOT_OCEAN;
 				end	
 			end
 		
-			local i = math.abs(yshiftamt);
-			for y = 0, i do
-				for x = 0, iW do
-					destPlotIndex = iW * y + x + 1;
-					self.plotTypes[destPlotIndex] = PlotTypes.PLOT_OCEAN;
-				end
-			end
+			-- Lekmap: disable destructive horizontal strip-ocean fill after Y shift.
+			-- This could slice through pangaea on wrap-merge/fringe-island edge cases.
 
 		elseif yshift == 2 then --shift south
 			print("-----------------------------------");
 			print("Shifting South........");
 			print("-----------------------------------");
 
-			for y = 0, iH do
-				for x = 0, iW do
+			for y = 0, iH - 1 do
+				for x = 0, iW - 1 do
 					local destPlotIndex = iW * y + x + 1;
 					local sourcePlotIndex = destPlotIndex + iW * (math.abs(yshiftamt));
 					--print("Moving Plot: ", sourcePlotIndex, "To Location: ",destPlotIndex );
-					self.plotTypes[destPlotIndex] = self.plotTypes[sourcePlotIndex]
+					self.plotTypes[destPlotIndex] = self.plotTypes[sourcePlotIndex] or PlotTypes.PLOT_OCEAN;
 				end	
 			end
 		
-			local i = math.abs(yshiftamt);
-			for y = iH-i, iH do
-				for x = 0, iW do
-					destPlotIndex = iW * y + x + 1;
-					self.plotTypes[destPlotIndex] = PlotTypes.PLOT_OCEAN;
-				end
-			end
+			-- Lekmap: disable destructive horizontal strip-ocean fill after Y shift.
+			-- This could slice through pangaea on wrap-merge/fringe-island edge cases.
 
 		else
 			--no shift
