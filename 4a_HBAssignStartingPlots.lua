@@ -3101,7 +3101,7 @@ function AssignStartingPlots:EvaluateCandidatePlot(plotIndex, region_type)
 		dCenter = PlotDistance(x, y, centerX, centerY);
 	end
 	local tooCloseToCenter = (dCenter ~= nil and dCenter < 8);
-	local tooFarToCenter = (dCenter ~= nil and dCenter > 16);
+	local tooFarToCenter = (dCenter ~= nil and dCenter > 21);
 	local goodSoFar = true;
 	local isEvenY = true;
 	if y / 2 > math.floor(y / 2) then
@@ -7960,12 +7960,14 @@ function AssignStartingPlots:AssignCityStatesToRegionsOrToUninhabited(args)
 	-- 3. Assign to regions with shared luxury IDs
 	-- 4. Assign to low fertility regions
 
-	-- Determine number to assign Per Region
+	-- Determine number to assign Per Region.
+	-- Lekmap tuning: keep at least one per region, but allow higher counts
+	-- when CS:civ ratio is very high.
 	local iW, iH = Map.GetGridSize()
 	local ratio = self.iNumCityStates / self.iNumCivs;
-	if ratio > 14 then -- This is a ridiculous number of city states for a game with two civs, but we'll account for it anyway.
+	if ratio > 14 then -- Extremely high CS counts.
 		self.iNumCityStatesPerRegion = 10;
-	elseif ratio > 11 then -- This is a ridiculous number of cs for two or three civs.
+	elseif ratio > 11 then
 		self.iNumCityStatesPerRegion = 8;
 	elseif ratio > 8 then
 		self.iNumCityStatesPerRegion = 7;
@@ -7978,7 +7980,12 @@ function AssignStartingPlots:AssignCityStatesToRegionsOrToUninhabited(args)
 	elseif ratio > 1.35 then
 		self.iNumCityStatesPerRegion = 2;
 	else
-		self.iNumCityStatesPerRegion = 0;
+		self.iNumCityStatesPerRegion = 1;
+	end
+	-- Lekmap tuning: on Small, pin baseline at exactly 1 per region so
+	-- downstream island/uninhabited and proximity-oriented assignment has budget.
+	if Map.GetWorldSize() == GameInfo.Worlds.WORLDSIZE_SMALL.ID then
+		self.iNumCityStatesPerRegion = 1;
 	end
 	-- Assign the "Per Region" City States to their regions.
 	--print("- - - - - - - - - - - - - - - - -"); print("Assigning City States to Regions");
@@ -7987,6 +7994,9 @@ function AssignStartingPlots:AssignCityStatesToRegionsOrToUninhabited(args)
 	if self.iNumCityStatesPerRegion > 0 then
 		for current_region = 1, self.iNumCivs do
 			for cs_to_assign_to_this_region = 1, self.iNumCityStatesPerRegion do
+				if self.iNumCityStatesUnassigned <= 0 then
+					break
+				end
 				self.city_state_region_assignments[current_cs_index] = current_region;
 				--print("-"); print("City State", current_cs_index, "assigned to Region#", current_region);
 				current_cs_index = current_cs_index + 1;
@@ -8004,7 +8014,6 @@ function AssignStartingPlots:AssignCityStatesToRegionsOrToUninhabited(args)
 	local land_area_plot_count = {};
 	local land_area_plot_tables = {};
 	local areas_inhabited_by_civs = {};
-	local areas_too_small = {};
 	local areas_uninhabited = {};
 	--
 	if self.method == 3 then -- Rectangular regional division spanning the entire globe, ALL plots belong to inhabited regions.
@@ -8035,10 +8044,10 @@ function AssignStartingPlots:AssignCityStatesToRegionsOrToUninhabited(args)
 							iNumCivLandmassPlots = iNumCivLandmassPlots + 1;
 						else
 							iNumUninhabitedLandmassPlots = iNumUninhabitedLandmassPlots + 1;
-							if self.plotDataIsCoastal[i] == true then
-								table.insert(self.uninhabited_areas_coastal_plots, i);
+							if self.plotDataIsCoastal[plotIndex] == true then
+								table.insert(self.uninhabited_areas_coastal_plots, plotIndex);
 							else
-								table.insert(self.uninhabited_areas_inland_plots, i);
+								table.insert(self.uninhabited_areas_inland_plots, plotIndex);
 							end
 						end
 					else -- AreaID-based method must be applied, which cannot all be done in this loop
@@ -8063,11 +8072,7 @@ function AssignStartingPlots:AssignCityStatesToRegionsOrToUninhabited(args)
 					iNumCivLandmassPlots = iNumCivLandmassPlots + plot_count;
 				else
 					iNumUninhabitedLandmassPlots = iNumUninhabitedLandmassPlots + plot_count;
-					if plot_count < 60 then
-						table.insert(areas_too_small, areaID);
-					else
-						table.insert(areas_uninhabited, areaID);
-					end
+					table.insert(areas_uninhabited, areaID);
 				end
 			end
 			-- Now loop through all Uninhabited Areas that are large enough to use and append their plots to the candidates tables.
@@ -8090,15 +8095,14 @@ function AssignStartingPlots:AssignCityStatesToRegionsOrToUninhabited(args)
 			end
 		end
 		-- Determine the number of City States to assign to uninhabited areas.
-		local uninhabited_ratio = iNumUninhabitedLandmassPlots / (iNumCivLandmassPlots + iNumUninhabitedLandmassPlots);
-		local max_by_ratio = math.floor(3 * uninhabited_ratio * self.iNumCityStates);
-		local max_by_method;
-		if self.method == 1 then
-			max_by_method = math.ceil(self.iNumCityStates / 4);
+		-- Lekmap tuning: reserve a random 1-3 (when possible), capped at 20% of all CS.
+		local iUninhabitedCandidatePlots = table.maxn(self.uninhabited_areas_coastal_plots) + table.maxn(self.uninhabited_areas_inland_plots);
+		local random_uninhabited_target = 1 + Map.Rand(3, "Lekmap CS uninhabited target (1-3) - LUA");
+		if iUninhabitedCandidatePlots > 0 then
+			self.iNumCityStatesUninhabited = math.min(self.iNumCityStatesUnassigned, random_uninhabited_target);
 		else
-			max_by_method = math.ceil(self.iNumCityStates / 2);
+			self.iNumCityStatesUninhabited = 0;
 		end
-		self.iNumCityStatesUninhabited = math.min(self.iNumCityStatesUnassigned, max_by_ratio, max_by_method);
 		self.iNumCityStatesUnassigned = self.iNumCityStatesUnassigned - self.iNumCityStatesUninhabited;
 	end
 	--print("-"); print("City States assigned to Uninhabited Areas: ", self.iNumCityStatesUninhabited);
@@ -8194,7 +8198,7 @@ function AssignStartingPlots:CanPlaceCityStateAt(x, y, area_ID, force_it, ignore
 	local biggest_area = Map.FindBiggestArea(False);
 	local iAreaID = biggest_area:GetID();
 
-	if self.method == 1 then
+	if self.method == 1 and area_ID ~= -1 then
 		if area_ID ~= iAreaID then
 			return false
 		end
@@ -8220,21 +8224,6 @@ function AssignStartingPlots:CanPlaceCityStateAt(x, y, area_ID, force_it, ignore
 		return false
 	end
 	if self.plotDataIsNextToCoast[plotIndex] == true then
-		return false
-	end
-	if area ~= iAreaID and self.plotDataIsCoastal[plotIndex] then
-		local iW, iH = Map.GetGridSize();
-		local dirs = { DirectionTypes.DIRECTION_NORTHEAST, DirectionTypes.DIRECTION_EAST, DirectionTypes.DIRECTION_SOUTHEAST,
-			DirectionTypes.DIRECTION_SOUTHWEST, DirectionTypes.DIRECTION_WEST, DirectionTypes.DIRECTION_NORTHWEST };
-		for _, d in ipairs(dirs) do
-			local waterPlot = Map.PlotDirection(x, y, d);
-			if waterPlot and waterPlot:IsWater() and not waterPlot:IsLake() then
-				local wI = waterPlot:GetY() * iW + waterPlot:GetX() + 1;
-				if self.plotDataMainlandCoastWater[wI] or self.plotDataExpandedMainlandCoastWater[wI] then
-					return true
-				end
-			end
-		end
 		return false
 	end
 	return true
@@ -8457,9 +8446,45 @@ function AssignStartingPlots:PlaceCityStateInRegion(city_state_number, region_nu
 	local iAreaID = region_data_table[5];
 	
 	local eligible_coastal, eligible_inland = {}, {};
+	local x, y;
+
+	-- Try first to place a CS close to this region's major start.
+	-- This keeps "at least one nearby CS" strongly prioritized when legal sites exist.
+	local start_point_data = self.startingPlots[region_number];
+	if start_point_data and type(start_point_data[1]) == "number" and type(start_point_data[2]) == "number" then
+		local sx = start_point_data[1];
+		local sy = start_point_data[2];
+		local preferred_coastal = {};
+		local preferred_inland = {};
+		for yLoop = iSouthY, iSouthY + iHeight - 1 do
+			for xLoop = iWestX, iWestX + iWidth - 1 do
+				local x = xLoop % iW;
+				local y = yLoop % iH;
+				local d = nil;
+				if Map.PlotDistance then
+					d = Map.PlotDistance(x, y, sx, sy);
+				elseif PlotDistance then
+					d = PlotDistance(x, y, sx, sy);
+				end
+				if d ~= nil and d <= 8 and self:CanPlaceCityStateAt(x, y, iAreaID, false, false) == true then
+					local i = y * iW + x + 1;
+					if self.plotDataIsCoastal[i] == true then
+						table.insert(preferred_coastal, i);
+					else
+						table.insert(preferred_inland, i);
+					end
+				end
+			end
+		end
+		if table.maxn(preferred_coastal) + table.maxn(preferred_inland) > 0 then
+			local px, py, psuccess = self:PlaceCityState(preferred_coastal, preferred_inland, false, false);
+			if psuccess == true then
+				x, y, placed_city_state = px, py, true;
+			end
+		end
+	end
 	
 	-- Main loop, first pass, unforced
-	local x, y;
 	local curWX = iWestX;
 	local curSY = iSouthY;
 	local curWid = iWidth;
@@ -8663,6 +8688,29 @@ function AssignStartingPlots:PlaceCityStates()
 				--print("Place City States, place in Region#", region_number, "for City State", cs_number);
 				self:PlaceCityStateInRegion(cs_number, region_number)
 			end
+		end
+	end
+	do
+		local placed = 0;
+		for cs_num = 1, self.iNumCityStates do
+			if self.city_state_validity_table[cs_num] == true then
+				placed = placed + 1;
+			end
+		end
+		local line = "### CS placement status: assigned=" .. tostring(self.iNumCityStates) ..
+			" placed=" .. tostring(placed) ..
+			" discarded=" .. tostring(self.iNumCityStatesDiscarded);
+		local home = (os and os.getenv and os.getenv("HOME")) or "";
+		if home ~= "" then
+			local path = home .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log";
+			pcall(function()
+				local f = io.open(path, "a");
+				if f then
+					f:write(line);
+					f:write("\n");
+					f:close();
+				end
+			end);
 		end
 	end
 	

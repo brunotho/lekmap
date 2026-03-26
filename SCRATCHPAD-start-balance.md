@@ -1,0 +1,22 @@
+- Deferred after next test (keep changes minimal now)
+- Coastal-region assignment preference by center band (`dCenter` 8-18) during civ-to-region assignment in `BalanceAndAssign()`
+- Re-check where to inject center-band preference: `ChooseLocations()` region processing vs `BalanceAndAssign()` coastal region selection
+- Validate global vs Small-only scope for each start-placement tweak and optionally gate per map size if needed
+- Optional fallback relaxation strategy if stricter inland coast distance causes too many failed inland candidates
+
+- Earlier larger todo list (carry-over)
+- Tune ocean gap behavior on Small until target feel is reached; validate with test rolls
+- Add map validity gate so map only passes when island placement/budget criteria are truly met; otherwise regenerate map; verify stability
+- Implement and tune center-distance penalty for starting plot scoring to reduce center spawns and encourage rough ring distribution; test impact
+- Baseline run: capture and compare `LekmapStartSpacing6P.log` metrics (nearest, second-nearest, center distance)
+- Compare nearest-neighbor distribution + center spread after each intervention
+- Post-pass tuning: if isolation persists, consider second-order correction (angular spread or swap attempts)
+
+- Current test checkpoint
+- Max center distance relaxed to 21 (bullseye min-distance hard veto unchanged)
+- City-state uninhabited/island allocation enabled again without % cap (random 1-3 target controls it)
+- CS policy tweak for test: minimum 1 per region (scales up with high CS:civ ratio), then random 1-3 to uninhabited/islands, then remainder to other assignment flow
+- CS regional placement now first attempts legal plots within distance 8 of the major start in that region
+- CS filter tweak: removed non-mainland coastal adjacency-to-mainland requirement; method-1 biggest-area restriction no longer applies when area_ID = -1 (uninhabited/global lists)
+- Reliability requirement: always verify all majors have valid starts before proceeding; instant-loss guard stays mandatory
+- Next design direction: Small/6 virtual full-set solver with quality gates and placement/map retries
