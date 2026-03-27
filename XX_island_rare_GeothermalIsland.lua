@@ -82,7 +82,7 @@ function TryPlaceGeothermalIsland(plotTypes, centerX, centerY, islLandInRing, pa
 	if not footprintClear(plotTypes, landTiles, params.iW, params.iH) then return false; end
 
 	local roll = Map.Rand(100, "");
-	if roll < 100 then -- TODO: set back to 20 after testing
+	if roll < 20 then
 		_geothermal_island_nw_type = NW_KRAKATOA;
 		_geothermal_is_krakatoa = true;
 	else

@@ -3371,7 +3371,6 @@ function AssignStartingPlots:EvaluateCandidatePlot(plotIndex, region_type)
 	local finalScore = innerRingScore + middleRingScore + outerRingScore + coastScore;
 
 	if tooCloseToCenter then
-		goodSoFar = false;
 		finalScore = finalScore - 10000;
 	end
 
@@ -3400,10 +3399,10 @@ function AssignStartingPlots:IterateThroughCandidatePlotList(plot_list, region_t
 	-- This function assumes all candidate plots can have a city built on them.
 	-- Any plots not allowed to have a city should be weeded out when building the candidate list.
 	local found_eligible = false;
-	local bestPlotScore = -5000;
+	local bestPlotScore = -math.huge;
 	local bestPlotIndex;
 	local found_fallback = false;
-	local bestFallbackScore = -5000;
+	local bestFallbackScore = -math.huge;
 	local bestFallbackIndex;
 	-- Process list of candidate plots.
 	for loop, plotIndex in ipairs(plot_list) do
@@ -3802,7 +3801,7 @@ function AssignStartingPlots:FindStart(region_number, NoCoast)
 	-- We will compare all the fallback plots and choose the best to be the start plot.
 	local iNumFallbacks = table.maxn(fallback_plots);
 	if iNumFallbacks > 0 then
-		local best_fallback_score = 0
+		local best_fallback_score = -math.huge
 		local best_fallback_x;
 		local best_fallback_y;
 		for loop, plotData in ipairs(fallback_plots) do
@@ -4128,7 +4127,7 @@ function AssignStartingPlots:FindCoastalStart(region_number)
 	-- We will compare all the fallback plots and choose the best to be the start plot.
 	local iNumFallbacks = table.maxn(fallback_plots);
 	if iNumFallbacks > 0 then
-		local best_fallback_score = 0
+		local best_fallback_score = -math.huge
 		local best_fallback_x;
 		local best_fallback_y;
 		for loop, plotData in ipairs(fallback_plots) do
@@ -4308,7 +4307,7 @@ function AssignStartingPlots:FindStartWithoutRegardToAreaID(region_number, bMust
 	-- We will compare all the fallback plots and choose the best to be the start plot.
 	local iNumFallbacks = table.maxn(fallback_plots);
 	if iNumFallbacks > 0 then
-		local best_fallback_score = 0
+		local best_fallback_score = -math.huge
 		local best_fallback_x;
 		local best_fallback_y;
 		for loop, plotData in ipairs(fallback_plots) do
@@ -6847,22 +6846,75 @@ function AssignStartingPlots:BalanceAndAssign(args)
 	local iNumRemainingPlayers = table.maxn(playerList);
 	local iNumRemainingRegions = table.maxn(regionList);
 	if iNumRemainingPlayers > 0 or iNumRemainingRegions > 0 then
-		--print("-"); print("Table of players with no start bias:");
-		--PrintContentsOfTable(playerList);
-		--print("-"); print("Table of regions still available after bias handling:");
-		--PrintContentsOfTable(regionList);
 		if iNumRemainingPlayers ~= iNumRemainingRegions then
-			print("-"); print("ERROR: Number of civs remaining after handling biases does not match number of regions remaining!"); print("-");
+			print("-"); print("ERROR: Number of civs remaining after handling biases does not match number of regions remaining! players=" .. iNumRemainingPlayers .. " regions=" .. iNumRemainingRegions); print("-");
 		end
 		local playerListShuffled = GetShuffledCopyOfTable(playerList)
 		for index, player_ID in ipairs(playerListShuffled) do
 			local region_number = regionList[index];
-			local x = self.startingPlots[region_number][1];
-			local y = self.startingPlots[region_number][2];
-			--print("Now placing Player#", player_ID, "in Region#", region_number, "at start plot:", x, y);
-			local start_plot = Map.GetPlot(x, y)
-			local player = Players[player_ID]
-			player:SetStartingPlot(start_plot)
+			if region_number == nil then
+				print("BalanceAndAssign: region_number nil at index=" .. index .. " player_ID=" .. player_ID .. " (mismatch, skipping)");
+			elseif self.startingPlots[region_number] == nil then
+				print("BalanceAndAssign: startingPlots[" .. region_number .. "] nil for player_ID=" .. player_ID);
+			else
+				local x = self.startingPlots[region_number][1];
+				local y = self.startingPlots[region_number][2];
+				local start_plot = Map.GetPlot(x, y)
+				local player = Players[player_ID]
+				player:SetStartingPlot(start_plot)
+			end
+		end
+	end
+
+	-- Rescue pass: guarantee every player has a starting plot.
+	-- If any player is missing one after all bias handling above, assign them to
+	-- any leftover unassigned region, or the best available region as last resort.
+	local rescue_log = {};
+	local all_region_pool = {};
+	for r = 1, self.iNumCivs do
+		if self.startingPlots[r] ~= nil then
+			table.insert(all_region_pool, r);
+		end
+	end
+	for loop = 1, self.iNumCivs do
+		local player_ID = self.player_ID_list[loop];
+		local player = Players[player_ID];
+		local sp = player:GetStartingPlot();
+		if sp == nil then
+			-- Find an unoccupied region first.
+			local rescue_region = nil;
+			for _, r in ipairs(all_region_pool) do
+				if region_status[r] == false then
+					rescue_region = r;
+					break;
+				end
+			end
+			-- If all regions are taken, fall back to any region (last resort).
+			if rescue_region == nil then
+				rescue_region = all_region_pool[1];
+			end
+			if rescue_region ~= nil and self.startingPlots[rescue_region] ~= nil then
+				local rx = self.startingPlots[rescue_region][1];
+				local ry = self.startingPlots[rescue_region][2];
+				local rescue_plot = Map.GetPlot(rx, ry);
+				player:SetStartingPlot(rescue_plot);
+				region_status[rescue_region] = true;
+				table.insert(rescue_log, "pid=" .. player_ID .. " rescued->region=" .. rescue_region .. " x=" .. rx .. " y=" .. ry);
+			else
+				table.insert(rescue_log, "pid=" .. player_ID .. " RESCUE FAILED no valid region");
+			end
+		end
+	end
+	if #rescue_log > 0 then
+		local msg = "### BalanceAndAssign RESCUE runId=" .. tostring(_lek_run_id or "na") .. " " .. table.concat(rescue_log, " | ");
+		print(msg);
+		local home = (os and os.getenv and os.getenv("HOME")) or "";
+		if home ~= "" then
+			local path = home .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log";
+			pcall(function()
+				local f = io.open(path, "a");
+				if f then f:write(msg .. "\n"); f:close(); end
+			end);
 		end
 	end
 
@@ -10298,7 +10350,7 @@ function AssignStartingPlots:AssignLuxuryToRegion(region_number)
 	if iNumAvailableTypes == 0 then
 		for index, resource_options in ipairs(self.luxury_fallback_weights) do
 			local res_ID = resource_options[1];
-			if self.luxury_assignment_count[res_ID] < 3 then -- This type still eligible.
+			if (self.luxury_assignment_count[res_ID] or 0) < 3 then -- This type still eligible.
 				local test = TestMembership(self.resourceIDs_assigned_to_regions, res_ID)
 				if self.iNumTypesAssignedToRegions < self.iNumMaxAllowedForRegions or test == true then -- Won't exceed allowed types.
 					if res_ID == self.whale_ID or res_ID == self.pearls_ID or res_ID == self.crab_ID or self.bModLuxes and res_ID == self.coral_ID then
@@ -10339,11 +10391,11 @@ function AssignStartingPlots:AssignLuxuryToRegion(region_number)
 		print("If you are modifying luxury types or number of regions allowed to get the same type, check to make sure your changes haven't violated the math so each region can have a legal assignment.");
 		for index, resource_options in ipairs(self.luxury_fallback_weights) do
 			local res_ID = resource_options[1];
-			if self.luxury_assignment_count[res_ID] < 3 then -- This type still eligible.
+			if (self.luxury_assignment_count[res_ID] or 0) < 3 then -- This type still eligible.
 				local test = TestMembership(self.resourceIDs_assigned_to_regions, res_ID)
 				if self.iNumTypesAssignedToRegions < self.iNumMaxAllowedForRegions or test == true then -- Won't exceed allowed types.
 					table.insert(resource_IDs, res_ID);
-					local adjusted_weight = resource_options[2] / (1 + self.luxury_assignment_count[res_ID])
+					local adjusted_weight = resource_options[2] / (1 + (self.luxury_assignment_count[res_ID] or 0))
 					table.insert(resource_weights, adjusted_weight);
 					iNumAvailableTypes = iNumAvailableTypes + 1;
 				end

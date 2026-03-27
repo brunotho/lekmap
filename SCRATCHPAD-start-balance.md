@@ -35,3 +35,88 @@
 - IMMEDIATE FIX NEEDED: change FATAL check to log via appendLekLog (so visible in custom log) then continue without calling error() — stops mode-A from becoming a full pipeline wipe; instant-death from missing start still occurs but at least CS and resources are placed; separately need to fix root cause of BalanceAndAssign missing a player
 - CRITICAL TODO: understand why BalanceAndAssign occasionally leaves a player without a start (iNumRemainingPlayers vs iNumRemainingRegions mismatch?); add logging inside BalanceAndAssign around the assignment loop; fix root cause before relaxing other guardrails
 - Next design direction: Small/6 virtual full-set solver with quality gates and placement/map retries
+
+--- INSTANT DEATH ROOT CAUSE ANALYSIS ---
+
+BalanceAndAssign flow (4a_HBAssignStartingPlots.lua:6242):
+  1. NormalizeStartLocation for all regions
+  2. If DisableStartBias: shuffle and assign all → return (always safe)
+  3. Build bias lists: coastal, river, region-priority, region-avoid per civ
+  4. Phase A - Coastal bias: assign coastal civs to coastal/lake regions
+     → civs that can't be matched (iNumUnassignableCoastStarts) remain unassigned
+  5. Phase B - River bias: assign river civs to river regions; also handles
+     coastal-bias fallbacks to river regions
+  6. Phase C - Region priority (single then multi): match to preferred types;
+     fallback via FindFallbackForUnmatchedRegionPriority; if returns -1 → civ skipped
+     silently (civ_status stays false, no region consumed)
+  7. Phase D - Region avoid: if no candidate regions exist → civ skipped silently
+  8. Final loop (L6836-6866): build playerList (civ_status==false) and regionList
+     (region_status==false), then assign playerListShuffled[i] → regionList[i]
+     CRASH POINT: if iNumRemainingPlayers > iNumRemainingRegions, regionList[i] is
+     nil for some i → self.startingPlots[nil] → Lua error → player never gets a start
+     → Civ5 engine catches the error, continues, game loads with player missing start
+
+HOW iNumRemainingPlayers > iNumRemainingRegions happens:
+  Most likely: one of the bias phases sets region_status[r]=true (consuming a region)
+  but fails before setting civ_status[pid+1]=true (or vice versa in a subtle way).
+  The assignment order in every phase is: SetStartingPlot → region_status=true →
+  civ_status=true. A Lua error between lines 2 and 3 would consume a region without
+  marking the civ → net: one extra player vs regions in final loop → crash.
+  Secondary path: startingPlots[region_number] is nil for some region (ChooseLocations
+  failed silently for that region) → accessing [1][2] crashes before region_status is
+  set, but civ is already queued → imbalance.
+
+THE FIX (implemented below):
+  1. Add nil guard on regionList[index] in final assignment loop (prevents Lua crash)
+  2. Add a rescue pass after all assignments: any player still with no starting plot
+     gets assigned to any leftover unassigned region, or if none, to any region at all
+     as absolute last resort. Log every rescue with runId.
+  This is a safety net below all bias logic — guarantees every player gets a start
+  regardless of any upstream bias-phase bug. Does not fix the root cause of the
+  imbalance but prevents it from loading as instant-death.
+  Note: if startingPlots[r] itself is nil (ChooseLocations failed for region r), the
+  rescue may also fail → still need ChooseLocations robustness as a longer-term fix.
+
+--- DEEP CRASH HUNT (2026-03-27) ---
+
+ROOT CAUSE 1 — tooCloseToCenter hard veto (4a_HBAssignStartingPlots.lua ~L3373-3376):
+  We added `goodSoFar = false` for dCenter < 8. Combined with bestPlotScore = -5000
+  initializer in IterateThroughCandidatePlotList (~L3402), eligible plots scoring -9950
+  never beat -5000 → bestPlotIndex stays nil → found_eligible=true but bestPlotIndex=nil
+  → arithmetic crash at FindCoastalStart L4028 / FindStart L3669.
+  FIX: removed `goodSoFar = false` from tooCloseToCenter (L3373). Penalty-only: plots
+  stay eligible but score -10000 lower. Any non-penalized plot beats them easily. In
+  degenerate regions entirely inside dCenter<8, least-bad center plot wins safely.
+
+ROOT CAUSE 2 — bestPlotScore/-math.huge (4a_HBAssignStartingPlots.lua ~L3402):
+  IterateThroughCandidatePlotList initializes bestPlotScore = -5000. Any eligible plot
+  scoring below -5000 (e.g. with -10000 penalty) sets found_eligible=true but leaves
+  bestPlotIndex nil. FIX: changed to bestPlotScore = -math.huge so any eligible plot
+  always sets the index.
+
+ROOT CAUSE 3 — bestFallbackScore/-math.huge (4a_HBAssignStartingPlots.lua ~L3405):
+  Same issue for fallback tracker: bestFallbackScore = -5000 prevents penalized fallback
+  plots from being indexed. FIX: changed to bestFallbackScore = -math.huge.
+
+ROOT CAUSE 4 — best_fallback_score = 0 in FindStart/FindCoastalStart/FindStartWithoutRegard
+  (4a_HBAssignStartingPlots.lua L3804, L4130, L4310):
+  Final fallback selection across all candidate sub-lists initializes best_fallback_score=0.
+  Penalized entries in fallback_plots score negative → never beat 0 → best_fallback_x/y
+  stay nil → PlaceImpactAndRipples(nil,nil) crashes at L9871, NormalizeStartLocation
+  crashes at L5386. FIX: all three changed to best_fallback_score = -math.huge.
+
+ROOT CAUSE 5 — luxury_assignment_count nil for mod resources (4a_HBAssignStartingPlots.lua
+  L10353 and L10394/L10398):
+  AssignLuxuryRoles fallback path iterates luxury_fallback_weights which contains Lekmod
+  resource IDs never initialized in luxury_assignment_count → nil < 3 comparison crash.
+  Was always crashing silently (no pcall before). In production (with Lekmod) these IDs
+  are initialized so crash never happens. FIX: (self.luxury_assignment_count[res_ID] or 0)
+  at both comparison sites; also (or 0) in weight calculation at L10398.
+
+DIAGNOSTIC INFRASTRUCTURE ADDED (LekmapPangaeaFractalv5.3.lua):
+  - pcall around GenerateRegions, ChooseLocations, BalanceAndAssign → logs CRASH with
+    line number instead of silent death.
+  - StartPlotSystem-level rescue pass after BalanceAndAssign pcall: any player still
+    missing a start gets assigned to an unused region plot or land-scan fallback; logs
+    ### StartPlotSystem RESCUE with coordinates.
+  - Post-rescue FATAL check logs any player still missing after rescue.

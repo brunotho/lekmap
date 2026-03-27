@@ -70,6 +70,7 @@ function TryPlaceMountainWallIsland(plotTypes, centerX, centerY, islLandInRing, 
 	local curRidgeDir = ridgeDir;
 	local bendFreq = 1 + Map.Rand(2, "");
 	local nextBend = bendFreq;
+	local turnDir = (Map.Rand(2, "") == 0) and 1 or -1;
 
 	for i = 1, ridgeLen do
 		add(x, y, 0);
@@ -88,7 +89,7 @@ function TryPlaceMountainWallIsland(plotTypes, centerX, centerY, islLandInRing, 
 		end
 		nextBend = nextBend - 1;
 		if nextBend <= 0 then
-			curRidgeDir = rotDir(curRidgeDir, Map.Rand(2, "") == 0 and 1 or -1);
+			curRidgeDir = rotDir(curRidgeDir, turnDir);
 			nextBend = bendFreq;
 		end
 		local nx, ny = GetHexNeighbor(x, y, curRidgeDir, params.iW, params.iH, params.wrapX, params.wrapY);

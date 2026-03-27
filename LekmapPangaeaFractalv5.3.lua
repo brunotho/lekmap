@@ -2239,7 +2239,13 @@ function StartPlotSystem()
 		BalancedCoastal = BalancedCoastal,
 		MixedBias = MixedBias;
 		};
-	start_plot_database:GenerateRegions(args)
+	do
+		local ok, err = pcall(function() start_plot_database:GenerateRegions(args) end);
+		if not ok then
+			local msg = "### GenerateRegions CRASH runId=" .. tostring(_lek_run_id or "na") .. " err=" .. tostring(err);
+			print(msg); appendLekLog({ msg });
+		end
+	end
 
 	-- Paint region markers immediately after region creation so we can verify
 	-- region geometry even if later placement logic hangs.
@@ -2249,48 +2255,110 @@ function StartPlotSystem()
 
 	print("Choosing start locations for civilizations.");
 
-	start_plot_database:ChooseLocations()
+	do
+		local ok, err = pcall(function() start_plot_database:ChooseLocations() end);
+		if not ok then
+			local msg = "### ChooseLocations CRASH runId=" .. tostring(_lek_run_id or "na") .. " err=" .. tostring(err);
+			print(msg); appendLekLog({ msg });
+		end
+	end
 	
 	print("Normalizing start locations and assigning them to Players.");
-	start_plot_database:BalanceAndAssign(args)
-
-	-- Fail loudly if any major never received a starting plot (avoids loading into instant-loss with 0 units).
 	do
-		local missing = {};
+		local ok, err = pcall(function() start_plot_database:BalanceAndAssign(args) end);
+		if not ok then
+			local msg = "### BalanceAndAssign CRASH runId=" .. tostring(_lek_run_id or "na") .. " err=" .. tostring(err);
+			print(msg);
+			appendLekLog({ msg });
+		end
+	end
+
+	-- After BalanceAndAssign, rescue any player still without a starting plot.
+	-- This catches both BalanceAndAssign crashes (pcall above) and mismatch bugs.
+	do
+		local missing_pids = {};
 		for loop = 1, start_plot_database.iNumCivs do
 			local pid = start_plot_database.player_ID_list[loop];
 			local pl = Players[pid];
 			if pl and pl:IsEverAlive() and not pl:IsMinorCiv() then
-				local sp = pl:GetStartingPlot();
-				if sp == nil then
-					missing[#missing + 1] = "player " .. tostring(pid);
+				if pl:GetStartingPlot() == nil then
+					missing_pids[#missing_pids + 1] = pid;
 				end
 			end
 		end
-		for r = 1, start_plot_database.iNumCivs do
-			local t = start_plot_database.startingPlots[r];
-			if not t or type(t[1]) ~= "number" or type(t[2]) ~= "number" then
-				missing[#missing + 1] = "region " .. tostring(r) .. " no start data";
-			else
-				local p = Map.GetPlot(t[1], t[2]);
-				if not p then
-					missing[#missing + 1] = "region " .. tostring(r) .. " bad coords";
-				else
-					local pt = p:GetPlotType();
-					if pt ~= PlotTypes.PLOT_LAND and pt ~= PlotTypes.PLOT_HILLS then
-						missing[#missing + 1] = "region " .. tostring(r) .. " not land/hills";
+		if #missing_pids > 0 then
+			-- Collect all valid region plots as rescue candidates.
+			local rescue_candidates = {};
+			local used_plots = {};
+			for loop = 1, start_plot_database.iNumCivs do
+				local pid = start_plot_database.player_ID_list[loop];
+				local pl = Players[pid];
+				if pl then
+					local sp = pl:GetStartingPlot();
+					if sp then used_plots[sp:GetX() .. "," .. sp:GetY()] = true; end
+				end
+			end
+			for r = 1, start_plot_database.iNumCivs do
+				local t = start_plot_database.startingPlots[r];
+				if t and type(t[1]) == "number" and type(t[2]) == "number" then
+					local k = t[1] .. "," .. t[2];
+					if not used_plots[k] then
+						rescue_candidates[#rescue_candidates + 1] = { t[1], t[2] };
 					end
 				end
 			end
-		end
-		if #missing > 0 then
-			local msg = "### Lekmap FATAL runId=" .. tostring(_lek_run_id or "na") .. " start placement incomplete: " .. table.concat(missing, "; ");
+			-- Fallback: scan for any land tile if region pool empty.
+			if #rescue_candidates == 0 then
+				local iW, iH = Map.GetGridSize();
+				for y = 1, iH - 2 do
+					for x = 0, iW - 1 do
+						local p = Map.GetPlot(x, y);
+						if p and (p:GetPlotType() == PlotTypes.PLOT_LAND or p:GetPlotType() == PlotTypes.PLOT_HILLS) then
+							rescue_candidates[#rescue_candidates + 1] = { x, y };
+							if #rescue_candidates >= 20 then break; end
+						end
+					end
+					if #rescue_candidates >= 20 then break; end
+				end
+			end
+			local rescue_log = {};
+			for i, pid in ipairs(missing_pids) do
+				local cand = rescue_candidates[i];
+				if cand then
+					local p = Map.GetPlot(cand[1], cand[2]);
+					if p then
+						Players[pid]:SetStartingPlot(p);
+						rescue_log[#rescue_log + 1] = "pid=" .. pid .. "->(" .. cand[1] .. "," .. cand[2] .. ")";
+					else
+						rescue_log[#rescue_log + 1] = "pid=" .. pid .. "->FAILED";
+					end
+				else
+					rescue_log[#rescue_log + 1] = "pid=" .. pid .. "->NO_CANDIDATE";
+				end
+			end
+			local msg = "### StartPlotSystem RESCUE runId=" .. tostring(_lek_run_id or "na")
+				.. " rescued=" .. #missing_pids .. " " .. table.concat(rescue_log, " | ");
 			print(msg);
 			appendLekLog({ msg });
-			-- Do NOT call error() here: in Civ5, error() inside a map script is caught by the
-			-- engine and the game still loads with the broken state. Calling error() only aborts
-			-- the rest of StartPlotSystem (CS, resources, wonders never run), making instant-death
-			-- even worse. Log the failure and let the pipeline continue instead.
+		end
+	end
+
+	-- Validation log: report any remaining issues after rescue.
+	do
+		local problems = {};
+		for loop = 1, start_plot_database.iNumCivs do
+			local pid = start_plot_database.player_ID_list[loop];
+			local pl = Players[pid];
+			if pl and pl:IsEverAlive() and not pl:IsMinorCiv() then
+				if pl:GetStartingPlot() == nil then
+					problems[#problems + 1] = "player " .. tostring(pid) .. " still missing";
+				end
+			end
+		end
+		if #problems > 0 then
+			local msg = "### Lekmap FATAL runId=" .. tostring(_lek_run_id or "na") .. " post-rescue issues: " .. table.concat(problems, "; ");
+			print(msg);
+			appendLekLog({ msg });
 		end
 	end
 
