@@ -1,7 +1,5 @@
 include("X_IslandHelpers");
 
-local LEK_WRAP_BRIDGE_PAINT_MOUNTAIN_DEBUG = true;
-
 local function pidx(x, y, iW)
 	return y * iW + x + 1;
 end
@@ -299,11 +297,50 @@ function TryPlaceWrapSoftLandbridge(plotTypes, opts)
 		return math.max(0, math.min(iH - 1, yy));
 	end
 
+	local bandMidY = math.floor((yLo + yHi + 1) * 0.5);
+	local envPhase = Map.Rand(628, "") * 0.01;
+	local envFreq1 = 0.09 + Map.Rand(18, "") * 0.0045;
+	local envFreq2 = 0.056 + Map.Rand(12, "") * 0.004;
+	local envCenterAmp = math.max(2, math.floor((yHi - yLo + 2) * 0.45 + Map.Rand(3, "")));
+	local envHalfWLo = math.max(1, math.floor(vSpan * 0.35 + 0.5));
+	local envHalfWHi = math.max(envHalfWLo + 2, vSpan + 2 + Map.Rand(5, ""));
+
+	local function envelopeCenterY(x)
+		x = math.max(0, math.min(iW - 1, x));
+		local w =
+			math.sin(x * envFreq1 + envPhase) * 0.55
+			+ math.sin(x * envFreq2 + envPhase * 1.7) * 0.45;
+		return clampYMap(bandMidY + math.floor(w * envCenterAmp + 0.5));
+	end
+
+	local function envelopeHalfWidth(x)
+		x = math.max(0, math.min(iW - 1, x));
+		local u = (math.sin(x * 0.127 + envPhase * 0.3) + math.sin(x * 0.073 + envPhase * 0.8)) * 0.5;
+		if u < -1 then
+			u = -1;
+		elseif u > 1 then
+			u = 1;
+		end
+		u = (u + 1) * 0.5;
+		return envHalfWLo + math.floor(u * (envHalfWHi - envHalfWLo) + 0.5);
+	end
+
+	local function envelopeAllowsMark(x, y)
+		local cy = envelopeCenterY(x);
+		local hw = envelopeHalfWidth(x);
+		return math.abs(y - cy) <= hw;
+	end
+
 	local function jitterRowDelta()
 		if Map.Rand(100, "") < 72 then
 			return Map.Rand(3, "") - 1;
 		end
 		return Map.Rand(5, "") - 2;
+	end
+
+	local function rotateHeading60(heading)
+		local turn = (Map.Rand(2, "") == 0) and 1 or -1;
+		return ((heading - 1 + turn + 6) % 6) + 1;
 	end
 
 	local function tryMarkOcean(x, y, plotTypes)
@@ -321,6 +358,9 @@ function TryPlaceWrapSoftLandbridge(plotTypes, opts)
 		if not isOcean(plotTypes, x, y, iW, iH) then
 			return;
 		end
+		if not envelopeAllowsMark(x, y) then
+			return;
+		end
 		local k = keyXY(x, y);
 		if seen[k] then
 			return;
@@ -332,29 +372,44 @@ function TryPlaceWrapSoftLandbridge(plotTypes, opts)
 		for _w = 1, nWalk do
 			local x, y = 0, yLo + Map.Rand(vSpan + 2, "") - 1;
 			y = clampYMap(y);
+			local heading = 2;
+			local bendStep = 1 + Map.Rand(stepsCap, "");
 			for _s = 1, stepsCap do
 				if x >= maxPen and Map.Rand(100, "") > 12 then
 					break;
 				end
+				if _s == bendStep then
+					heading = rotateHeading60(heading);
+				end
 				tryMarkOcean(x, y, plotTypes);
-				local r = Map.Rand(100, "");
-				if r < 40 then
-					x = math.min(iW - 1, x + 1);
-					if Map.Rand(100, "") < 64 then
-						y = clampYMap(y + jitterRowDelta());
-					end
-				elseif r < 73 then
-					x = math.min(iW - 1, x + 1);
-				elseif r < 93 then
-					y = clampYMap(y + jitterRowDelta());
-				else
-					local d = 1 + Map.Rand(6, "");
-					local nx, ny = GetHexNeighbor(x, y, d, iW, iH, false, false);
+				local stepped = false;
+				if Map.Rand(100, "") < 36 then
+					local nx, ny = GetHexNeighbor(x, y, heading, iW, iH, false, false);
 					if nx >= 0 and nx < iW and ny >= 0 and ny < iH and nx >= x - 1 then
 						x, y = nx, clampYMap(ny);
-					else
+						stepped = true;
+					end
+				end
+				if not stepped then
+					local r = Map.Rand(100, "");
+					if r < 40 then
 						x = math.min(iW - 1, x + 1);
+						if Map.Rand(100, "") < 64 then
+							y = clampYMap(y + jitterRowDelta());
+						end
+					elseif r < 73 then
+						x = math.min(iW - 1, x + 1);
+					elseif r < 93 then
 						y = clampYMap(y + jitterRowDelta());
+					else
+						local d = (Map.Rand(100, "") < 55) and heading or (1 + Map.Rand(6, ""));
+						local nx, ny = GetHexNeighbor(x, y, d, iW, iH, false, false);
+						if nx >= 0 and nx < iW and ny >= 0 and ny < iH and nx >= x - 1 then
+							x, y = nx, clampYMap(ny);
+						else
+							x = math.min(iW - 1, x + 1);
+							y = clampYMap(y + jitterRowDelta());
+						end
 					end
 				end
 			end
@@ -365,29 +420,44 @@ function TryPlaceWrapSoftLandbridge(plotTypes, opts)
 		for _w = 1, nWalk do
 			local x, y = iW - 1, yLo + Map.Rand(vSpan + 2, "") - 1;
 			y = clampYMap(y);
+			local heading = 5;
+			local bendStep = 1 + Map.Rand(stepsCap, "");
 			for _s = 1, stepsCap do
 				if (iW - 1 - x) >= maxPen and Map.Rand(100, "") > 12 then
 					break;
 				end
+				if _s == bendStep then
+					heading = rotateHeading60(heading);
+				end
 				tryMarkOcean(x, y, plotTypes);
-				local r = Map.Rand(100, "");
-				if r < 40 then
-					x = math.max(0, x - 1);
-					if Map.Rand(100, "") < 64 then
-						y = clampYMap(y + jitterRowDelta());
-					end
-				elseif r < 73 then
-					x = math.max(0, x - 1);
-				elseif r < 93 then
-					y = clampYMap(y + jitterRowDelta());
-				else
-					local d = 1 + Map.Rand(6, "");
-					local nx, ny = GetHexNeighbor(x, y, d, iW, iH, false, false);
+				local stepped = false;
+				if Map.Rand(100, "") < 36 then
+					local nx, ny = GetHexNeighbor(x, y, heading, iW, iH, false, false);
 					if nx >= 0 and nx < iW and ny >= 0 and ny < iH and nx <= x + 1 then
 						x, y = nx, clampYMap(ny);
-					else
+						stepped = true;
+					end
+				end
+				if not stepped then
+					local r = Map.Rand(100, "");
+					if r < 40 then
 						x = math.max(0, x - 1);
+						if Map.Rand(100, "") < 64 then
+							y = clampYMap(y + jitterRowDelta());
+						end
+					elseif r < 73 then
+						x = math.max(0, x - 1);
+					elseif r < 93 then
 						y = clampYMap(y + jitterRowDelta());
+					else
+						local d = (Map.Rand(100, "") < 55) and heading or (1 + Map.Rand(6, ""));
+						local nx, ny = GetHexNeighbor(x, y, d, iW, iH, false, false);
+						if nx >= 0 and nx < iW and ny >= 0 and ny < iH and nx <= x + 1 then
+							x, y = nx, clampYMap(ny);
+						else
+							x = math.max(0, x - 1);
+							y = clampYMap(y + jitterRowDelta());
+						end
 					end
 				end
 			end
@@ -414,7 +484,7 @@ function TryPlaceWrapSoftLandbridge(plotTypes, opts)
 		local d = 1 + Map.Rand(6, "");
 		local nx, ny = GetHexNeighbor(sx, sy, d, iW, iH, false, false);
 		if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
-			if isOcean(plotTypes, nx, ny, iW, iH) and Map.Rand(100, "") < thickenP then
+			if isOcean(plotTypes, nx, ny, iW, iH) and envelopeAllowsMark(nx, ny) and Map.Rand(100, "") < thickenP then
 				local nk = keyXY(nx, ny);
 				if not seen[nk] then
 					seen[nk] = true;
@@ -461,10 +531,13 @@ function TryPlaceWrapSoftLandbridge(plotTypes, opts)
 
 	for _, t in ipairs(tiles) do
 		local idx = pidx(t[1], t[2], iW);
-		if LEK_WRAP_BRIDGE_PAINT_MOUNTAIN_DEBUG then
-			plotTypes[idx] = PlotTypes.PLOT_MOUNTAIN;
+		local r = Map.Rand(100, "");
+		if r < 60 then
+			plotTypes[idx] = PlotTypes.PLOT_HILLS;
+		elseif r < 98 then
+			plotTypes[idx] = PlotTypes.PLOT_LAND;
 		else
-			plotTypes[idx] = Map.Rand(100, "") < 70 and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
+			plotTypes[idx] = PlotTypes.PLOT_MOUNTAIN;
 		end
 	end
 

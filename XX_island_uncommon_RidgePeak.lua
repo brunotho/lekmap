@@ -5,6 +5,8 @@ include("X_IslandHelpers");
 local CONFIG = {
 	RIDGE_LEN_MIN = 3, RIDGE_LEN_RANGE = 3,
 	RIDGE_TURN_PCT = 30,
+	RIDGE_STRAIGHT_FORCE_AT = 5,
+	RIDGE_BRANCH_LEN_MIN = 2, RIDGE_BRANCH_LEN_RANGE = 2,
 	RIDGE_RIFT_PCT = 70,
 	LAND_SIDE_PCT_MIN = 50, LAND_SIDE_PCT_MAX = 85,
 	WATER_GAP = 1,
@@ -31,16 +33,56 @@ function TryPlaceRidgePeak(plotTypes, centerX, centerY, islLandInRing, params)
 	local dir = Map.Rand(6, "") + 1;
 	local px, py = cx, cy;
 	local ridgeSet = {};
-	for step = 1, ridgeLen do
-		ridgeSet[px .. "," .. py] = true;
-		if step < ridgeLen then
-			if step == 4 and ridgeLen > 3 then
-				dir = ((dir + (Map.Rand(2, "") == 0 and -1 or 1) + 5) % 6) + 1;
-			elseif Map.Rand(100, "") < CONFIG.RIDGE_TURN_PCT then
-				dir = ((dir + (Map.Rand(2, "") == 0 and -1 or 1) + 5) % 6) + 1;
+	local lastMoveDir = nil;
+	local straightRunTiles = 1;
+	local straightCap = CONFIG.RIDGE_STRAIGHT_FORCE_AT or 5;
+
+	local function turnDirFrom(fromD)
+		return ((fromD + (Map.Rand(2, "") == 0 and -1 or 1) + 5) % 6) + 1;
+	end
+
+	ridgeSet[px .. "," .. py] = true;
+	for step = 2, ridgeLen do
+		if lastMoveDir and dir == lastMoveDir and straightRunTiles >= straightCap then
+			if Map.Rand(2, "") == 0 then
+				dir = turnDirFrom(lastMoveDir);
+			else
+				local bDir = turnDirFrom(lastMoveDir);
+				local bLen = (CONFIG.RIDGE_BRANCH_LEN_MIN or 2) + Map.Rand(CONFIG.RIDGE_BRANCH_LEN_RANGE or 2, "");
+				local bx, by = px, py;
+				for _b = 1, bLen do
+					bx, by = GetHexNeighbor(bx, by, bDir, iW, iH, wrapX, wrapY);
+					if bx < 0 or bx >= iW or by < 0 or by >= iH then
+						break;
+					end
+					local bk = bx .. "," .. by;
+					if not ridgeSet[bk] then
+						ridgeSet[bk] = true;
+					end
+				end
+				dir = turnDirFrom(lastMoveDir);
 			end
-			px, py = GetHexNeighbor(px, py, dir, iW, iH, wrapX, wrapY);
-			if px < 0 or px >= iW or py < 0 or py >= iH then break; end
+		elseif step == 4 and ridgeLen > 3 then
+			dir = turnDirFrom(dir);
+		elseif Map.Rand(100, "") < CONFIG.RIDGE_TURN_PCT then
+			dir = turnDirFrom(dir);
+		end
+
+		local moveDir = dir;
+		px, py = GetHexNeighbor(px, py, moveDir, iW, iH, wrapX, wrapY);
+		if px < 0 or px >= iW or py < 0 or py >= iH then
+			break;
+		end
+		ridgeSet[px .. "," .. py] = true;
+
+		if lastMoveDir == nil then
+			lastMoveDir = moveDir;
+			straightRunTiles = 2;
+		elseif moveDir == lastMoveDir then
+			straightRunTiles = straightRunTiles + 1;
+		else
+			lastMoveDir = moveDir;
+			straightRunTiles = 2;
 		end
 	end
 
