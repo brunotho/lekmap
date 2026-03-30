@@ -162,6 +162,7 @@ function AssignStartingPlots.Create()
 		ChooseLocations = AssignStartingPlots.ChooseLocations,
 		LekGlobalSixChooseLocations = AssignStartingPlots.LekGlobalSixChooseLocations,
 		LekGlobalSix_OK_RunAll = AssignStartingPlots.LekGlobalSix_OK_RunAll,
+		LekGlobalSix_CountRawFindStartStyleCandidates = AssignStartingPlots.LekGlobalSix_CountRawFindStartStyleCandidates,
 		LekGlobalSix_OK_LogDiagnostics = AssignStartingPlots.LekGlobalSix_OK_LogDiagnostics,
 		BalanceAndAssign = AssignStartingPlots.BalanceAndAssign,
 		PlaceNaturalWonders = AssignStartingPlots.PlaceNaturalWonders,
@@ -3517,6 +3518,86 @@ function AssignStartingPlots:IterateThroughCandidatePlotList(plot_list, region_t
 	return election_results
 end
 ------------------------------------------------------------------------------
+function AssignStartingPlots:LekGlobalSix_CountRawFindStartStyleCandidates(region_number, NoCoast)
+	local region_data_table = self.regionData[region_number];
+	if not region_data_table then
+		return 0;
+	end
+	local iW, iH = Map.GetGridSize();
+	local iWestX = region_data_table[1];
+	local iSouthY = region_data_table[2];
+	local iWidth = region_data_table[3];
+	local iHeight = region_data_table[4];
+	local iAreaID = region_data_table[5];
+	local fCenterWidth = (self.centerBias / 100) * iWidth;
+	local iNonCenterWidth = math.floor((iWidth - fCenterWidth) / 2);
+	local iCenterWidth = iWidth - (iNonCenterWidth * 2);
+	local iCenterWestX = (iWestX + iNonCenterWidth) % iW;
+	local iCenterTestWestX = (iWestX + iNonCenterWidth);
+	local iCenterTestEastX = (iCenterWestX + iCenterWidth - 1);
+	local fCenterHeight = (self.centerBias / 100) * iHeight;
+	local iNonCenterHeight = math.floor((iHeight - fCenterHeight) / 2);
+	local iCenterHeight = iHeight - (iNonCenterHeight * 2);
+	local iCenterSouthY = (iSouthY + iNonCenterHeight) % iH;
+	local iCenterTestSouthY = (iSouthY + iNonCenterHeight);
+	local iCenterTestNorthY = (iCenterTestSouthY + iCenterHeight - 1);
+	local fMiddleWidth = (self.middleBias / 100) * iWidth;
+	local iOuterWidth = math.floor((iWidth - fMiddleWidth) / 2);
+	local iMiddleWidth = iWidth - (iOuterWidth * 2);
+	local iMiddleWestX = (iWestX + iOuterWidth) % iW;
+	local iMiddleTestWestX = (iWestX + iOuterWidth);
+	local iMiddleTestEastX = (iMiddleTestWestX + iMiddleWidth - 1);
+	local fMiddleHeight = (self.middleBias / 100) * iHeight;
+	local iOuterHeight = math.floor((iHeight - fMiddleHeight) / 2);
+	local iMiddleHeight = iHeight - (iOuterHeight * 2);
+	local iMiddleSouthY = (iSouthY + iOuterHeight) % iH;
+	local iMiddleTestSouthY = (iSouthY + iOuterHeight);
+	local iMiddleTestNorthY = (iMiddleTestSouthY + iMiddleHeight - 1);
+	local seen = {};
+	for region_y = 0, iHeight - 1 do
+		for region_x = 0, iWidth - 1 do
+			local x = (region_x + iWestX) % iW;
+			local y = (region_y + iSouthY) % iH;
+			local plotIndex = y * iW + x + 1;
+			local plot = Map.GetPlot(x, y);
+			if plot then
+				local plotType = plot:GetPlotType();
+				if plotType == PlotTypes.PLOT_HILLS or plotType == PlotTypes.PLOT_LAND then
+					if self.plotDataIsNextToCoast[plotIndex] == true then
+					elseif self.plotDataIsThreeFromCoast[plotIndex] == true then
+					else
+						local area_of_plot = plot:GetArea();
+						if area_of_plot == iAreaID or iAreaID == -1 then
+							local test_x = region_x + iWestX;
+							local test_y = region_y + iSouthY;
+							if (test_x >= iCenterTestWestX and test_x <= iCenterTestEastX) and
+							   (test_y >= iCenterTestSouthY and test_y <= iCenterTestNorthY) then
+								if not (NoCoast == true and self.plotDataIsCoastal[plotIndex] == true) then
+									seen[plotIndex] = true;
+								end
+							elseif (test_x >= iMiddleTestWestX and test_x <= iMiddleTestEastX) and
+							       (test_y >= iMiddleTestSouthY and test_y <= iMiddleTestNorthY) then
+								if not (NoCoast == true and self.plotDataIsCoastal[plotIndex] == true) then
+									seen[plotIndex] = true;
+								end
+							else
+								if not (NoCoast == true and self.plotDataIsCoastal[plotIndex] == true) then
+									seen[plotIndex] = true;
+								end
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+	local n = 0;
+	for _ in pairs(seen) do
+		n = n + 1;
+	end
+	return n;
+end
+------------------------------------------------------------------------------
 function AssignStartingPlots:FindStart(region_number, NoCoast)
 	
 	print("No Coast: ", NoCoast);
@@ -4800,6 +4881,7 @@ function AssignStartingPlots:LekGlobalSixChooseLocations(args)
 	local snap = "";
 	if elig == 1 then
 		local parts = {};
+		local rawParts = {};
 		for r = 1, 6 do
 			local rd = self.regionData[r];
 			local rt = self.regionTypes[r];
@@ -4810,11 +4892,14 @@ function AssignStartingPlots:LekGlobalSixChooseLocations(args)
 				parts[#parts + 1] = string.format(
 					"r%d=t%d avgF=%.2f area=%d w%dxh%d",
 					r, rt, fert, area or -1, rw, rh);
+				local rawN = AssignStartingPlots.LekGlobalSix_CountRawFindStartStyleCandidates(self, r, false);
+				rawParts[#rawParts + 1] = string.format("r%d:%d", r, rawN);
 			else
 				parts[#parts + 1] = "r" .. tostring(r) .. "=?";
+				rawParts[#rawParts + 1] = "r" .. tostring(r) .. ":?";
 			end
 		end
-		snap = " regions=" .. table.concat(parts, ";");
+		snap = " regions=" .. table.concat(parts, ";") .. " rawFindStartStyleCandidates_NoCoastFalse=" .. table.concat(rawParts, ",");
 	end
 	LekPlacementProbeLog("### LekGlobalSixChooseLocations runId=" .. rid ..
 		" implementation=stub result=false hook=after_DetermineRegionTypes" ..
