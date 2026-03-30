@@ -3411,7 +3411,7 @@ function AssignStartingPlots:EvaluateCandidatePlot(plotIndex, region_type)
 	local finalScore = innerRingScore + middleRingScore + outerRingScore + coastScore;
 
 	--[[ Lekmap placement cleanup (spec v0.3): optional finalScore steering disabled so ranking
-	    does not fight future global OK() hard checks (ring band, dCenter, inland salt). Re-enable
+	    does not fight future global OK() hard checks (map-centre d in 9..18, inland salt). Re-enable
 	    for local experiments only.
 	local saltSeaAdj = 0;
 	do

@@ -1,4 +1,4 @@
-# Placement spec v0.3 (authoritative)
+# Placement spec v0.4 (authoritative)
 
 Target behaviour for **global six-start placement** (Pangaea / **6 players only** for now). Implementation: **Lane A** — clean slate for the new solver; **vanilla / pre-Lekmap code paths stay in the file but are commented out rather than deleted** when superseded.
 
@@ -43,7 +43,7 @@ Implement **full strictness** (all `OK` clauses + full `EvaluateCandidatePlot` g
 
 | Topic | Decision |
 |--------|----------|
-| **Ring shape (OK §1)** | **Option A** locked: **`R = 13`**, **`δ = 1`** → allowed **`d(p) ∈ {12,13,14}`** to map centre ( **`Map.PlotDistance` / `PlotDistance`** ). |
+| **Map centre distance (OK §1)** | **Hard band:** **`8 < d(p) < 19`** (integer distance ⇒ **`9 ≤ d(p) ≤ 18`**) from map centre using **`Map.PlotDistance` / `PlotDistance`** on each final capital plot **`p`**. **Ideal:** **`d(p) = 13`** — use as **tie-break** between passing 6-tuples (e.g. minimise **Σ \|d(pᵢ) − 13\|** or worst-case deviation) unless a different **`finalScore`** rule is chosen. **Replaces** v0.3 **{12,13,14}** annulus. |
 | **OK §7 / site quality** | **Full** **`EvaluateCandidatePlot`** + **full** **`PlaceImpactAndRipples`** in **fixed region order 1→6**, then snapshot-restore layers after each failed tuple. |
 | **Inland salt (OK §4)** | Hex **distance ≤ 3** from start; count **salt ocean** (**`IsWater` and not `IsLake`**) **`≤ 4`** per **non-coastal** start. (**Single authoritative numbers**; any older heuristic using **d≤4** in interim code is **obsolete** once the solver lands.) |
 | **Coastal adjacency on ring** | **Only** when **exactly two** coastal majors: **`C`** not adjacent to **`C`** on the **geographic** six-cycle. |
@@ -60,7 +60,7 @@ Implement **full strictness** (all `OK` clauses + full `EvaluateCandidatePlot` g
 
 ## Ring shape — Option B (reserve only)
 
-**Option B** (minimise radial spread subject to **`dCenter≤18`**, **`d₂≤15`**, …) stays **documented** in earlier notes as a **pressure valve** if Option A regen rate is bad — **not** v0.3 default.
+**Option B** (e.g. minimise radial spread of the six **`d(p)`** subject to **`d₂≤15`**, inland salt, … while staying inside **§1** band **9–18**) stays a **pressure valve** if tuple search is too slow — **not** v0.4 default.
 
 ---
 
@@ -77,15 +77,14 @@ The six **`startingPlots[r]`** must be compatible with **`BalanceAndAssign`**’
 
 ---
 
-## Global `OK` checklist (v0.3)
+## Global `OK` checklist (v0.4)
 
-1. **Ring band:** **`d(p) ∈ [12,14]`** to centre (Option A).  
-2. **`dCenter ≤ 18`** for all six (same distance function as today).  
-3. **`d₂ ≤ 15`** for each start (second-nearest of five others).  
-4. **Inland salt:** non-coastal starts: **≤ 4** salt-ocean hexes within **d ≤ 3**.  
-5. **Two coastals:** on rotated geographic cycle, **no adjacent `C`/`C`**.  
-6. **Bias:** planned **civ↔region** satisfies XML coast / river / region priority / avoid together with **actual** plot flags at those coordinates.  
-7. **Site quality:** **`EvaluateCandidatePlot`** → **`meets_minimums == true`** per **`r`**, after simulating **six** **`PlaceImpactAndRipples`** in order **1→6**.
+1. **Map centre distance:** **`9 ≤ d(p) ≤ 18`** for each start (**same** as **`d > 8` and `d < 19`** in integer **`PlotDistance`**). **Preference:** all else equal, prefer tuples closer to **`d = 13`** per start (see resolved table).  
+2. **`d₂ ≤ 15`** for each start (second-nearest of five others).  
+3. **Inland salt:** non-coastal starts: **≤ 4** salt-ocean hexes within **d ≤ 3**.  
+4. **Two coastals:** on rotated geographic cycle, **no adjacent `C`/`C`**.  
+5. **Bias:** planned **civ↔region** satisfies XML coast / river / region priority / avoid together with **actual** plot flags at those coordinates.  
+6. **Site quality:** **`EvaluateCandidatePlot`** → **`meets_minimums == true`** per **`r`**, after simulating **six** **`PlaceImpactAndRipples`** in order **1→6**.
 
 ---
 
@@ -112,3 +111,4 @@ The six **`startingPlots[r]`** must be compatible with **`BalanceAndAssign`**’
 | 2026-03-27 | Split from start-balance; folding + open questions. |
 | 2026-03-27 | v0.1–v0.2: pointer table, random ring, **400** tries, full ripples, bias clarity. |
 | 2026-03-27 | **v0.3 authoritative:** **R/δ** locked, **inland salt** **d≤3 / max4** canonical, **`GAMEOPTION`**, **Lane A** + comment-not-delete, **`MixedBias` parity**, **forest** = region class only unless extended, interim virtual-six **non-contract**, **`finalScore`** optional tie-break only. |
+| 2026-03-27 | **v0.4:** **§1** centre band **`9 ≤ d ≤ 18`** (**`>8`/`<19`**); **ideal `d = 13`** for tie-break; dropped **{12,13,14}**; merged old **`dCenter ≤ 18`** into this band. |
