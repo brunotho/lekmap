@@ -18,6 +18,7 @@ include("5_HBTerrainGenerator");
 include("IslandMaker");
 include("MultilayeredFractal");
 include("3_PangaeaIslands");
+include("X_IslandHelpers");
 print("### LekmapPangaeaFractal: includes done ###");
 
 ------------------------------------------------------------------------------
@@ -1665,6 +1666,10 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		minorAxis = centerY * cohesion_multiplier;
 		majorAxisSquared = majorAxis * majorAxis;
 		minorAxisSquared = minorAxis * minorAxis;
+		local preBaysPlotTypes = {};
+		for i = 1, iW * iH do
+			preBaysPlotTypes[i] = self.plotTypes[i];
+		end
 		for y = 0, iH - 1 do
 			for x = 0, iW - 1 do
 				local deltaX = x - centerX;
@@ -1677,6 +1682,126 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 					local baysVal = baysFrac:GetHeight(x, y);
 					if baysVal >= iBaysThreshold then
 						self.plotTypes[i] = PlotTypes.PLOT_OCEAN;
+					end
+				end
+			end
+		end
+
+		do
+			local function idx1(x, y, w)
+				return y * w + x + 1;
+			end
+			local function bfsFarthest(startX, startY, member, w, h, wrapX)
+				local dist = {};
+				local q = {};
+				local head, tail = 1, 1;
+				local sk = startX .. "," .. startY;
+				dist[sk] = 0;
+				q[1] = { startX, startY };
+				local bestK, bestD = sk, 0;
+				while head <= tail do
+					local cx, cy = q[head][1], q[head][2];
+					head = head + 1;
+					local dk = dist[cx .. "," .. cy];
+					for dir = 1, 6 do
+						local nx, ny = GetHexNeighbor(cx, cy, dir, w, h, wrapX, false);
+						if nx >= 0 and nx < w and ny >= 0 and ny < h then
+							local ii = idx1(nx, ny, w);
+							if member[ii] then
+								local nk = nx .. "," .. ny;
+								if dist[nk] == nil then
+									dist[nk] = dk + 1;
+									if dist[nk] > bestD then
+										bestD = dist[nk];
+										bestK = nk;
+									end
+									tail = tail + 1;
+									q[tail] = { nx, ny };
+								end
+							end
+						end
+					end
+				end
+				local bx, by = bestK:match("^([^,]+),([^,]+)$");
+				return tonumber(bx), tonumber(by), bestD;
+			end
+			local function bfsDiameter(sx, sy, member, w, h, wrapX)
+				local ax, ay = bfsFarthest(sx, sy, member, w, h, wrapX);
+				local _, _, diam = bfsFarthest(ax, ay, member, w, h, wrapX);
+				return diam;
+			end
+			local newOcean = {};
+			for i = 1, iW * iH do
+				if self.plotTypes[i] == PlotTypes.PLOT_OCEAN and preBaysPlotTypes[i] ~= PlotTypes.PLOT_OCEAN then
+					newOcean[i] = true;
+				end
+			end
+			local seen = {};
+			for i = 1, iW * iH do
+				if newOcean[i] and not seen[i] then
+					local sy = math.floor((i - 1) / iW);
+					local sx = (i - 1) % iW;
+					local comp = {};
+					local member = {};
+					local q = {};
+					local qh, qt = 1, 1;
+					q[1] = { sx, sy };
+					seen[i] = true;
+					member[i] = true;
+					comp[1] = i;
+					while qh <= qt do
+						local cx, cy = q[qh][1], q[qh][2];
+						qh = qh + 1;
+						for dir = 1, 6 do
+							local nx, ny = GetHexNeighbor(cx, cy, dir, iW, iH, Map:IsWrapX(), false);
+							if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+								local ni = idx1(nx, ny, iW);
+								if newOcean[ni] and not seen[ni] then
+									seen[ni] = true;
+									member[ni] = true;
+									comp[#comp + 1] = ni;
+									qt = qt + 1;
+									q[qt] = { nx, ny };
+								end
+							end
+						end
+					end
+					local nComp = #comp;
+					if nComp >= 6 and nComp <= 22 then
+						local diam = bfsDiameter(sx, sy, member, iW, iH, Map:IsWrapX());
+						if diam <= 7 and Map.Rand(100, "") < 68 then
+							local want = 2 + Map.Rand(4, "");
+							want = math.min(want, nComp);
+							local chosen = {};
+							local seedIdx = comp[1 + Map.Rand(nComp, "")];
+							chosen[seedIdx] = true;
+							self.plotTypes[seedIdx] = (Map.Rand(100, "") < 65) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
+							local added = 1;
+							while added < want do
+								local found = nil;
+								for _, ci in ipairs(comp) do
+									if chosen[ci] then
+										local cyy = math.floor((ci - 1) / iW);
+										local cxx = (ci - 1) % iW;
+										for dir = 1, 6 do
+											local nx, ny = GetHexNeighbor(cxx, cyy, dir, iW, iH, Map:IsWrapX(), false);
+											if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+												local ni = idx1(nx, ny, iW);
+												if member[ni] and not chosen[ni] then
+													found = ni;
+													break;
+												end
+											end
+										end
+										if found then break; end
+									end
+								end
+								if not found then break; end
+								chosen[found] = true;
+								self.plotTypes[found] = (Map.Rand(100, "") < 65) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
+								added = added + 1;
+							end
+						end
 					end
 				end
 			end
@@ -1978,36 +2103,100 @@ function FixCoastLine()
 		end
 	end
 
-	-- Pass 2: for each eligible tile count hill neighbors among all adjacent land tiles.
-	-- 0-1 hill neighbors: 80%
-	-- 2-4 hill neighbors: 20%
-	-- 5+  hill neighbors: 0%
+	local wrapX = Map:IsWrapX();
 	for y = 0, iH - 1 do
 		for x = 0, iW - 1 do
 			if eligible[y * iW + x] then
-				local plot = Map.GetPlotByIndex(iW * y + x);
-				local hillNeighbors = 0;
-				for d = 0, 5 do
-					local neighbor = Map.PlotDirection(x, y, d);
-					if neighbor and neighbor:GetPlotType() == PlotTypes.PLOT_HILLS then
-						hillNeighbors = hillNeighbors + 1;
+				local disk = GetHexDisk(x, y, 2, iW, iH, wrapX, false);
+				local landFlats = {};
+				local allFlat = true;
+				for _, t in ipairs(disk) do
+					local px, py = t[1], t[2];
+					local p = Map.GetPlot(px, py);
+					if p and not p:IsWater() then
+						local pt = p:GetPlotType();
+						if pt ~= PlotTypes.PLOT_LAND then
+							allFlat = false;
+							break;
+						end
+						landFlats[#landFlats + 1] = p;
 					end
 				end
-				local threshold;
-				if hillNeighbors <= 1 then
-					threshold = 20;   -- 80% chance
-				elseif hillNeighbors <= 4 then
-					threshold = 80;   -- 20% chance
-				else
-					threshold = 101;  -- 0% chance
-				end
-				if Map.Rand(100, "") >= threshold then
-					plot:SetPlotType(PlotTypes.PLOT_HILLS, false, true);
+				if allFlat and #landFlats >= 2 then
+					local pick = landFlats[1 + Map.Rand(#landFlats, "")];
+					pick:SetPlotType(PlotTypes.PLOT_HILLS, false, true);
 				end
 			end
 		end
 	end
 
+	for y = 0, iH - 1 do
+		for x = 0, iW - 1 do
+			if eligible[y * iW + x] then
+				local plot = Map.GetPlotByIndex(iW * y + x);
+				if plot:GetPlotType() ~= PlotTypes.PLOT_LAND then
+				else
+					local hillNeighbors = 0;
+					for d = 0, 5 do
+						local neighbor = Map.PlotDirection(x, y, d);
+						if neighbor and neighbor:GetPlotType() == PlotTypes.PLOT_HILLS then
+							hillNeighbors = hillNeighbors + 1;
+						end
+					end
+					local threshold;
+					if hillNeighbors <= 1 then
+						threshold = 20;
+					elseif hillNeighbors <= 4 then
+						threshold = 80;
+					else
+						threshold = 101;
+					end
+					if Map.Rand(100, "") >= threshold then
+						plot:SetPlotType(PlotTypes.PLOT_HILLS, false, true);
+					end
+				end
+			end
+		end
+	end
+
+end
+------------------------------------------------------------------------------
+function FixInlandPancakes()
+	local iW, iH = Map.GetGridSize();
+	local biggest_area = Map.FindBiggestArea(false);
+	local iAreaID = biggest_area:GetID();
+	local wrapX = Map:IsWrapX();
+	for y = 0, iH - 1 do
+		for x = 0, iW - 1 do
+			local plot = Map.GetPlot(x, y);
+			if plot and not plot:IsWater()
+				and plot:GetArea() == iAreaID
+				and plot:GetPlotType() == PlotTypes.PLOT_LAND
+				and not plot:IsCoastalLand(8)
+				and not plot:IsRiverSide()
+				and plot:GetFeatureType() == FeatureTypes.NO_FEATURE then
+				local disk = GetHexDisk(x, y, 2, iW, iH, wrapX, false);
+				local hillCt = 0;
+				for _, t in ipairs(disk) do
+					local p = Map.GetPlot(t[1], t[2]);
+					if p and not p:IsWater() and p:GetPlotType() == PlotTypes.PLOT_HILLS then
+						hillCt = hillCt + 1;
+					end
+				end
+				if hillCt < 3 and Map.Rand(100, "") < 26 then
+					local terr = plot:GetTerrainType();
+					local canForest =
+						(terr == TerrainTypes.TERRAIN_GRASS or terr == TerrainTypes.TERRAIN_PLAINS or terr == TerrainTypes.TERRAIN_TUNDRA)
+						and plot:GetFeatureType() == FeatureTypes.NO_FEATURE;
+					if canForest and Map.Rand(100, "") < 38 then
+						plot:SetFeatureType(FeatureTypes.FEATURE_FOREST, -1);
+					else
+						plot:SetPlotType(PlotTypes.PLOT_HILLS, false, true);
+					end
+				end
+			end
+		end
+	end
 end
 ------------------------------------------------------------------------------
 function AddFeatures()
@@ -2047,18 +2236,7 @@ end
 function StartPlotSystem()
 	_lek_run_id = tostring(math.floor((os.clock and os.clock() or 0) * 1000));
 	local function appendLekLog(lines)
-		local home = (os and os.getenv and os.getenv("HOME")) or "";
-		if home == "" then return; end
-		local path = home .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log";
-		pcall(function()
-			local f = io.open(path, "a");
-			if not f then return; end
-			for _, line in ipairs(lines) do
-				f:write(line);
-				f:write("\n");
-			end
-			f:close();
-		end);
+		LekMapgenDiagLogAppend(lines);
 	end
 	appendLekLog({
 		"### RunStage runId=" .. tostring(_lek_run_id) .. " stage=StartPlotSystem.begin"
@@ -2217,7 +2395,14 @@ function StartPlotSystem()
 	print("Creating start plot database.");
 	local start_plot_database = AssignStartingPlots.Create()
 
-	     start_plot_database._lek_prioritize_center = true
+	     -- Placement spec v0.3 / Lane A: single vanilla-order pass until global OK solver lands.
+	     start_plot_database._lek_global_six_solver = false;
+	     start_plot_database._lek_enable_virtual_six_retries = false;
+	     start_plot_database._lek_disable_virtual_six = true;
+	     -- start_plot_database._lek_enable_virtual_six_retries = true
+	     -- start_plot_database._lek_disable_virtual_six = false
+	     start_plot_database._lek_flatten_region_start_tiers = false
+	     -- start_plot_database._lek_flatten_region_start_tiers = true
 	     -- _lek_stronger_bias 
 	     start_plot_database.centerBias = 20
 	     start_plot_database.middleBias = 50
@@ -2385,23 +2570,6 @@ function StartPlotSystem()
 			end
 
 			if #starts == 6 then
-				local function appendToFile(lines)
-					-- Civ5 doesn't reliably append late-stage print() output into Lua.log.
-					-- So we persist the metrics to a file in Civ5's Logs folder.
-					local home = (os and os.getenv and os.getenv("HOME")) or "";
-					if home == "" then return; end
-					local path = home .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log";
-					local ok, err = pcall(function()
-						local f = io.open(path, "a");
-						if not f then return; end
-						for _, line in ipairs(lines) do
-							f:write(line);
-							f:write("\n");
-						end
-						f:close();
-					end);
-				end
-
 				local function dist(ax, ay, bx, by)
 					if Map.PlotDistance then return Map.PlotDistance(ax, ay, bx, by); end
 					if PlotDistance then return PlotDistance(ax, ay, bx, by); end
@@ -2467,7 +2635,7 @@ function StartPlotSystem()
 						" nearest=" .. tostring(nearest[i]) ..
 						" secondNearest=" .. tostring(secondNearest[i]);
 				end
-				appendToFile(lines);
+				LekMapgenDiagLogAppend(lines);
 			else
 				print("### StartSpacing6P: could not collect 6 start plots, got " .. tostring(#starts));
 			end
@@ -2493,6 +2661,7 @@ function StartPlotSystem()
 		wonderamt = wonders,
 	};
 	start_plot_database:PlaceNaturalWonders(wonderargs);
+	FixInlandPancakes();
 	print("Placing Resources and City States.")
 	appendLekLog({
 		"### RunStage runId=" .. tostring(_lek_run_id or "na") .. " stage=before.PlaceResourcesAndCityStates"

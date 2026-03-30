@@ -14,6 +14,44 @@
 
 include("1_HBMapmakerUtilities");
 
+function LekMapgenDiagLogPath()
+	if not (os and os.getenv) then
+		return nil;
+	end
+	local home = os.getenv("HOME") or "";
+	if home ~= "" then
+		return home .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log";
+	end
+	local user = os.getenv("USER") or "";
+	if user ~= "" then
+		return "/Users/" .. user .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log";
+	end
+	return nil;
+end
+
+function LekMapgenDiagLogAppend(lineOrLines)
+	local path = LekMapgenDiagLogPath();
+	if not path or not (io and io.open) then
+		return;
+	end
+	pcall(function()
+		local f = io.open(path, "a");
+		if not f then
+			return;
+		end
+		if type(lineOrLines) == "table" then
+			for _, line in ipairs(lineOrLines) do
+				f:write(line);
+				f:write("\n");
+			end
+		else
+			f:write(tostring(lineOrLines));
+			f:write("\n");
+		end
+		f:close();
+	end);
+end
+
 -- Lekmap: stubs for natural wonder custom eligibility/placement (called when XML method number != -1)
 function NWCustomEligibility(x, y, method_number) return false; end
 function NWCustomPlacement(x, y, row_number, method_number) end
@@ -129,7 +167,10 @@ function AssignStartingPlots.Create()
 		FindStart = AssignStartingPlots.FindStart,
 		FindCoastalStart = AssignStartingPlots.FindCoastalStart,
 		FindStartWithoutRegardToAreaID = AssignStartingPlots.FindStartWithoutRegardToAreaID,
-		
+		LekMinNearestAmongSix = AssignStartingPlots.LekMinNearestAmongSix,
+		LekRunOneStartPlacementPass = AssignStartingPlots.LekRunOneStartPlacementPass,
+		LekVirtualSixInlandOceanUndesirable = AssignStartingPlots.LekVirtualSixInlandOceanUndesirable,
+
 		-- Balance and Assign member methods
 		AttemptToPlaceBonusResourceAtPlot = AssignStartingPlots.AttemptToPlaceBonusResourceAtPlot,
 		AttemptToPlaceHillsAtPlot = AssignStartingPlots.AttemptToPlaceHillsAtPlot,
@@ -3090,8 +3131,7 @@ function AssignStartingPlots:EvaluateCandidatePlot(plotIndex, region_type)
 	if plot and plot:GetTerrainType() == TerrainTypes.TERRAIN_SNOW then
 		return 0, false;
 	end
-	-- Bullseye avoidance: if a candidate is too close to the canvas center,
-	-- prevent it from being selected as an "eligible" start (but allow fallback).
+	--[[ Lekmap: map-center distance (was used for optional finalScore penalties; global OK will own geometry.)
 	local centerX = math.floor(iW / 2);
 	local centerY = math.floor(iH / 2);
 	local dCenter = nil;
@@ -3101,7 +3141,7 @@ function AssignStartingPlots:EvaluateCandidatePlot(plotIndex, region_type)
 		dCenter = PlotDistance(x, y, centerX, centerY);
 	end
 	local tooCloseToCenter = (dCenter ~= nil and dCenter < 8);
-	local tooFarToCenter = false;
+	--]]
 	local goodSoFar = true;
 	local isEvenY = true;
 	if y / 2 > math.floor(y / 2) then
@@ -3370,9 +3410,39 @@ function AssignStartingPlots:EvaluateCandidatePlot(plotIndex, region_type)
 	local outerRingScore = foodTotal + prodTotal + goodTotal + riverTotal - (junkTotal * 2);
 	local finalScore = innerRingScore + middleRingScore + outerRingScore + coastScore;
 
+	--[[ Lekmap placement cleanup (spec v0.3): optional finalScore steering disabled so ranking
+	    does not fight future global OK() hard checks (ring band, dCenter, inland salt). Re-enable
+	    for local experiments only.
+	local saltSeaAdj = 0;
+	do
+		local adjDirs = {
+			DirectionTypes.DIRECTION_NORTHEAST,
+			DirectionTypes.DIRECTION_EAST,
+			DirectionTypes.DIRECTION_SOUTHEAST,
+			DirectionTypes.DIRECTION_SOUTHWEST,
+			DirectionTypes.DIRECTION_WEST,
+			DirectionTypes.DIRECTION_NORTHWEST
+		};
+		for _, di in ipairs(adjDirs) do
+			local np = Map.PlotDirection(x, y, di);
+			if np and np:IsWater() and not np:IsLake() then
+				saltSeaAdj = saltSeaAdj + 1;
+			end
+		end
+	end
+	finalScore = finalScore - saltSeaAdj * 3;
+
 	if tooCloseToCenter then
 		finalScore = finalScore - 10000;
 	end
+	if dCenter ~= nil then
+		if dCenter > 21 then
+			finalScore = finalScore - 12000;
+		elseif dCenter > 18 then
+			finalScore = finalScore - 5500;
+		end
+	end
+	--]]
 
 	-- Check Impact and Ripple data to see if candidate is near an already-placed start point.
 	if distance_bias > 0 then
@@ -3599,7 +3669,43 @@ function AssignStartingPlots:FindStart(region_number, NoCoast)
 	
 	
 	-- Process lists of candidate plots.
-	if iNumCenter + iNumMiddle > 0 then
+	if self._lek_flatten_region_start_tiers and (iNumCenter + iNumMiddle + iNumOuter > 0) then
+		local seen = {};
+		local all_plots = {};
+		local merge_lists = {
+			center_river, center_coastal, center_inland_dry,
+			middle_river, middle_coastal, middle_inland_dry,
+			outer_plots,
+		};
+		for ml = 1, #merge_lists do
+			local lst = merge_lists[ml];
+			for loop, plotIndex in ipairs(lst) do
+				if not seen[plotIndex] then
+					seen[plotIndex] = true;
+					all_plots[#all_plots + 1] = plotIndex;
+				end
+			end
+		end
+		local election_returns = self:IterateThroughCandidatePlotList(all_plots, region_type);
+		local found_eligible = election_returns[1];
+		if found_eligible then
+			local bestPlotScore = election_returns[2];
+			local bestPlotIndex = election_returns[3];
+			local x = (bestPlotIndex - 1) % iW;
+			local y = (bestPlotIndex - x - 1) / iW;
+			self.startingPlots[region_number] = {x, y, bestPlotScore};
+			self:PlaceImpactAndRipples(x, y);
+			return true, false;
+		end
+		local found_fallback_flat = election_returns[4];
+		if found_fallback_flat then
+			local bestFallbackScore = election_returns[5];
+			local bestFallbackIndex = election_returns[6];
+			local x = (bestFallbackIndex - 1) % iW;
+			local y = (bestFallbackIndex - x - 1) / iW;
+			table.insert(fallback_plots, {x, y, bestFallbackScore});
+		end
+	elseif iNumCenter + iNumMiddle > 0 then
 		if self._lek_prioritize_center then
 			print("DEV/SAPHT Using _lek_prioritize_center")
 			local candidate_lists = {};
@@ -3721,7 +3827,7 @@ function AssignStartingPlots:FindStart(region_number, NoCoast)
 	-- Reaching this point means no eligible sites in center bias or middle donut subregions!
 	
 	-- Process candidates from Outer subregion, if any.
-	if iNumOuter > 0 then
+	if (not self._lek_flatten_region_start_tiers) and iNumOuter > 0 then
 		local outer_eligible_list = {};
 		local found_eligible = false;
 		local found_fallback = false;
@@ -3742,51 +3848,23 @@ function AssignStartingPlots:FindStart(region_number, NoCoast)
 				end
 			end
 		end
-		if found_eligible then -- Iterate through eligible plots and choose the one closest to the center of the region.
-			local closestPlot;
-			local closestDistance = math.max(iW, iH);
-			local bullseyeX = iWestX + (iWidth / 2);
-			if bullseyeX < iWestX then -- wrapped around: un-wrap it for test purposes.
-				bullseyeX = bullseyeX + iW;
-			end
-			local bullseyeY = iSouthY + (iHeight / 2);
-			if bullseyeY < iSouthY then -- wrapped around: un-wrap it for test purposes.
-				bullseyeY = bullseyeY + iH;
-			end
-			if bullseyeY / 2 ~= math.floor(bullseyeY / 2) then -- Y coord is odd, add .5 to X coord for hex-shift.
-				bullseyeX = bullseyeX + 0.5;
-			end
-			
+		if found_eligible then
+			local bestOuterPlot;
+			local bestOuterScore = -math.huge;
 			for loop, plotIndex in ipairs(outer_eligible_list) do
-				local x = (plotIndex - 1) % iW;
-				local y = (plotIndex - x - 1) / iW;
-				local adjusted_x = x;
-				local adjusted_y = y;
-				if y / 2 ~= math.floor(y / 2) then -- Y coord is odd, add .5 to X coord for hex-shift.
-					adjusted_x = x + 0.5;
-				end
-				
-				if x < iWestX then -- wrapped around: un-wrap it for test purposes.
-					adjusted_x = adjusted_x + iW;
-				end
-				if y < iSouthY then -- wrapped around: un-wrap it for test purposes.
-					adjusted_y = y + iH;
-				end
-				local fDistance = math.sqrt( (adjusted_x - bullseyeX)^2 + (adjusted_y - bullseyeY)^2 );
-				if fDistance < closestDistance then -- Found new "closer" plot.
-					closestPlot = plotIndex;
-					closestDistance = fDistance;
+				local score, meets_minimums = self:EvaluateCandidatePlot(plotIndex, region_type);
+				if meets_minimums == true and score > bestOuterScore then
+					bestOuterScore = score;
+					bestOuterPlot = plotIndex;
 				end
 			end
-			-- Assign the closest eligible plot as the start point.
-			local x = (closestPlot - 1) % iW;
-			local y = (closestPlot - x - 1) / iW;
-			-- Re-get plot score for inclusion in start plot data.
-			local score, meets_minimums = self:EvaluateCandidatePlot(closestPlot, region_type)
-			-- Assign this plot as the start for this region.
-			self.startingPlots[region_number] = {x, y, score};
-			self:PlaceImpactAndRipples(x, y)
-			return true, false
+			if bestOuterPlot then
+				local x = (bestOuterPlot - 1) % iW;
+				local y = (bestOuterPlot - x - 1) / iW;
+				self.startingPlots[region_number] = {x, y, bestOuterScore};
+				self:PlaceImpactAndRipples(x, y);
+				return true, false;
+			end
 		end
 		-- Add the fallback plot (best scored plot) from the Outer region to the fallback list.
 		if found_fallback then
@@ -3997,7 +4075,41 @@ function AssignStartingPlots:FindCoastalStart(region_number)
 	--
 	
 	-- Process lists of candidate plots.
-	if iNumCenterCoastal + iNumMiddleCoastal > 0 then
+	if self._lek_flatten_region_start_tiers and (iNumCenterCoastal + iNumMiddleCoastal + iNumOuterCoastal > 0) then
+		local seenC = {};
+		local all_coastal_plots = {};
+		local merge_coast = {
+			center_plots_on_river, center_fresh_plots, center_dry_plots,
+			middle_plots_on_river, middle_fresh_plots, middle_dry_plots,
+			outer_coastal_plots,
+		};
+		for mc = 1, #merge_coast do
+			local lst = merge_coast[mc];
+			for loop, plotIndex in ipairs(lst) do
+				if not seenC[plotIndex] then
+					seenC[plotIndex] = true;
+					all_coastal_plots[#all_coastal_plots + 1] = plotIndex;
+				end
+			end
+		end
+		local election_returns_c = self:IterateThroughCandidatePlotList(all_coastal_plots, region_type);
+		if election_returns_c[1] then
+			local bestPlotScore = election_returns_c[2];
+			local bestPlotIndex = election_returns_c[3];
+			local x = (bestPlotIndex - 1) % iW;
+			local y = (bestPlotIndex - x - 1) / iW;
+			self.startingPlots[region_number] = {x, y, bestPlotScore};
+			self:PlaceImpactAndRipples(x, y);
+			return true, false;
+		end
+		if election_returns_c[4] then
+			local bestFallbackScore = election_returns_c[5];
+			local bestFallbackIndex = election_returns_c[6];
+			local x = (bestFallbackIndex - 1) % iW;
+			local y = (bestFallbackIndex - x - 1) / iW;
+			table.insert(fallback_plots, {x, y, bestFallbackScore});
+		end
+	elseif iNumCenterCoastal + iNumMiddleCoastal > 0 then
 		local candidate_lists = {};
 		if iNumCenterRiver > 0 then -- Process center bias river plots.
 			table.insert(candidate_lists, center_plots_on_river);
@@ -4045,7 +4157,7 @@ function AssignStartingPlots:FindCoastalStart(region_number)
 	-- Reaching this point means no strong coastal sites in center bias or middle donut subregions!
 	
 	-- Process candidates from Outer subregion, if any.
-	if iNumOuterCoastal > 0 then
+	if (not self._lek_flatten_region_start_tiers) and iNumOuterCoastal > 0 then
 		local outer_eligible_list = {};
 		local found_eligible = false;
 		local found_fallback = false;
@@ -4067,51 +4179,23 @@ function AssignStartingPlots:FindCoastalStart(region_number)
 			end
 		end
 
-		if found_eligible then -- Iterate through eligible plots and choose the one closest to the center of the region.
-			local closestPlot;
-			local closestDistance = math.max(iW, iH);
-			local bullseyeX = iWestX + (iWidth / 2);
-			if bullseyeX < iWestX then -- wrapped around: un-wrap it for test purposes.
-				bullseyeX = bullseyeX + iW;
-			end
-			local bullseyeY = iSouthY + (iHeight / 2);
-			if bullseyeY < iSouthY then -- wrapped around: un-wrap it for test purposes.
-				bullseyeY = bullseyeY + iH;
-			end
-			if bullseyeY / 2 ~= math.floor(bullseyeY / 2) then -- Y coord is odd, add .5 to X coord for hex-shift.
-				bullseyeX = bullseyeX + 0.5;
-			end
-			
+		if found_eligible then
+			local bestOuterPlot;
+			local bestOuterScore = -math.huge;
 			for loop, plotIndex in ipairs(outer_eligible_list) do
-				local x = (plotIndex - 1) % iW;
-				local y = (plotIndex - x - 1) / iW;
-				local adjusted_x = x;
-				local adjusted_y = y;
-				if y / 2 ~= math.floor(y / 2) then -- Y coord is odd, add .5 to X coord for hex-shift.
-					adjusted_x = x + 0.5;
-				end
-				
-				if x < iWestX then -- wrapped around: un-wrap it for test purposes.
-					adjusted_x = adjusted_x + iW;
-				end
-				if y < iSouthY then -- wrapped around: un-wrap it for test purposes.
-					adjusted_y = y + iH;
-				end
-				local fDistance = math.sqrt( (adjusted_x - bullseyeX)^2 + (adjusted_y - bullseyeY)^2 );
-				if fDistance < closestDistance then -- Found new "closer" plot.
-					closestPlot = plotIndex;
-					closestDistance = fDistance;
+				local score, meets_minimums = self:EvaluateCandidatePlot(plotIndex, region_type);
+				if meets_minimums == true and score > bestOuterScore then
+					bestOuterScore = score;
+					bestOuterPlot = plotIndex;
 				end
 			end
-			-- Assign the closest eligible plot as the start point.
-			local x = (closestPlot - 1) % iW;
-			local y = (closestPlot - x - 1) / iW;
-			-- Re-get plot score for inclusion in start plot data.
-			local score, meets_minimums = self:EvaluateCandidatePlot(closestPlot, region_type)
-			-- Assign this plot as the start for this region.
-			self.startingPlots[region_number] = {x, y, score};
-			self:PlaceImpactAndRipples(x, y)
-			return true, false
+			if bestOuterPlot then
+				local x = (bestOuterPlot - 1) % iW;
+				local y = (bestOuterPlot - x - 1) / iW;
+				self.startingPlots[region_number] = {x, y, bestOuterScore};
+				self:PlaceImpactAndRipples(x, y);
+				return true, false;
+			end
 		end
 		-- Add the fallback plot (best scored plot) from the Outer region to the fallback list.
 		if found_fallback then
@@ -4338,6 +4422,121 @@ function AssignStartingPlots:FindStartWithoutRegardToAreaID(region_number, bMust
 	return bSuccessFlag, bForcedPlacementFlag
 end
 ------------------------------------------------------------------------------
+-- Lekmap v1 virtual six-start pass (deprecated vs SCRATCHPAD-placement-spec-v0.md global OK).
+-- Off unless start_plot_database._lek_enable_virtual_six_retries == true and
+-- _lek_disable_virtual_six ~= true. Snapshot/restore distance/collision/cityState between tries.
+local LEK_VIRTUAL_SIX_ATTEMPTS = 32;
+
+function AssignStartingPlots:LekMinNearestAmongSix()
+	local pts = {};
+	for r = 1, self.iNumCivs do
+		local t = self.startingPlots[r];
+		if not t or type(t[1]) ~= "number" or type(t[2]) ~= "number" then
+			return -1, -1;
+		end
+		pts[#pts + 1] = { t[1], t[2] };
+	end
+	if #pts ~= self.iNumCivs then
+		return -1, -1;
+	end
+	local nearestList = {};
+	for i = 1, #pts do
+		local best = 9999;
+		for j = 1, #pts do
+			if i ~= j then
+				local d;
+				if Map.PlotDistance then
+					d = Map.PlotDistance(pts[i][1], pts[i][2], pts[j][1], pts[j][2]);
+				elseif PlotDistance then
+					d = PlotDistance(pts[i][1], pts[i][2], pts[j][1], pts[j][2]);
+				else
+					d = 0;
+				end
+				if d < best then best = d; end
+			end
+		end
+		nearestList[#nearestList + 1] = best;
+	end
+	table.sort(nearestList);
+	return nearestList[1], nearestList[2];
+end
+
+function AssignStartingPlots:LekVirtualSixInlandOceanUndesirable()
+	local iW, iH = Map.GetGridSize();
+	local hexR = 4;
+	local maxSaltSea = 4;
+	local totalExcess = 0;
+	local parts = {};
+	for r = 1, self.iNumCivs do
+		local t = self.startingPlots[r];
+		if t and type(t[1]) == "number" and type(t[2]) == "number" then
+			local plot = Map.GetPlot(t[1], t[2]);
+			if not plot then
+				parts[#parts + 1] = "r" .. tostring(r) .. ":nil_plot";
+			elseif plot:IsCoastalLand() then
+				parts[#parts + 1] = "r" .. tostring(r) .. ":coastal_skipped";
+			else
+				local cx, cy = t[1], t[2];
+				local nSalt = 0;
+				for ny = 0, iH - 1 do
+					for nx = 0, iW - 1 do
+						local d = nil;
+						if Map.PlotDistance then
+							d = Map.PlotDistance(cx, cy, nx, ny);
+						elseif PlotDistance then
+							d = PlotDistance(cx, cy, nx, ny);
+						end
+						if d ~= nil and d <= hexR then
+							local p2 = Map.GetPlot(nx, ny);
+							if p2 and p2:IsWater() and not p2:IsLake() then
+								nSalt = nSalt + 1;
+							end
+						end
+					end
+				end
+				local excess = 0;
+				if nSalt > maxSaltSea then
+					excess = nSalt - maxSaltSea;
+					totalExcess = totalExcess + excess;
+				end
+				parts[#parts + 1] = "r" .. tostring(r) .. ":inland nSaltOcean_dLe" .. tostring(hexR) .. "=" .. tostring(nSalt) .. " excess+" .. tostring(excess);
+			end
+		end
+	end
+	local label = "inlandSaltOcean_hexR" .. tostring(hexR) .. "_maxFree" .. tostring(maxSaltSea);
+	local breakdown = label .. " totalExcess=" .. tostring(totalExcess);
+	if #parts > 0 then
+		breakdown = breakdown .. " | perRegion={" .. table.concat(parts, "; ") .. "}";
+	else
+		breakdown = breakdown .. " | perRegion={}";
+	end
+	return totalExcess, breakdown;
+end
+
+function AssignStartingPlots:LekRunOneStartPlacementPass(regionAssignList, iNumRegions, res_reg, iNumCoastNeeded)
+	for assignIndex = 1, iNumRegions do
+		local currentRegionNumber = regionAssignList[assignIndex];
+		local bSuccessFlag = false;
+		local bForcedPlacementFlag = false;
+		print("Region #" .. currentRegionNumber);
+		print("Num coastal still needed " .. tostring(iNumCoastNeeded));
+		if res_reg[currentRegionNumber] == false and iNumCoastNeeded > 0 then
+			bSuccessFlag, bForcedPlacementFlag = self:FindCoastalStart(currentRegionNumber);
+			iNumCoastNeeded = iNumCoastNeeded - 1;
+		else
+			print("Don't Allow Spawning on Coast: " .. tostring(self.NoCoastInland));
+			bSuccessFlag, bForcedPlacementFlag = self:FindStart(currentRegionNumber, self.NoCoastInland);
+		end
+		print("- - -");
+		print("Start Plot for Region #", currentRegionNumber, " was successful: ", bSuccessFlag);
+		print("Start Plot for Region #", currentRegionNumber, " was forced: ", bForcedPlacementFlag);
+		if not bSuccessFlag then
+			return false, iNumCoastNeeded;
+		end
+	end
+	return true, iNumCoastNeeded;
+end
+
 function AssignStartingPlots:ChooseLocations(args)
 	print("Map Generation - Choosing Start Locations for Civilizations");
 	local args = args or {};
@@ -4361,7 +4560,7 @@ function AssignStartingPlots:ChooseLocations(args)
 	self.minGoodOuter = args.minGoodOuter or self.minGoodOuter;
 	self.maxJunk = args.maxJunk or self.maxJunk;
 
-	-- Lekmap: dragon island / geothermal — pre-fill distanceData for starts
+	-- Lekmap: reserved island feature plots (Solomon's Mines body, geothermal) — pre-fill distanceData ripples so majors avoid stacking on them
 	local reserve_plots = {};
 	if _solomons_island_mines_plot then reserve_plots[#reserve_plots + 1] = _solomons_island_mines_plot; end
 	if _geothermal_island_plot then reserve_plots[#reserve_plots + 1] = _geothermal_island_plot; end
@@ -4580,29 +4779,100 @@ function AssignStartingPlots:ChooseLocations(args)
 	end
 	-- now we have reserved the bias region all civ left must be coastal, so give them the remanining regions
 	
-	for assignIndex = 1, iNumRegions do
-		local currentRegionNumber = regionAssignList[assignIndex];
-		local bSuccessFlag = false;
-		local bForcedPlacementFlag = false;
-		
-		print("Region #" .. currentRegionNumber);
-		print("Num coastal still needed " .. tostring(iNumCoastNeeded));
-		--print(tostring(self.startLocationConditions[currentRegionNumber][1]));
-
-		if res_reg[currentRegionNumber] == false and iNumCoastNeeded > 0 then
-			-- not already reserved, can be coastal
-			bSuccessFlag, bForcedPlacementFlag = self:FindCoastalStart(currentRegionNumber)
-			iNumCoastNeeded = iNumCoastNeeded - 1;
-		else
-			print("Don't Allow Spawning on Coast: " .. tostring(self.NoCoastInland));
-
-			bSuccessFlag, bForcedPlacementFlag = self:FindStart(currentRegionNumber, self.NoCoastInland)
+	local coastBudgetOrig = iNumCoastNeeded;
+	local gridCells = iW * iH;
+	if self.iNumCivs == 6 and self._lek_enable_virtual_six_retries == true and self._lek_disable_virtual_six ~= true then
+		local snapDD = {};
+		local snapPC = {};
+		local snapCS = {};
+		for i = 1, gridCells do
+			snapDD[i] = self.distanceData[i];
+			snapPC[i] = self.playerCollisionData[i];
+			snapCS[i] = self.cityStateData[i];
 		end
-		
-		--Printout for debug only.
-		print("- - -");
-		print("Start Plot for Region #", currentRegionNumber, " was successful: ", bSuccessFlag);
-		print("Start Plot for Region #", currentRegionNumber, " was forced: ", bForcedPlacementFlag);		
+		local function restoreLayers()
+			for i = 1, gridCells do
+				self.distanceData[i] = snapDD[i];
+				self.playerCollisionData[i] = snapPC[i];
+				self.cityStateData[i] = snapCS[i];
+			end
+			for r = 1, self.iNumCivs do
+				self.startingPlots[r] = nil;
+			end
+		end
+		local function copyBestStarts()
+			local out = {};
+			for r = 1, self.iNumCivs do
+				local t = self.startingPlots[r];
+				if not t or type(t[1]) ~= "number" or type(t[2]) ~= "number" then
+					return nil;
+				end
+				out[r] = { t[1], t[2], t[3] };
+			end
+			return out;
+		end
+		local bestScore = -1;
+		local bestUndesirable = math.huge;
+		local bestUndesirableDetail = "";
+		local bestStarts = nil;
+		for attempt = 1, LEK_VIRTUAL_SIX_ATTEMPTS do
+			restoreLayers();
+			local order;
+			if attempt == 1 then
+				order = {};
+				for i = 1, #regionAssignList do
+					order[i] = regionAssignList[i];
+				end
+			else
+				order = GetShuffledCopyOfTable(regionAssignList);
+			end
+			local ok = self:LekRunOneStartPlacementPass(order, iNumRegions, res_reg, coastBudgetOrig);
+			if ok then
+				local mnear, m2nd = self:LekMinNearestAmongSix();
+				if mnear > 0 then
+					local score = mnear * 1000 + m2nd;
+					local undesirable, undesirableDetail = self:LekVirtualSixInlandOceanUndesirable();
+					if score > bestScore or (score == bestScore and undesirable < bestUndesirable) then
+						local cand = copyBestStarts();
+						if cand then
+							bestScore = score;
+							bestUndesirable = undesirable;
+							bestUndesirableDetail = undesirableDetail;
+							bestStarts = cand;
+						end
+					end
+				end
+			end
+		end
+		restoreLayers();
+		if bestStarts then
+			for r = 1, self.iNumCivs do
+				local t = bestStarts[r];
+				if t then
+					self.startingPlots[r] = { t[1], t[2], t[3] };
+					self:PlaceImpactAndRipples(t[1], t[2]);
+				end
+			end
+			print("### LekVirtualSix: picked minNearestCombo=" .. tostring(bestScore) .. " undesirableTotal=" .. tostring(bestUndesirable));
+			print("### LekVirtualSix: undesirableDetail " .. tostring(bestUndesirableDetail));
+			LekMapgenDiagLogAppend({
+				"### LekVirtualSix: picked minNearestCombo=" .. tostring(bestScore) .. " undesirableTotal=" .. tostring(bestUndesirable),
+				"### LekVirtualSix: undesirableDetail " .. tostring(bestUndesirableDetail),
+			});
+		else
+			local order = {};
+			for i = 1, #regionAssignList do
+				order[i] = regionAssignList[i];
+			end
+			self:LekRunOneStartPlacementPass(order, iNumRegions, res_reg, coastBudgetOrig);
+			print("### LekVirtualSix: fallback vanilla order (no successful retry set)");
+		end
+	else
+		local order = {};
+		for i = 1, #regionAssignList do
+			order[i] = regionAssignList[i];
+		end
+		self:LekRunOneStartPlacementPass(order, iNumRegions, res_reg, coastBudgetOrig);
 	end
 	--
 
@@ -6360,6 +6630,54 @@ function AssignStartingPlots:BalanceAndAssign(args)
 	print("Civs with River Bias:", iNumRiverCivs);
 	print("Civs with Region Priority:", iNumPriorityCivs);
 	print("Civs with Region Avoid:", iNumAvoidCivs); print("-");
+
+	local function lek_rank_regions_for_map_center_band(region_list)
+		if region_list == nil or #region_list <= 1 then
+			return GetShuffledCopyOfTable(region_list or {});
+		end
+		local cx, cy = math.floor(iW / 2), math.floor(iH / 2);
+		local bandLo, bandHi = 8, 18;
+		local bandMid = (bandLo + bandHi) / 2;
+		local ranked = {};
+		for _, rn in ipairs(region_list) do
+			local distFromBand = 999;
+			local radialMid = 999;
+			local t = self.startingPlots[rn];
+			if t and type(t[1]) == "number" and type(t[2]) == "number" then
+				local d = nil;
+				if Map.PlotDistance then
+					d = Map.PlotDistance(t[1], t[2], cx, cy);
+				elseif PlotDistance then
+					d = PlotDistance(t[1], t[2], cx, cy);
+				end
+				if d ~= nil then
+					radialMid = math.abs(d - bandMid);
+					if d < bandLo then
+						distFromBand = bandLo - d;
+					elseif d > bandHi then
+						distFromBand = d - bandHi;
+					else
+						distFromBand = 0;
+					end
+				end
+			end
+			table.insert(ranked, { rn, distFromBand, radialMid, Map.Rand(1000000, "Lek center band coastal region") });
+		end
+		table.sort(ranked, function(a, b)
+			if a[2] ~= b[2] then
+				return a[2] < b[2];
+			end
+			if a[3] ~= b[3] then
+				return a[3] < b[3];
+			end
+			return a[4] < b[4];
+		end);
+		local out = {};
+		for i = 1, #ranked do
+			out[i] = ranked[i][1];
+		end
+		return out;
+	end
 	
 	-- Handle Coastal Start Bias
 	if iNumCoastalCivs > 0 then
@@ -6428,10 +6746,10 @@ function AssignStartingPlots:BalanceAndAssign(args)
 			local shuffled_coastal_regions, shuffled_lake_regions;
 			local current_lake_index = 1;
 			if iNumRegionsWithCoastalStart > 0 then
-				shuffled_coastal_regions = GetShuffledCopyOfTable(regions_with_coastal_start);
+				shuffled_coastal_regions = lek_rank_regions_for_map_center_band(regions_with_coastal_start);
 			end
 			if iNumRegionsWithLakeStart > 0 then
-				shuffled_lake_regions = GetShuffledCopyOfTable(regions_with_lake_start);
+				shuffled_lake_regions = lek_rank_regions_for_map_center_band(regions_with_lake_start);
 			end
 			for loop, playerNum in ipairs(shuffled_coastal_civs) do
 				if loop > iNumCoastalCivs - iNumUnassignableCoastStarts then
@@ -6908,14 +7226,7 @@ function AssignStartingPlots:BalanceAndAssign(args)
 	if #rescue_log > 0 then
 		local msg = "### BalanceAndAssign RESCUE runId=" .. tostring(_lek_run_id or "na") .. " " .. table.concat(rescue_log, " | ");
 		print(msg);
-		local home = (os and os.getenv and os.getenv("HOME")) or "";
-		if home ~= "" then
-			local path = home .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log";
-			pcall(function()
-				local f = io.open(path, "a");
-				if f then f:write(msg .. "\n"); f:close(); end
-			end);
-		end
+		LekMapgenDiagLogAppend(msg);
 	end
 
 	-- If this is a team game (any team has more than one Civ in it) then make 
@@ -8255,6 +8566,12 @@ end
 ------------------------------------------------------------------------------
 function AssignStartingPlots:CanPlaceCityStateAt(x, y, area_ID, force_it, ignore_collisions)
 	local iW, iH = Map.GetGridSize();
+	local cs_edge_rows = 3;
+	if iH > cs_edge_rows * 2 then
+		if y < cs_edge_rows or y >= iH - cs_edge_rows then
+			return false;
+		end
+	end
 	local plot = Map.GetPlot(x, y)
 	local area = plot:GetArea()
 	local biggest_area = Map.FindBiggestArea(False);
@@ -8380,33 +8697,32 @@ function AssignStartingPlots:ObtainNextSectionInRegion(incoming_west_x, incoming
 	return coastal_plots, inland_plots, new_west_x, new_south_y, new_width, new_height, reached_middle;
 end
 ------------------------------------------------------------------------------
-function AssignStartingPlots:PlaceCityState(coastal_plot_list, inland_plot_list, check_proximity, check_collision)
+function AssignStartingPlots:PlaceCityState(coastal_plot_list, inland_plot_list, check_proximity, check_collision, cs_refine_area_id)
 	-- returns coords, plus boolean indicating whether assignment succeeded or failed.
 	-- Argument "check_collision" should be false if plots in lists were already checked, true if not.
+	-- cs_refine_area_id: landmass/region AreaID for neighbor refine (same as CanPlaceCityStateAt); -1 if any area is legal.
 	if coastal_plot_list == nil or inland_plot_list == nil then
 		print("Nil plot list incoming for PlaceCityState()");
 	end
 	local iW, iH = Map.GetGridSize()
+	local refine_area_id = cs_refine_area_id;
+	if refine_area_id == nil then
+		refine_area_id = -1;
+	end
 	self._lek_cs_place_calls = (self._lek_cs_place_calls or 0) + 1;
-	local candidate_pool = {};
-	for _, idx in ipairs(coastal_plot_list) do
-		candidate_pool[idx] = true;
-	end
-	for _, idx in ipairs(inland_plot_list) do
-		candidate_pool[idx] = true;
-	end
+
+	local hex_dirs = {
+		DirectionTypes.DIRECTION_NORTHEAST,
+		DirectionTypes.DIRECTION_EAST,
+		DirectionTypes.DIRECTION_SOUTHEAST,
+		DirectionTypes.DIRECTION_SOUTHWEST,
+		DirectionTypes.DIRECTION_WEST,
+		DirectionTypes.DIRECTION_NORTHWEST
+	};
 
 	local function adjacent_land_count(x, y)
 		local count = 0;
-		local dirs = {
-			DirectionTypes.DIRECTION_NORTHEAST,
-			DirectionTypes.DIRECTION_EAST,
-			DirectionTypes.DIRECTION_SOUTHEAST,
-			DirectionTypes.DIRECTION_SOUTHWEST,
-			DirectionTypes.DIRECTION_WEST,
-			DirectionTypes.DIRECTION_NORTHWEST
-		};
-		for _, d in ipairs(dirs) do
+		for _, d in ipairs(hex_dirs) do
 			local p = Map.PlotDirection(x, y, d);
 			if p then
 				local pt = p:GetPlotType();
@@ -8418,33 +8734,76 @@ function AssignStartingPlots:PlaceCityState(coastal_plot_list, inland_plot_list,
 		return count;
 	end
 
+	local function neighbor_is_fresh_source(np)
+		if not np then
+			return false;
+		end
+		if np:IsRiverSide() or np:IsFreshWater() then
+			return true;
+		end
+		if np:IsLake() then
+			return true;
+		end
+		return false;
+	end
+
+	local function cs_plot_fresh_tier(x, y)
+		local p = Map.GetPlot(x, y);
+		if not p then
+			return 0;
+		end
+		if p:IsRiverSide() or p:IsFreshWater() then
+			return 2;
+		end
+		for _, d in ipairs(hex_dirs) do
+			local np = Map.PlotDirection(x, y, d);
+			if neighbor_is_fresh_source(np) then
+				return 1;
+			end
+		end
+		return 0;
+	end
+
 	local function choose_preferred_nearby(selected_plot_index)
 		local sx = (selected_plot_index - 1) % iW;
 		local sy = (selected_plot_index - sx - 1) / iW;
-		local sp = Map.GetPlot(sx, sy);
 		local best_index = selected_plot_index;
-		local best_fresh = (sp and sp:IsFreshWater()) and 1 or 0;
+		local best_fresh = cs_plot_fresh_tier(sx, sy);
 		local best_land = adjacent_land_count(sx, sy);
-		for idx, _ in pairs(candidate_pool) do
+		local cand = {};
+		local function consider_index(idx)
+			if cand[idx] then
+				return;
+			end
 			local x = (idx - 1) % iW;
 			local y = (idx - x - 1) / iW;
-			local d = nil;
-			if Map.PlotDistance then
-				d = Map.PlotDistance(x, y, sx, sy);
-			elseif PlotDistance then
-				d = PlotDistance(x, y, sx, sy);
+			if self:CanPlaceCityStateAt(x, y, refine_area_id, false, false) == true then
+				cand[idx] = true;
 			end
-			if d ~= nil and d <= 1 then
-				local p = Map.GetPlot(x, y);
-				if p then
-					local fresh = p:IsFreshWater() and 1 or 0;
-					local land = adjacent_land_count(x, y);
-					if fresh > best_fresh or (fresh == best_fresh and land > best_land) then
-						best_index = idx;
-						best_fresh = fresh;
-						best_land = land;
+		end
+		consider_index(selected_plot_index);
+		for _, d in ipairs(hex_dirs) do
+			local np = Map.PlotDirection(sx, sy, d);
+			if np then
+				local nx, ny = np:GetX(), np:GetY();
+				consider_index(ny * iW + nx + 1);
+				for _, d2 in ipairs(hex_dirs) do
+					local np2 = Map.PlotDirection(nx, ny, d2);
+					if np2 then
+						consider_index(np2:GetY() * iW + np2:GetX() + 1);
 					end
 				end
+			end
+		end
+		for idx, _ in pairs(cand) do
+			local x = (idx - 1) % iW;
+			local y = (idx - x - 1) / iW;
+			local fresh = cs_plot_fresh_tier(x, y);
+			local land = adjacent_land_count(x, y);
+			if fresh > best_fresh or (fresh == best_fresh and land > best_land) then
+				best_index = idx;
+				best_fresh = fresh;
+				best_land = land;
 			end
 		end
 		return best_index;
@@ -8598,7 +8957,7 @@ function AssignStartingPlots:PlaceCityStateInRegion(city_state_number, region_nu
 			end
 		end
 		if table.maxn(preferred_coastal) + table.maxn(preferred_inland) > 0 then
-			local px, py, psuccess = self:PlaceCityState(preferred_coastal, preferred_inland, false, false);
+			local px, py, psuccess = self:PlaceCityState(preferred_coastal, preferred_inland, false, false, iAreaID);
 			if psuccess == true then
 				x, y, placed_city_state = px, py, true;
 			end
@@ -8617,7 +8976,7 @@ function AssignStartingPlots:PlaceCityStateInRegion(city_state_number, region_nu
 		  reached_middle = self:ObtainNextSectionInRegion(curWX, curSY, curWid, curHei, iAreaID, false, false) -- Don't force it. Yet.
 		curWX, curSY, curWid, curHei = nextWX, nextSY, nextWid, nextHei;
 		-- Attempt to place city state using the two plot lists received from the last call.
-		x, y, placed_city_state = self:PlaceCityState(eligible_coastal, eligible_inland, false, false) -- Don't need to re-check collisions.
+		x, y, placed_city_state = self:PlaceCityState(eligible_coastal, eligible_inland, false, false, iAreaID) -- Don't need to re-check collisions.
 	end
 	
 	-- Disabling all fallback methods of city state placement. Jon has decided that, rather than
@@ -8753,19 +9112,7 @@ function AssignStartingPlots:PlaceCityStates()
 	-- This is because some city state placements are made in compensation for drawing
 	-- the short straw in regard to multiple regions being assigned the same luxury type.
 
-	do
-		local home = (os and os.getenv and os.getenv("HOME")) or "";
-		if home ~= "" then
-			local path = home .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log";
-			pcall(function()
-				local f = io.open(path, "a");
-				if f then
-					f:write("### CS begin: runId=" .. tostring(_lek_run_id or "na") .. " iNumCityStates=" .. tostring(self.iNumCityStates or "nil") .. "\n");
-					f:close();
-				end
-			end);
-		end
-	end
+	LekMapgenDiagLogAppend("### CS begin: runId=" .. tostring(_lek_run_id or "na") .. " iNumCityStates=" .. tostring(self.iNumCityStates or "nil"));
 
 	self._lek_cs_place_calls = 0;
 	self._lek_cs_refine_reached = 0;
@@ -8786,7 +9133,7 @@ function AssignStartingPlots:PlaceCityStates()
 				--print("Place City States, place in uninhabited called for City State", cs_number);
 				iUninhabitedCandidatePlots = iUninhabitedCandidatePlots - 1;
 				local cs_x, cs_y, success;
-				cs_x, cs_y, success = self:PlaceCityState(self.uninhabited_areas_coastal_plots, {}, true, true)
+				cs_x, cs_y, success = self:PlaceCityState(self.uninhabited_areas_coastal_plots, {}, true, true, -1)
 				--
 				-- Disabling fallback methods that remove proximity and collision checks. Jon has decided
 				-- that city states that do not fit on the map will simply not be placed, but instead discarded.
@@ -8838,22 +9185,10 @@ function AssignStartingPlots:PlaceCityStates()
 				placed = placed + 1;
 			end
 		end
-		local line = "### CS placement status: runId=" .. tostring(_lek_run_id or "na") ..
+		LekMapgenDiagLogAppend("### CS placement status: runId=" .. tostring(_lek_run_id or "na") ..
 			" assigned=" .. tostring(self.iNumCityStates) ..
 			" placed=" .. tostring(placed) ..
-			" discarded=" .. tostring(self.iNumCityStatesDiscarded);
-		local home = (os and os.getenv and os.getenv("HOME")) or "";
-		if home ~= "" then
-			local path = home .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log";
-			pcall(function()
-				local f = io.open(path, "a");
-				if f then
-					f:write(line);
-					f:write("\n");
-					f:close();
-				end
-			end);
-		end
+			" discarded=" .. tostring(self.iNumCityStatesDiscarded));
 	end
 	
 	-- Last chance method to place city states that didn't fit where they were supposed to go.
@@ -8875,24 +9210,10 @@ function AssignStartingPlots:PlaceCityStates()
 			end
 		end
 		local iNumLastChanceCandidates = table.maxn(cs_last_chance_plot_list);
-		do
-			local line = "### CS last-chance candidates: runId=" .. tostring(_lek_run_id or "na") ..
-				" strict=" .. tostring(strictLastChanceCount) ..
-				" proximityRelaxed=" .. tostring(relaxedProximityCount) ..
-				" discardedIncoming=" .. tostring(self.iNumCityStatesDiscarded);
-			local home = (os and os.getenv and os.getenv("HOME")) or "";
-			if home ~= "" then
-				local path = home .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log";
-				pcall(function()
-					local f = io.open(path, "a");
-					if f then
-						f:write(line);
-						f:write("\n");
-						f:close();
-					end
-				end);
-			end
-		end
+		LekMapgenDiagLogAppend("### CS last-chance candidates: runId=" .. tostring(_lek_run_id or "na") ..
+			" strict=" .. tostring(strictLastChanceCount) ..
+			" proximityRelaxed=" .. tostring(relaxedProximityCount) ..
+			" discardedIncoming=" .. tostring(self.iNumCityStatesDiscarded));
 		-- If any eligible sites were found anywhere on the map, place as many of the remaining CS as possible.
 		if iNumLastChanceCandidates > 0 then
 			print("-"); print("-"); print("ALERT: Some City States failed to be placed due to overcrowding. Attempting 'last chance' placement method.");
@@ -8907,7 +9228,7 @@ function AssignStartingPlots:PlaceCityStates()
 			end
 			for loop, cs_number in ipairs(cs_list) do
 				local cs_x, cs_y, success;
-				cs_x, cs_y, success = self:PlaceCityState(last_chance_shuffled, {}, true, true)
+				cs_x, cs_y, success = self:PlaceCityState(last_chance_shuffled, {}, true, true, -1)
 				if success == true then
 					self.cityStatePlots[cs_number] = {cs_x, cs_y, -1};
 					self.city_state_validity_table[cs_number] = true; -- This is the line that marks a city state as valid to be processed by the rest of the system.
@@ -8973,20 +9294,7 @@ function AssignStartingPlots:PlaceCityStates()
 			" refineReached=" .. tostring(self._lek_cs_refine_reached or 0) ..
 			" placeSuccess=" .. tostring(self._lek_cs_place_success or 0) ..
 			" selectedNil=" .. tostring(self._lek_cs_selected_nil or 0);
-		local home = (os and os.getenv and os.getenv("HOME")) or "";
-		if home ~= "" then
-			local path = home .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log";
-			pcall(function()
-				local f = io.open(path, "a");
-				if f then
-					f:write(line);
-					f:write("\n");
-					f:write(line2);
-					f:write("\n");
-					f:close();
-				end
-			end);
-		end
+		LekMapgenDiagLogAppend({ line, line2 });
 	end
 end
 ------------------------------------------------------------------------------
@@ -10308,11 +10616,11 @@ function AssignStartingPlots:AssignLuxuryToRegion(region_number)
 	
 	for index, resource_options in ipairs(luxury_candidates) do
 		local res_ID = resource_options[1];
-		if self.luxury_assignment_count[res_ID] < split_cap then -- This type still eligible.
+		if res_ID ~= nil and (self.luxury_assignment_count[res_ID] or 0) < split_cap then -- This type still eligible.
 			local test = TestMembership(self.resourceIDs_assigned_to_regions, res_ID)
 			if self.iNumTypesAssignedToRegions < self.iNumMaxAllowedForRegions or test == true then -- Not a new type that would exceed number of allowed types, so continue.
 
-				print("Adding Res ID: " .. res_ID);
+				print("Adding Res ID: " .. tostring(res_ID));
 				print("Coral ID: " .. tostring(self.coral_ID));
 
 				-- Water-based resources need to run a series of permission checks: coastal start in region, not a disallowed regions type, enough water, etc.
@@ -10326,7 +10634,7 @@ function AssignStartingPlots:AssignLuxuryToRegion(region_number)
 							local water_needed = 8
 							if self.regionTerrainCounts[region_number][8] >= water_needed then -- Enough water available.
 								table.insert(resource_IDs, res_ID);
-								local adjusted_weight = resource_options[2] / (0.1 + (self.luxury_assignment_count[res_ID]/2)) -- If selected before, for a different region, reduce weight.
+								local adjusted_weight = resource_options[2] / (0.1 + ((self.luxury_assignment_count[res_ID] or 0) / 2)) -- If selected before, for a different region, reduce weight.
 								table.insert(resource_weights, adjusted_weight);
 								iNumAvailableTypes = iNumAvailableTypes + 1;
 							end
@@ -10338,7 +10646,7 @@ function AssignStartingPlots:AssignLuxuryToRegion(region_number)
 					-- No salt to regions please, sorry
 				else
 					table.insert(resource_IDs, res_ID);
-					local adjusted_weight = resource_options[2] / (1 + self.luxury_assignment_count[res_ID])
+					local adjusted_weight = resource_options[2] / (1 + (self.luxury_assignment_count[res_ID] or 0))
 					table.insert(resource_weights, adjusted_weight);
 					iNumAvailableTypes = iNumAvailableTypes + 1;
 				end
@@ -10350,7 +10658,7 @@ function AssignStartingPlots:AssignLuxuryToRegion(region_number)
 	if iNumAvailableTypes == 0 then
 		for index, resource_options in ipairs(self.luxury_fallback_weights) do
 			local res_ID = resource_options[1];
-			if (self.luxury_assignment_count[res_ID] or 0) < 3 then -- This type still eligible.
+			if res_ID ~= nil and (self.luxury_assignment_count[res_ID] or 0) < 3 then -- This type still eligible.
 				local test = TestMembership(self.resourceIDs_assigned_to_regions, res_ID)
 				if self.iNumTypesAssignedToRegions < self.iNumMaxAllowedForRegions or test == true then -- Won't exceed allowed types.
 					if res_ID == self.whale_ID or res_ID == self.pearls_ID or res_ID == self.crab_ID or self.bModLuxes and res_ID == self.coral_ID then
@@ -10364,7 +10672,7 @@ function AssignStartingPlots:AssignLuxuryToRegion(region_number)
 								local water_needed = 8
 								if self.regionTerrainCounts[region_number][8] >= water_needed then -- Enough water available.
 									table.insert(resource_IDs, res_ID);
-									local adjusted_weight = resource_options[2] / (1 + self.luxury_assignment_count[res_ID]) --If selected before, for a different region, reduce weight.
+									local adjusted_weight = resource_options[2] / (1 + (self.luxury_assignment_count[res_ID] or 0)) --If selected before, for a different region, reduce weight.
 									table.insert(resource_weights, adjusted_weight);
 									iNumAvailableTypes = iNumAvailableTypes + 1;
 								end
@@ -10374,7 +10682,7 @@ function AssignStartingPlots:AssignLuxuryToRegion(region_number)
 					-- No salt to regions please, sorry
 					else
 						table.insert(resource_IDs, res_ID);
-						local adjusted_weight = resource_options[2] / (1 + self.luxury_assignment_count[res_ID])
+						local adjusted_weight = resource_options[2] / (1 + (self.luxury_assignment_count[res_ID] or 0))
 						table.insert(resource_weights, adjusted_weight);
 						iNumAvailableTypes = iNumAvailableTypes + 1;
 					end
@@ -10391,7 +10699,7 @@ function AssignStartingPlots:AssignLuxuryToRegion(region_number)
 		print("If you are modifying luxury types or number of regions allowed to get the same type, check to make sure your changes haven't violated the math so each region can have a legal assignment.");
 		for index, resource_options in ipairs(self.luxury_fallback_weights) do
 			local res_ID = resource_options[1];
-			if (self.luxury_assignment_count[res_ID] or 0) < 3 then -- This type still eligible.
+			if res_ID ~= nil and (self.luxury_assignment_count[res_ID] or 0) < 3 then -- This type still eligible.
 				local test = TestMembership(self.resourceIDs_assigned_to_regions, res_ID)
 				if self.iNumTypesAssignedToRegions < self.iNumMaxAllowedForRegions or test == true then -- Won't exceed allowed types.
 					table.insert(resource_IDs, res_ID);
@@ -10404,16 +10712,21 @@ function AssignStartingPlots:AssignLuxuryToRegion(region_number)
 	end
 	if iNumAvailableTypes == 0 then -- Bad mojo!
 		print("-"); print("FAILED to assign a Luxury type to Region#", region_number); print("-");
+		return nil;
 	end
 
 	-- Choose luxury.
-	local coast_lux = false;
 	local num_coast_lux = 0;
 	local totalWeight = 0;
 	local coastal_luxes = {};
 	for i, this_weight in ipairs(resource_weights) do
-		totalWeight = totalWeight + this_weight;
+		totalWeight = totalWeight + (this_weight or 0);
 	end
+	if totalWeight <= 0 then
+		return nil;
+	end
+
+	local coast_lux = false;
 	local accumulatedWeight = 0;
 	print("----------------------------------- Regional Luxury Assignment Readout For Region #" .. tostring(region_number) .. "-----------------------------------");
 	for index = 1, iNumAvailableTypes do
@@ -10428,9 +10741,9 @@ function AssignStartingPlots:AssignLuxuryToRegion(region_number)
 			table.insert(coastal_luxes, resource_IDs[index]);
 		end
 
-		print("Res ID: " .. resource_IDs[index]);
-		print("Res Weight: " .. resource_weights[index]);
-		print("Threshold: " .. threshold);
+		print("Res ID: " .. tostring(resource_IDs[index]));
+		print("Res Weight: " .. tostring(resource_weights[index]));
+		print("Threshold: " .. tostring(threshold));
 	end
 	local use_this_ID;
 
@@ -10569,7 +10882,7 @@ function AssignStartingPlots:AssignLuxuryRoles()
 		local resource_ID = self:AssignLuxuryToRegion(region_number)
 		self.regions_sorted_by_type[index][2] = resource_ID; -- This line applies the assignment.
 		self.region_luxury_assignment[region_number] = resource_ID;
-		self.luxury_assignment_count[resource_ID] = self.luxury_assignment_count[resource_ID] + 1; -- Track assignments
+		self.luxury_assignment_count[resource_ID] = (self.luxury_assignment_count[resource_ID] or 0) + 1; -- Track assignments
 		--
 		print("-"); print("Region#", region_number, " of type ", self.regionTypes[region_number], " has been assigned Luxury ID#", resource_ID);
 		--
@@ -14898,40 +15211,25 @@ function AssignStartingPlots:PlaceResourcesAndCityStates()
 	do
 		local ok, err = pcall(function() self:PlaceCoastalBonusIslands() end);
 		if not ok then
-			local home = (os and os.getenv and os.getenv("HOME")) or "";
 			local msg = "### PRE-CS CRASH: runId=" .. tostring(_lek_run_id or "na") .. " stage=PlaceCoastalBonusIslands err=" .. tostring(err);
 			print(msg);
-			if home ~= "" then pcall(function()
-				local f = io.open(home .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log", "a");
-				if f then f:write(msg .. "\n"); f:close(); end
-			end); end
+			LekMapgenDiagLogAppend(msg);
 		end
 	end
 	do
 		local ok, err = pcall(function() self:AssignLuxuryRoles() end);
 		if not ok then
-			local home = (os and os.getenv and os.getenv("HOME")) or "";
 			local msg = "### PRE-CS CRASH: runId=" .. tostring(_lek_run_id or "na") .. " stage=AssignLuxuryRoles err=" .. tostring(err);
 			print(msg);
-			if home ~= "" then pcall(function()
-				local f = io.open(home .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log", "a");
-				if f then f:write(msg .. "\n"); f:close(); end
-			end); end
+			LekMapgenDiagLogAppend(msg);
 		end
 	end
 	do
 		local ok, err = pcall(function() self:PlaceCityStates() end);
 		if not ok then
-			local home = (os and os.getenv and os.getenv("HOME")) or "";
 			local msg = "### CS CRASH: runId=" .. tostring(_lek_run_id or "na") .. " err=" .. tostring(err);
 			print(msg);
-			if home ~= "" then
-				local path = home .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log";
-				pcall(function()
-					local f = io.open(path, "a");
-					if f then f:write(msg .. "\n"); f:close(); end
-				end);
-			end
+			LekMapgenDiagLogAppend(msg);
 		end
 	end
 	-- Generate global plot lists for resource distribution.

@@ -1,3 +1,8 @@
+- **DEPRECATED (2026-03-27 cleanup):** Virtual six (`ChooseLocations` 32× shuffle), **`inlandOceanUndesirable` tiebreak (d≤4)**, and **`EvaluateCandidatePlot` salt/center `finalScore` steering** are **off by default** and **not** the placement contract. Target behaviour is [**`SCRATCHPAD-placement-spec-v0.md`**](./SCRATCHPAD-placement-spec-v0.md) (global **`OK()`**, inland salt **d≤3 / max 4**, etc.). Re-enable virtual six only with **`_lek_enable_virtual_six_retries`** (and clear **`_lek_disable_virtual_six`**) in `LekmapPangaeaFractalv5.3.lua` for experiments.
+- Start fairness / peninsula (2026-03-27, archive — scoring + virtual six usually off): keep **player-distance / ripple** as the primary spacing constraint, but add a **softer earlier ceiling** so we prefer **virtual-six retry or region-order shuffle** over accepting a start that is simultaneously **bad on map-center distance** *and* **peninsula-shaped** (few land expand axes). **Heuristic draft (in repo):** in `EvaluateCandidatePlot`, mild penalty per **adjacent non-lake saltwater** hex (−3 × count, first pass only on scoring; ripples unchanged) — correlates with rim spawns and **ocean on multiple sides** without needing pathfinding. **Future:** tune multiplier / cap; optional **inland-sea exclude** if `AllowInlandSea` + area checks are reliable; **quality gate** on virtual-six score (e.g. worst `dCenter` among six, or saltSeaAdj sum) to trigger extra pass before locking; **never** let peninsula penalty beat a safe player-distance veto.
+- **Virtual six v1.1 (2026-03-27):** secondary criterion after spacing `minNearest*1000+secondNearest` — **`inlandOceanUndesirable`**: for each **non-coastal** major start, count **salt water hexes** (`IsWater` and `not IsLake`) within **hex distance ≤ 4**; allow **4** such hexes free, add **(count−4)** per inland start into sum. Pick attempt with **max spacing score**, breaking ties by **lower** total. Logs: `### LekVirtualSix: picked minNearestCombo=… undesirableTotal=…` plus `### LekVirtualSix: undesirableDetail …` with `perRegion={…}` (`nSaltOcean_dLe4`, `excess+`, or `coastal_skipped`).
+- Logs pasted 2026-03-27: AssignLuxuryRoles could `concat` nil `res_ID` from malformed luxury table rows — guard with `res_id ~= nil`, safe prints, `totalWeight <= 0` → `return nil`.
+
 - Deferred after next test (keep changes minimal now)
 - Coastal-region assignment preference by center band (`dCenter` 8-18) during civ-to-region assignment in `BalanceAndAssign()`
 - Re-check where to inject center-band preference: `ChooseLocations()` region processing vs `BalanceAndAssign()` coastal region selection
@@ -120,3 +125,19 @@ DIAGNOSTIC INFRASTRUCTURE ADDED (LekmapPangaeaFractalv5.3.lua):
     missing a start gets assigned to an unused region plot or land-scan fallback; logs
     ### StartPlotSystem RESCUE with coordinates.
   - Post-rescue FATAL check logs any player still missing after rescue.
+
+--- VIRTUAL SIX-START v1 (4a_HBAssignStartingPlots.lua) — OFF by default since 2026-03-27 ---
+- After reserve_plots + coastal budget is final, if `iNumCivs==6` and
+  `_lek_enable_virtual_six_retries == true` and `_lek_disable_virtual_six ~= true`, run up to
+  LEK_VIRTUAL_SIX_ATTEMPTS (32) placement passes.
+- Each pass: restore snapshot of distanceData, playerCollisionData, cityStateData and
+  clear startingPlots; attempt 1 uses fertility-sorted regionAssignList order; attempts
+  2+ use shuffled region order (changes which regions consume coastal slots first).
+- LekRunOneStartPlacementPass (~L4397): same FindCoastalStart/FindStart loop as vanilla.
+- Score = minNearest*1000 + secondNearest among the six (min of each civ's nearest neighbor).
+- Best pass wins; layers restored from snapshot then winning (x,y,score) reapplied with
+  PlaceImpactAndRipples per region.
+- Print `### LekVirtualSix: picked ...` or `... fallback vanilla order`.
+- Non-6 games unchanged (single vanilla-order pass).
+
+**Placement spec (target behaviour, WIP):** [`SCRATCHPAD-placement-spec-v0.md`](./SCRATCHPAD-placement-spec-v0.md)
