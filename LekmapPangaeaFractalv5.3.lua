@@ -2395,7 +2395,7 @@ function StartPlotSystem()
 	print("Creating start plot database.");
 	local start_plot_database = AssignStartingPlots.Create()
 
-	     -- Placement spec v0.3 / Lane A: single vanilla-order pass until global OK solver lands.
+	     -- Lane A: global-six hook + OK diagnostics (set true for probe / OK log lines).
 	     start_plot_database._lek_global_six_solver = false;
 	     start_plot_database._lek_enable_virtual_six_retries = false;
 	     start_plot_database._lek_disable_virtual_six = true;

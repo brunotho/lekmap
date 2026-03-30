@@ -52,6 +52,23 @@ function LekMapgenDiagLogAppend(lineOrLines)
 	end);
 end
 
+function LekPlacementProbeLog(msg)
+	print(msg);
+	pcall(function()
+		LekMapgenDiagLogAppend(msg);
+	end);
+end
+
+local function LekSafeGetDisableStartBiasOption()
+	local ok, v = pcall(function()
+		return Game.GetCustomOption("GAMEOPTION_DISABLE_START_BIAS");
+	end);
+	if ok then
+		return v;
+	end
+	return nil;
+end
+
 -- Lekmap: stubs for natural wonder custom eligibility/placement (called when XML method number != -1)
 function NWCustomEligibility(x, y, method_number) return false; end
 function NWCustomPlacement(x, y, row_number, method_number) end
@@ -143,6 +160,8 @@ function AssignStartingPlots.Create()
 		ApplyHexAdjustment = AssignStartingPlots.ApplyHexAdjustment,
 		GenerateRegions = AssignStartingPlots.GenerateRegions,
 		ChooseLocations = AssignStartingPlots.ChooseLocations,
+		LekGlobalSixChooseLocations = AssignStartingPlots.LekGlobalSixChooseLocations,
+		LekGlobalSix_OK_LogDiagnostics = AssignStartingPlots.LekGlobalSix_OK_LogDiagnostics,
 		BalanceAndAssign = AssignStartingPlots.BalanceAndAssign,
 		PlaceNaturalWonders = AssignStartingPlots.PlaceNaturalWonders,
 		PlaceResourcesAndCityStates = AssignStartingPlots.PlaceResourcesAndCityStates,
@@ -4537,6 +4556,81 @@ function AssignStartingPlots:LekRunOneStartPlacementPass(regionAssignList, iNumR
 	return true, iNumCoastNeeded;
 end
 
+function AssignStartingPlots:LekGlobalSix_PlotDistance(x1, y1, x2, y2)
+	if Map.PlotDistance then
+		return Map.PlotDistance(x1, y1, x2, y2);
+	end
+	if PlotDistance then
+		return PlotDistance(x1, y1, x2, y2);
+	end
+	return nil;
+end
+
+function AssignStartingPlots:LekGlobalSix_OK_Section1_CentreBand()
+	local iW, iH = Map.GetGridSize();
+	local cx = math.floor(iW / 2);
+	local cy = math.floor(iH / 2);
+	for r = 1, self.iNumCivs do
+		local sp = self.startingPlots[r];
+		if not sp or type(sp[1]) ~= "number" or type(sp[2]) ~= "number" then
+			return false, "missing_r=" .. tostring(r);
+		end
+		local d = self:LekGlobalSix_PlotDistance(sp[1], sp[2], cx, cy);
+		if d == nil then
+			return false, "no_PlotDistance";
+		end
+		if d < 9 or d > 18 then
+			return false, string.format("r=%d d=%d xy=%d,%d", r, d, sp[1], sp[2]);
+		end
+	end
+	return true, "";
+end
+
+function AssignStartingPlots:LekGlobalSix_OK_Section2_d2()
+	for i = 1, self.iNumCivs do
+		local ti = self.startingPlots[i];
+		if not ti or type(ti[1]) ~= "number" or type(ti[2]) ~= "number" then
+			return false, "missing_i=" .. tostring(i);
+		end
+		local dists = {};
+		for j = 1, self.iNumCivs do
+			if i ~= j then
+				local tj = self.startingPlots[j];
+				if not tj or type(tj[1]) ~= "number" or type(tj[2]) ~= "number" then
+					return false, "missing_j=" .. tostring(j);
+				end
+				local d = self:LekGlobalSix_PlotDistance(ti[1], ti[2], tj[1], tj[2]);
+				if d == nil then
+					return false, "no_PlotDistance";
+				end
+				dists[#dists + 1] = d;
+			end
+		end
+		table.sort(dists);
+		local d2 = dists[2];
+		if d2 > 15 then
+			return false, string.format("i=%d secondNearest=%d", i, d2);
+		end
+	end
+	return true, "";
+end
+
+function AssignStartingPlots:LekGlobalSix_OK_LogDiagnostics()
+	local rid = tostring(_lek_run_id or "na");
+	local ok1, det1 = self:LekGlobalSix_OK_Section1_CentreBand();
+	local ok2, det2 = self:LekGlobalSix_OK_Section2_d2();
+	LekPlacementProbeLog("### LekGlobalSix_OK diag runId=" .. rid ..
+		" spec=SCRATCHPAD-placement-spec-v0.11 s1_centre_9_18=" .. (ok1 and "pass" or "fail") .. " " .. tostring(det1) ..
+		" s2_secondNearest_le15=" .. (ok2 and "pass" or "fail") .. " " .. tostring(det2) ..
+		" s3_s6=not_enforced_yet");
+end
+
+function AssignStartingPlots:LekGlobalSixChooseLocations(args)
+	local rid = tostring(_lek_run_id or "na");
+	LekPlacementProbeLog("### LekGlobalSixChooseLocations runId=" .. rid .. " implementation=stub result=false");
+	return false;
+end
+
 function AssignStartingPlots:ChooseLocations(args)
 	print("Map Generation - Choosing Start Locations for Civilizations");
 	local args = args or {};
@@ -4559,6 +4653,30 @@ function AssignStartingPlots:ChooseLocations(args)
 	self.minProdOuter = args.minProdOuter or self.minProdOuter;
 	self.minGoodOuter = args.minGoodOuter or self.minGoodOuter;
 	self.maxJunk = args.maxJunk or self.maxJunk;
+
+	local lekProbe = (self._lek_global_six_solver == true);
+	if lekProbe then
+		local rid = tostring(_lek_run_id or "na");
+		local dsbRaw = LekSafeGetDisableStartBiasOption();
+		local dsb = (dsbRaw == nil) and "pcall_err" or tostring(dsbRaw);
+		LekPlacementProbeLog("### ChooseLocations begin runId=" .. rid ..
+			" iNumCivs=" .. tostring(self.iNumCivs) ..
+			" _lek_global_six_solver=true GAMEOPTION_DISABLE_START_BIAS=" .. dsb);
+	end
+
+	-- Hook A (placement spec): optional global solver; never when start bias is disabled for the game.
+	if self._lek_global_six_solver == true then
+		local rid = tostring(_lek_run_id or "na");
+		local bDisableStartBias = LekSafeGetDisableStartBiasOption();
+		if bDisableStartBias == 1 then
+			LekPlacementProbeLog("### LekGlobalSix runId=" .. rid .. " path=skipped reason=GAMEOPTION_DISABLE_START_BIAS");
+		elseif self:LekGlobalSixChooseLocations(args) == true then
+			LekPlacementProbeLog("### LekGlobalSix runId=" .. rid .. " path=solver_finished ChooseLocations_early_return=1");
+			return;
+		else
+			LekPlacementProbeLog("### LekGlobalSix runId=" .. rid .. " path=fallthrough reason=solver_returned_false legacy_ChooseLocations_continues=1");
+		end
+	end
 
 	-- Lekmap: reserved island feature plots (Solomon's Mines body, geothermal) - pre-fill distanceData ripples so majors avoid stacking on them
 	local reserve_plots = {};
@@ -4892,6 +5010,23 @@ function AssignStartingPlots:ChooseLocations(args)
 	print("--- Impact and Ripple ---");
 	PrintContentsOfTable(self.distanceData)
 	print("-");  ]]--
+
+	if lekProbe then
+		local rid = tostring(_lek_run_id or "na");
+		local n = self.iNumCivs or 0;
+		local parts = {};
+		for r = 1, n do
+			local sp = self.startingPlots[r];
+			if sp and type(sp[1]) == "number" and type(sp[2]) == "number" then
+				parts[#parts + 1] = string.format("r%d=%d,%d", r, sp[1], sp[2]);
+			else
+				parts[#parts + 1] = string.format("r%d=nil", r);
+			end
+		end
+		LekPlacementProbeLog("### ChooseLocations end runId=" .. rid ..
+			" legacy_path_completed=1 starts=" .. table.concat(parts, ";"));
+		self:LekGlobalSix_OK_LogDiagnostics();
+	end
 end
 ------------------------------------------------------------------------------
 -- Start of functions tied to BalanceAndAssign()
