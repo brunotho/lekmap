@@ -3013,24 +3013,35 @@ end
 ------------------------------------------------------------------------------
 function AssignStartingPlots:LekGlobalSix_ApplyDistanceRipplesForStartOnly(x, y)
 	local iW, iH = Map.GetGridSize();
+	local gridMax = iW * iH;
+	if gridMax < 1 then
+		return;
+	end
 	local wrapX = Map:IsWrapX();
 	local wrapY = Map:IsWrapY();
 	local impact_value = 99;
-	local ripple_decider = Map.GetCustomOption(6);
+	local ripple_decider = 0;
+	local okOpt, optVal = pcall(function()
+		return Map.GetCustomOption(6);
+	end);
+	if okOpt and type(optVal) == "number" then
+		ripple_decider = optVal;
+	end
 	local ripple_values = {97, 95, 92, 88, 83, 77, 70, 62, 51, 41, 30, 18};
 	if ripple_decider == 1 then
-		local ripple_values = {97, 95, 92, 89, 69, 57, 24, 15};
-	end
-	if ripple_decider == 2 then
-		local ripple_values = {97, 95, 92, 88, 83, 77, 70, 62, 51, 41, 30, 18};
-	end
-	if ripple_decider == 3 then
-		local ripple_values = {99, 98, 97, 89, 88, 83, 77, 70, 62, 51, 41, 30, 18, 12};
+		ripple_values = {97, 95, 92, 89, 69, 57, 24, 15};
+	elseif ripple_decider == 2 then
+		ripple_values = {97, 95, 92, 88, 83, 77, 70, 62, 51, 41, 30, 18};
+	elseif ripple_decider == 3 then
+		ripple_values = {99, 98, 97, 89, 88, 83, 77, 70, 62, 51, 41, 30, 18, 12};
 	end
 	local odd = self.firstRingYIsOdd;
 	local even = self.firstRingYIsEven;
 	local nextX, nextY, plot_adjustments;
 	local impactPlotIndex = y * iW + x + 1;
+	if impactPlotIndex < 1 or impactPlotIndex > gridMax then
+		return;
+	end
 	self.distanceData[impactPlotIndex] = impact_value;
 	self.playerCollisionData[impactPlotIndex] = true;
 	self.cityStateData[impactPlotIndex] = 1;
@@ -3058,15 +3069,18 @@ function AssignStartingPlots:LekGlobalSix_ApplyDistanceRipplesForStartOnly(x, y)
 						realY = realY % iH;
 					end
 					local ringPlotIndex = realY * iW + realX + 1;
-					if self.distanceData[ringPlotIndex] > 0 then
-						local stronger_value = math.max(self.distanceData[ringPlotIndex], ripple_value);
-						local overlap_value = math.min(97, math.floor(stronger_value * 1.4));
-						self.distanceData[ringPlotIndex] = overlap_value;
-					else
-						self.distanceData[ringPlotIndex] = ripple_value;
-					end
-					if ripple_radius <= 6 then
-						self.cityStateData[ringPlotIndex] = 1;
+					if ringPlotIndex >= 1 and ringPlotIndex <= gridMax then
+						local prev = self.distanceData[ringPlotIndex] or 0;
+						if prev > 0 then
+							local stronger_value = math.max(prev, ripple_value);
+							local overlap_value = math.min(97, math.floor(stronger_value * 1.4));
+							self.distanceData[ringPlotIndex] = overlap_value;
+						else
+							self.distanceData[ringPlotIndex] = ripple_value;
+						end
+						if ripple_radius <= 6 then
+							self.cityStateData[ringPlotIndex] = 1;
+						end
 					end
 				end
 				currentX, currentY = nextX, nextY;
@@ -3749,7 +3763,7 @@ function AssignStartingPlots:LekGlobalSix_LogRippleOrderedSampleDryRun()
 			failPick = "no_eligible_plot_r=" .. tostring(r);
 			break;
 		end
-		local pickIdx = Map.Rand(#elig, "LekGlobalSixRippleDryRun") + 1;
+		local pickIdx = 1 + Map.Rand(#elig, "LekGlobalSixRippleDryRun");
 		local plotIndex = elig[pickIdx];
 		local x = (plotIndex - 1) % iW;
 		local y = (plotIndex - x - 1) / iW;
@@ -5085,8 +5099,13 @@ function AssignStartingPlots:LekGlobalSixChooseLocations(args)
 		" implementation=stub result=false hook=after_DetermineRegionTypes" ..
 		" eligible_iNumCivs_eq_6=" .. tostring(elig) ..
 		" next=candidate_pools_OK_tuple_PlaceImpact_order1to6" .. snap);
-	if elig == 1 then
-		self:LekGlobalSix_LogRippleOrderedSampleDryRun();
+	if elig == 1 and self._lek_global_six_ripple_dry_run == true then
+		local okDry, errDry = pcall(function()
+			self:LekGlobalSix_LogRippleOrderedSampleDryRun();
+		end);
+		if not okDry then
+			LekPlacementProbeLog("### LekGlobalSix rippleOrderDryRun runId=" .. rid .. " pcall_err=" .. tostring(errDry));
+		end
 	end
 	return false;
 end

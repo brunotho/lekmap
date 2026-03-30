@@ -2423,6 +2423,7 @@ function StartPlotSystem()
 
 	     -- Lane A: global-six hook + OK diag logs. false = quiet maps; true = probe (set true when testing).
 	     start_plot_database._lek_global_six_solver = true;
+	     start_plot_database._lek_global_six_ripple_dry_run = true;
 	     start_plot_database._lek_enable_virtual_six_retries = false;
 	     start_plot_database._lek_disable_virtual_six = true;
 	     -- start_plot_database._lek_enable_virtual_six_retries = true
