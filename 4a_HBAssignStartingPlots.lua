@@ -4797,10 +4797,29 @@ function AssignStartingPlots:LekGlobalSixChooseLocations(args)
 	local rid = tostring(_lek_run_id or "na");
 	local n = self.iNumCivs or 0;
 	local elig = (n == 6) and 1 or 0;
+	local snap = "";
+	if elig == 1 then
+		local parts = {};
+		for r = 1, 6 do
+			local rd = self.regionData[r];
+			local rt = self.regionTypes[r];
+			if rd and rt ~= nil then
+				local fert = rd[8] or 0;
+				local area = rd[5];
+				local rw, rh = rd[3] or 0, rd[4] or 0;
+				parts[#parts + 1] = string.format(
+					"r%d=t%d avgF=%.2f area=%d w%dxh%d",
+					r, rt, fert, area or -1, rw, rh);
+			else
+				parts[#parts + 1] = "r" .. tostring(r) .. "=?";
+			end
+		end
+		snap = " regions=" .. table.concat(parts, ";");
+	end
 	LekPlacementProbeLog("### LekGlobalSixChooseLocations runId=" .. rid ..
-		" implementation=stub result=false" ..
+		" implementation=stub result=false hook=after_DetermineRegionTypes" ..
 		" eligible_iNumCivs_eq_6=" .. tostring(elig) ..
-		" next=candidate_pools_OK_tuple_PlaceImpact_order1to6");
+		" next=candidate_pools_OK_tuple_PlaceImpact_order1to6" .. snap);
 	return false;
 end
 
@@ -4828,6 +4847,7 @@ function AssignStartingPlots:ChooseLocations(args)
 	self.maxJunk = args.maxJunk or self.maxJunk;
 
 	local lekProbe = (self._lek_global_six_solver == true);
+	local lekSixBiasSkipsGlobalSolver = false;
 	if lekProbe then
 		local rid = tostring(_lek_run_id or "na");
 		local dsbRaw = LekSafeGetDisableStartBiasOption();
@@ -4835,19 +4855,9 @@ function AssignStartingPlots:ChooseLocations(args)
 		LekPlacementProbeLog("### ChooseLocations begin runId=" .. rid ..
 			" iNumCivs=" .. tostring(self.iNumCivs) ..
 			" _lek_global_six_solver=true GAMEOPTION_DISABLE_START_BIAS=" .. dsb);
-	end
-
-	-- Hook A (placement spec): optional global solver; never when start bias is disabled for the game.
-	if self._lek_global_six_solver == true then
-		local rid = tostring(_lek_run_id or "na");
-		local bDisableStartBias = LekSafeGetDisableStartBiasOption();
-		if bDisableStartBias == 1 then
+		if dsbRaw == 1 then
 			LekPlacementProbeLog("### LekGlobalSix runId=" .. rid .. " path=skipped reason=GAMEOPTION_DISABLE_START_BIAS");
-		elseif self:LekGlobalSixChooseLocations(args) == true then
-			LekPlacementProbeLog("### LekGlobalSix runId=" .. rid .. " path=solver_finished ChooseLocations_early_return=1");
-			return;
-		else
-			LekPlacementProbeLog("### LekGlobalSix runId=" .. rid .. " path=fallthrough reason=solver_returned_false legacy_ChooseLocations_continues=1");
+			lekSixBiasSkipsGlobalSolver = true;
 		end
 	end
 
@@ -4899,6 +4909,17 @@ function AssignStartingPlots:ChooseLocations(args)
 	
 	-- Determine region type.
 	self:DetermineRegionTypes()
+
+	-- Hook A (placement spec): after terrain + region types; bias-disable logged earlier, no solver call then.
+	if self._lek_global_six_solver == true and not lekSixBiasSkipsGlobalSolver then
+		local rid = tostring(_lek_run_id or "na");
+		if self:LekGlobalSixChooseLocations(args) == true then
+			LekPlacementProbeLog("### LekGlobalSix runId=" .. rid .. " path=solver_finished ChooseLocations_early_return=1");
+			return;
+		else
+			LekPlacementProbeLog("### LekGlobalSix runId=" .. rid .. " path=fallthrough reason=solver_returned_false legacy_ChooseLocations_continues=1");
+		end
+	end
 
 	-- Set up list of regions (to be processed in this order).
 	--
