@@ -162,7 +162,9 @@ function AssignStartingPlots.Create()
 		ChooseLocations = AssignStartingPlots.ChooseLocations,
 		LekGlobalSixChooseLocations = AssignStartingPlots.LekGlobalSixChooseLocations,
 		LekGlobalSix_OK_RunAll = AssignStartingPlots.LekGlobalSix_OK_RunAll,
+		LekGlobalSix_GatherRawFindStartStyleCandidateIndices = AssignStartingPlots.LekGlobalSix_GatherRawFindStartStyleCandidateIndices,
 		LekGlobalSix_CountRawFindStartStyleCandidates = AssignStartingPlots.LekGlobalSix_CountRawFindStartStyleCandidates,
+		LekGlobalSix_CountEvaluateMeetsMinInRawPool = AssignStartingPlots.LekGlobalSix_CountEvaluateMeetsMinInRawPool,
 		LekGlobalSix_OK_LogDiagnostics = AssignStartingPlots.LekGlobalSix_OK_LogDiagnostics,
 		BalanceAndAssign = AssignStartingPlots.BalanceAndAssign,
 		PlaceNaturalWonders = AssignStartingPlots.PlaceNaturalWonders,
@@ -3518,10 +3520,10 @@ function AssignStartingPlots:IterateThroughCandidatePlotList(plot_list, region_t
 	return election_results
 end
 ------------------------------------------------------------------------------
-function AssignStartingPlots:LekGlobalSix_CountRawFindStartStyleCandidates(region_number, NoCoast)
+function AssignStartingPlots:LekGlobalSix_GatherRawFindStartStyleCandidateIndices(region_number, NoCoast)
 	local region_data_table = self.regionData[region_number];
 	if not region_data_table then
-		return 0;
+		return {};
 	end
 	local iW, iH = Map.GetGridSize();
 	local iWestX = region_data_table[1];
@@ -3591,11 +3593,37 @@ function AssignStartingPlots:LekGlobalSix_CountRawFindStartStyleCandidates(regio
 			end
 		end
 	end
-	local n = 0;
-	for _ in pairs(seen) do
-		n = n + 1;
+	local list = {};
+	for pi in pairs(seen) do
+		list[#list + 1] = pi;
 	end
-	return n;
+	table.sort(list);
+	return list;
+end
+
+function AssignStartingPlots:LekGlobalSix_CountRawFindStartStyleCandidates(region_number, NoCoast)
+	return #AssignStartingPlots.LekGlobalSix_GatherRawFindStartStyleCandidateIndices(self, region_number, NoCoast);
+end
+
+function AssignStartingPlots:LekGlobalSix_CountEvaluateMeetsMinInRawPool(region_number, NoCoast)
+	local list = AssignStartingPlots.LekGlobalSix_GatherRawFindStartStyleCandidateIndices(self, region_number, NoCoast);
+	local rawCount = #list;
+	local rt = self.regionTypes[region_number];
+	if not rt or rawCount == 0 then
+		return 0, rawCount;
+	end
+	local pass = 0;
+	for i = 1, rawCount do
+		local plotIndex = list[i];
+		local savedDD = self.distanceData[plotIndex];
+		self.distanceData[plotIndex] = 0;
+		local score, meetsMin = self:EvaluateCandidatePlot(plotIndex, rt);
+		self.distanceData[plotIndex] = savedDD;
+		if meetsMin then
+			pass = pass + 1;
+		end
+	end
+	return pass, rawCount;
 end
 ------------------------------------------------------------------------------
 function AssignStartingPlots:FindStart(region_number, NoCoast)
@@ -4882,6 +4910,7 @@ function AssignStartingPlots:LekGlobalSixChooseLocations(args)
 	if elig == 1 then
 		local parts = {};
 		local rawParts = {};
+		local meetParts = {};
 		for r = 1, 6 do
 			local rd = self.regionData[r];
 			local rt = self.regionTypes[r];
@@ -4894,12 +4923,17 @@ function AssignStartingPlots:LekGlobalSixChooseLocations(args)
 					r, rt, fert, area or -1, rw, rh);
 				local rawN = AssignStartingPlots.LekGlobalSix_CountRawFindStartStyleCandidates(self, r, false);
 				rawParts[#rawParts + 1] = string.format("r%d:%d", r, rawN);
+				local okN, rawCheck = AssignStartingPlots.LekGlobalSix_CountEvaluateMeetsMinInRawPool(self, r, false);
+				meetParts[#meetParts + 1] = string.format("r%d:%d/%d", r, okN, rawCheck);
 			else
 				parts[#parts + 1] = "r" .. tostring(r) .. "=?";
 				rawParts[#rawParts + 1] = "r" .. tostring(r) .. ":?";
+				meetParts[#meetParts + 1] = "r" .. tostring(r) .. ":?/?";
 			end
 		end
-		snap = " regions=" .. table.concat(parts, ";") .. " rawFindStartStyleCandidates_NoCoastFalse=" .. table.concat(rawParts, ",");
+		snap = " regions=" .. table.concat(parts, ";") ..
+			" rawFindStartStyleCandidates_NoCoastFalse=" .. table.concat(rawParts, ",") ..
+			" evalMeetsMin_maskOwnDD_postReserve=" .. table.concat(meetParts, ",");
 	end
 	LekPlacementProbeLog("### LekGlobalSixChooseLocations runId=" .. rid ..
 		" implementation=stub result=false hook=after_DetermineRegionTypes" ..
