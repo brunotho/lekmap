@@ -1,4 +1,4 @@
-# Placement spec v0.7 (authoritative)
+# Placement spec v0.8 (authoritative)
 
 Target behaviour for **global six-start placement** (Pangaea / **6 players only** for now). Implementation: **Lane A** — clean slate for the new solver; **vanilla / pre-Lekmap code paths stay in the file but are commented out rather than deleted** when superseded.
 
@@ -31,6 +31,16 @@ Implement **full strictness** (all `OK` clauses + full `EvaluateCandidatePlot` g
 **Why this order:** capitals must exist **before** the engine can attach a **specific** civ to a **specific** region’s plot. **“Region assignment”** in the sense **player↔`r`** comes **last**. **“Region assignment”** in the sense **where on Earth is region 5’s rectangle** comes **first** (step 1).
 
 **§5 / early bind:** To verify **OK** (“some civ can go on each **`r`** with XML satisfied”), the solver may **internally** assume a **trial** civ↔`r` matching **while** searching tuples — that is **not** **`BalanceAndAssign` running early**; it is duplicating the **same constraints** B&A will enforce later.
+
+### Bias vs ring geometry — what runs when (FAQ)
+
+| Phase | What “bias” means here | Player↔region? |
+|--------|-------------------------|----------------|
+| **Before / step 1** | **`GenerateRegions`** + **`regionTypes[r]`**: each **geographic** slice **`r`** gets a **terrain class** for lux / **`EvaluateCandidatePlot`**. That is **map metadata**, not “**Civ A** must sit here.” | **No.** |
+| **Step 2 (ring / `OK` / solver)** | Pick **`startingPlots[r]`** using **`regionTypes[r]`** for site scoring. **Global geometry** (centre distance, **`d₂`**, six-cycle coastal rule, inland salt) applies to the **six plots**. Still **no** “which human is slot **`r`**.” | **No.** |
+| **Step 3 (`BalanceAndAssign`)** | **XML civ bias** (coast, river, forest **priority/avoid**, …): **which player** gets **which** region index **`r`**, so needs match **`startingPlots[r]`** and **`regionTypes[r]`**. | **Yes — only step that assigns players ↔ `r`.** |
+
+So: **vanilla does not** finish “assign players to regions” **before** your ring / **`OK`** work. The **only** step that maps **players ↔ geographic `r`** is **step 3**. Step 1 only prepares **anonymous** regions on the map; step 2 fills their capitals; step 3 attaches **identities**.
 
 ---
 
@@ -105,7 +115,7 @@ The six **`startingPlots[r]`** must be compatible with **`BalanceAndAssign`**’
 
 ---
 
-## Global `OK` checklist (v0.7)
+## Global `OK` checklist (v0.8)
 
 1. **Map centre distance:** **`9 ≤ d(p) ≤ 18`** for each start (**same** as **`d > 8` and `d < 19`** in integer **`PlotDistance`**). Among passing tuples: tie-break **`min maxᵢ \|d(pᵢ) − 13\|`**, then **`Map.Rand`** on remaining ties.  
 2. **`d₂ ≤ 15`:** **`PlotDistance`** between capital plots; each start’s **second-nearest** of the other five **`≤ 15`**.  
@@ -157,3 +167,4 @@ The six **`startingPlots[r]`** must be compatible with **`BalanceAndAssign`**’
 | 2026-03-27 | **v0.5:** **Variation A** locked for **`BalanceAndAssign`**; tie-break **`min maxᵢ\|d−13\|`** then **`min Σ\|d−13\|`**; search/regen = **first-version target**; **map hook** options table; **`file:line` TBD** on implement. |
 | 2026-03-27 | **v0.6:** Hook **A** chosen; **`d₂`** = **`PlotDistance`**; coastal predicate for §3 aligned with **`4a`**; **six-cycle** intuition; B&A order clarified; tie-break after **`min max|d−13|`** = **`Map.Rand`**; forest = **no extra OK**. |
 | 2026-03-30 | **v0.7:** **Order of operations** (GenerateRegions → `startingPlots[r]` → **`BalanceAndAssign`**); inland/coastal = **same as `4a`**; forest / XML = **vanilla B&A** + **`regionTypes[r]`** scoring. |
+| 2026-03-30 | **v0.8:** **FAQ table** — **civ/player bias** only in **`BalanceAndAssign`**; step 1 = **`regionTypes[r]`** only. |
