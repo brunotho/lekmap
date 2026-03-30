@@ -4646,16 +4646,39 @@ function AssignStartingPlots:LekGlobalSix_OK_Section3_InlandSalt()
 	return true, "";
 end
 
+function AssignStartingPlots:LekGlobalSix_OK_Section6_SiteQuality_PostPlacement()
+	local iW, iH = Map.GetGridSize();
+	for r = 1, self.iNumCivs do
+		local t = self.startingPlots[r];
+		if not t or type(t[1]) ~= "number" or type(t[2]) ~= "number" then
+			return false, "missing_r=" .. tostring(r);
+		end
+		local x, y = t[1], t[2];
+		local plotIndex = y * iW + x + 1;
+		local rt = self.regionTypes[r];
+		if rt == nil then
+			return false, "regionTypes_nil_r=" .. tostring(r);
+		end
+		local score, meetsMin = self:EvaluateCandidatePlot(plotIndex, rt);
+		if not meetsMin then
+			return false, string.format("r=%d plotIndex=%d score=%s", r, plotIndex, tostring(score));
+		end
+	end
+	return true, "mode=postplacement_distanceData";
+end
+
 function AssignStartingPlots:LekGlobalSix_OK_LogDiagnostics()
 	local rid = tostring(_lek_run_id or "na");
 	local ok1, det1 = AssignStartingPlots.LekGlobalSix_OK_Section1_CentreBand(self);
 	local ok2, det2 = AssignStartingPlots.LekGlobalSix_OK_Section2_d2(self);
 	local ok3, det3 = AssignStartingPlots.LekGlobalSix_OK_Section3_InlandSalt(self);
+	local ok6, det6 = AssignStartingPlots.LekGlobalSix_OK_Section6_SiteQuality_PostPlacement(self);
 	LekPlacementProbeLog("### LekGlobalSix_OK diag runId=" .. rid ..
 		" spec=SCRATCHPAD-placement-spec-v0.11 s1_centre_9_18=" .. (ok1 and "pass" or "fail") .. " " .. tostring(det1) ..
 		" s2_secondNearest_le15=" .. (ok2 and "pass" or "fail") .. " " .. tostring(det2) ..
 		" s3_inland_salt_dLe3_max4=" .. (ok3 and "pass" or "fail") .. " " .. tostring(det3) ..
-		" s4_ring_s5_bias_s6_site=not_enforced_yet");
+		" s4_ring_s5_bias=not_enforced_yet" ..
+		" s6_EvaluateCandidate_meets_minimums=" .. (ok6 and "pass" or "fail") .. " " .. tostring(det6));
 end
 
 function AssignStartingPlots:LekGlobalSixChooseLocations(args)
