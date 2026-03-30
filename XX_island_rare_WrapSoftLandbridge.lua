@@ -299,6 +299,13 @@ function TryPlaceWrapSoftLandbridge(plotTypes, opts)
 		return math.max(0, math.min(iH - 1, yy));
 	end
 
+	local function jitterRowDelta()
+		if Map.Rand(100, "") < 72 then
+			return Map.Rand(3, "") - 1;
+		end
+		return Map.Rand(5, "") - 2;
+	end
+
 	local function tryMarkOcean(x, y, plotTypes)
 		local keepP = 72 + Map.Rand(18, "") + markExtra;
 		if keepP > 95 then
@@ -331,15 +338,15 @@ function TryPlaceWrapSoftLandbridge(plotTypes, opts)
 				end
 				tryMarkOcean(x, y, plotTypes);
 				local r = Map.Rand(100, "");
-				if r < 42 then
+				if r < 40 then
 					x = math.min(iW - 1, x + 1);
-					if Map.Rand(100, "") < 55 then
-						y = clampYMap(y + Map.Rand(3, "") - 1);
+					if Map.Rand(100, "") < 64 then
+						y = clampYMap(y + jitterRowDelta());
 					end
-				elseif r < 78 then
+				elseif r < 73 then
 					x = math.min(iW - 1, x + 1);
-				elseif r < 92 then
-					y = clampYMap(y + Map.Rand(3, "") - 1);
+				elseif r < 93 then
+					y = clampYMap(y + jitterRowDelta());
 				else
 					local d = 1 + Map.Rand(6, "");
 					local nx, ny = GetHexNeighbor(x, y, d, iW, iH, false, false);
@@ -347,7 +354,7 @@ function TryPlaceWrapSoftLandbridge(plotTypes, opts)
 						x, y = nx, clampYMap(ny);
 					else
 						x = math.min(iW - 1, x + 1);
-						y = clampYMap(y + Map.Rand(3, "") - 1);
+						y = clampYMap(y + jitterRowDelta());
 					end
 				end
 			end
@@ -364,15 +371,15 @@ function TryPlaceWrapSoftLandbridge(plotTypes, opts)
 				end
 				tryMarkOcean(x, y, plotTypes);
 				local r = Map.Rand(100, "");
-				if r < 42 then
+				if r < 40 then
 					x = math.max(0, x - 1);
-					if Map.Rand(100, "") < 55 then
-						y = clampYMap(y + Map.Rand(3, "") - 1);
+					if Map.Rand(100, "") < 64 then
+						y = clampYMap(y + jitterRowDelta());
 					end
-				elseif r < 78 then
+				elseif r < 73 then
 					x = math.max(0, x - 1);
-				elseif r < 92 then
-					y = clampYMap(y + Map.Rand(3, "") - 1);
+				elseif r < 93 then
+					y = clampYMap(y + jitterRowDelta());
 				else
 					local d = 1 + Map.Rand(6, "");
 					local nx, ny = GetHexNeighbor(x, y, d, iW, iH, false, false);
@@ -380,7 +387,7 @@ function TryPlaceWrapSoftLandbridge(plotTypes, opts)
 						x, y = nx, clampYMap(ny);
 					else
 						x = math.max(0, x - 1);
-						y = clampYMap(y + Map.Rand(3, "") - 1);
+						y = clampYMap(y + jitterRowDelta());
 					end
 				end
 			end
