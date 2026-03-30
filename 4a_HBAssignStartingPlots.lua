@@ -4560,7 +4560,7 @@ function AssignStartingPlots:ChooseLocations(args)
 	self.minGoodOuter = args.minGoodOuter or self.minGoodOuter;
 	self.maxJunk = args.maxJunk or self.maxJunk;
 
-	-- Lekmap: reserved island feature plots (Solomon's Mines body, geothermal) — pre-fill distanceData ripples so majors avoid stacking on them
+	-- Lekmap: reserved island feature plots (Solomon's Mines body, geothermal) - pre-fill distanceData ripples so majors avoid stacking on them
 	local reserve_plots = {};
 	if _solomons_island_mines_plot then reserve_plots[#reserve_plots + 1] = _solomons_island_mines_plot; end
 	if _geothermal_island_plot then reserve_plots[#reserve_plots + 1] = _geothermal_island_plot; end

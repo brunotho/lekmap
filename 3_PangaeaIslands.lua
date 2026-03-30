@@ -58,7 +58,7 @@ local UncommonIslands = {
 	{ type = "snake",               odds = 3, pullBack = 1, effMin = 1, effMax = 4, budget = 1.13 },
 	{ type = "lollipop",            odds = 2, pullBack = 2, effMin = 1, effMax = 4, budget = 1.02 },
 	{ type = "wishbone",            odds = 5, pullBack = 1, effMin = 1, effMax = 3, budget = 0.75 },
-	{ type = "twinBay",             odds = 1, pullBack = 1, effMin = 1, effMax = 4, budget = 1.08 },
+	{ type = "twinBay",             odds = 1, pullBack = 1, effMin = 1, effMax = 3, budget = 1.08 },
 	{ type = "shatteredRing",       odds = 3, pullBack = 1, effMin = 2, effMax = 5, budget = 1.67 },
 	{ type = "clusterOfTiny",      	odds = 5, pullBack = 1, effMin = 0, effMax = 3, budget = 0.5, fragile = true },
 	{ type = "waterRift",           odds = 2, pullBack = 0, effMin = 4, effMax = 5, budget = 1.17 },
@@ -108,6 +108,7 @@ local IslandTypePlace = {
 	solomonsMinesIsland = TryPlaceSolomonsMinesIsland,
 	volcanicRing = TryPlaceVolcanicRing,
 	geothermalIsland = TryPlaceGeothermalIsland,
+	wrapSoftLandbridge = TryPlaceWrapSoftLandbridge,
 	-- fjordPeninsula = TryPlaceFjordPeninsulaIsland,
 	-- BrokenHeart = TryPlaceBrokenHeartIsland,
 	-- EdgeOfWorld = TryPlaceEdgeOfWorldIsland,
@@ -281,7 +282,7 @@ function GeneratePangaeaIslands(self, genOpts)
 	end
 
 	local numRare = 1 + Map.Rand(4, "");
-	local numUncommon = 2 + Map.Rand(7, "");
+	local numUncommon = 1 + Map.Rand(6, "");
 
 	for _ = 1, numRare do
 		for _try = 1, 50 do

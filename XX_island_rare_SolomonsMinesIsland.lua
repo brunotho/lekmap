@@ -1,10 +1,10 @@
--- Dragon silhouette; Solomon's Mines on body ridge tile; mixed hills below. Random 60° rotation per placement.
+-- Solomon's Mines island hex footprint; mine on body ridge tile; mixed hills below. Random 60 degree rotation per placement.
 
 include("X_IslandHelpers");
 
 local SOLOMONS_EDGE_MARGIN = 10;
 
-local DRAGON_TEMPLATE = {
+local SOLOMONS_ISLAND_HEX_TEMPLATE = {
 	{5,0},{6,0},
 	{2,1},{3,1},{4,1},{5,1},{6,1},{7,1},
 	{1,2},{2,2},{3,2},{4,2},{5,2},{6,2},{7,2},{8,2},
@@ -53,7 +53,7 @@ local function buildLayout(rotSteps)
 	mountainSet[hornKey] = true;
 
 	local bodySet = {};
-	for _, p in ipairs(DRAGON_TEMPLATE) do
+	for _, p in ipairs(SOLOMONS_ISLAND_HEX_TEMPLATE) do
 		local rx, ry = RotateOffset60(p[1], p[2], rot);
 		local k = rx .. "," .. ry;
 		if not mountainOnly[k] and k ~= hornKey then bodySet[k] = true; end
@@ -153,7 +153,7 @@ function TryPlaceSolomonsMinesIsland(plotTypes, centerX, centerY, islLandInRing,
 	local layout = buildLayout(rotSteps);
 
 	local landTiles = {};
-	for _, off in ipairs(DRAGON_TEMPLATE) do
+	for _, off in ipairs(SOLOMONS_ISLAND_HEX_TEMPLATE) do
 		local dx, dy = RotateOffset60(off[1], off[2], rotSteps);
 		local gx = WrapCoord(cx + dx, params.iW, params.wrapX);
 		local gy = WrapCoord(cy - dy, params.iH, params.wrapY);

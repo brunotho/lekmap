@@ -41,7 +41,7 @@ function IsHexAdjacent(ax, ay, bx, by)
 	return false;
 end
 
--- Rotate (dx, dy) by steps*60° clockwise on even-r offset hex grid. steps in 0..5.
+-- Rotate (dx, dy) by steps*60 degrees clockwise on even-r offset hex grid. steps in 0..5.
 -- Use for rotating a template: RotateOffset60(tx, ty, steps) gives correct (dx', dy').
 function RotateOffset60(dx, dy, steps)
 	steps = steps % 6;

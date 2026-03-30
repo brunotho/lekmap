@@ -1,7 +1,7 @@
 ------------------------------------------------------------------------------
 --	WishboneIsland.lua (recreated from transcript)
 --	10-14 tiles. Base 2-3 thick, two arms 3-5 tiles each, 1 tile wide.
---	Angle between arms 45-90°. Base: hills 70%, 1-2 mountains. Arms: hills 50%, no mountains.
+--	Angle between arms 45-90 degrees. Base: hills 70%, 1-2 mountains. Arms: hills 50%, no mountains.
 ------------------------------------------------------------------------------
 include("X_IslandHelpers");
 
