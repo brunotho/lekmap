@@ -4659,12 +4659,15 @@ function AssignStartingPlots:LekGlobalSix_OK_Section6_SiteQuality_PostPlacement(
 		if rt == nil then
 			return false, "regionTypes_nil_r=" .. tostring(r);
 		end
+		local savedDD = self.distanceData[plotIndex];
+		self.distanceData[plotIndex] = 0;
 		local score, meetsMin = self:EvaluateCandidatePlot(plotIndex, rt);
+		self.distanceData[plotIndex] = savedDD;
 		if not meetsMin then
 			return false, string.format("r=%d plotIndex=%d score=%s", r, plotIndex, tostring(score));
 		end
 	end
-	return true, "mode=postplacement_distanceData";
+	return true, "mode=postplacement_eval_mask_own_impact_tile";
 end
 
 function AssignStartingPlots:LekGlobalSix_OK_LogDiagnostics()
