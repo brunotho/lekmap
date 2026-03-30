@@ -72,7 +72,7 @@ local RareIslands = {
 	{ type = "solomonsMinesIsland", odds = 1, pullBack = 2, effMin = 2, effMax = 5, budget = 1.67 },
 	{ type = "sinaiIsland",        	odds = 1, pullBack = 2, effMin = 2, effMax = 5, budget = 1.5 },
 	{ type = "geothermalIsland",  	odds = 2, pullBack = 2, effMin = 2, effMax = 5, budget = 1.2 },
-	{ type = "wrapSoftLandbridge",  odds = 2, pullBack = 2, effMin = 2, effMax = 5, budget = 0.55 },
+	{ type = "wrapSoftLandbridge",  odds = 2, pullBack = 2, effMin = 2, effMax = 5, budget = 2 },
 	{ type = "junglePeak",         	odds = 2, pullBack = 3, effMin = 2, effMax = 5, budget = 1.65 },
 	{ type = "lakeRidge",          	odds = 2, pullBack = 0, effMin = 0, effMax = 0, budget = 0 },
 	-- { type = "fjordPeninsula",     odds = 1, pullBack = 4, effMin = 4, effMax = 6, budget = 0.65 },
