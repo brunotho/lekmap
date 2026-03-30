@@ -4646,6 +4646,50 @@ function AssignStartingPlots:LekGlobalSix_OK_Section3_InlandSalt()
 	return true, "";
 end
 
+function AssignStartingPlots:LekGlobalSix_OK_Section4_TwoCoastalGeoCycle()
+	if self.iNumCivs ~= 6 then
+		return true, "n/a_iNumCivs_ne_6";
+	end
+	local iW, iH = Map.GetGridSize();
+	local cx = math.floor(iW / 2);
+	local cy = math.floor(iH / 2);
+	local slots = {};
+	for r = 1, 6 do
+		local t = self.startingPlots[r];
+		if not t or type(t[1]) ~= "number" or type(t[2]) ~= "number" then
+			return false, "missing_r=" .. tostring(r);
+		end
+		local x, y = t[1], t[2];
+		local plotIndex = y * iW + x + 1;
+		local isC = (self.plotDataIsCoastal[plotIndex] == true);
+		local ang = math.atan2(y - cy, x - cx);
+		slots[#slots + 1] = { r = r, ang = ang, coastal = isC };
+	end
+	table.sort(slots, function(a, b)
+		if a.ang ~= b.ang then
+			return a.ang < b.ang;
+		end
+		return a.r < b.r;
+	end);
+	local coastalPos = {};
+	for i = 1, 6 do
+		if slots[i].coastal then
+			coastalPos[#coastalPos + 1] = i;
+		end
+	end
+	local nC = #coastalPos;
+	if nC ~= 2 then
+		return true, "n/a_coastalCount=" .. tostring(nC);
+	end
+	local i1, i2 = coastalPos[1], coastalPos[2];
+	local step = math.abs(i1 - i2);
+	local cycSep = math.min(step, 6 - step);
+	if cycSep == 1 then
+		return false, string.format("adjacent_cycle slots=%d,%d r=%d,%d", i1, i2, slots[i1].r, slots[i2].r);
+	end
+	return true, "geoAngleOrder_twoC_nonAdjacent";
+end
+
 function AssignStartingPlots:LekGlobalSix_OK_Section6_SiteQuality_PostPlacement()
 	local iW, iH = Map.GetGridSize();
 	for r = 1, self.iNumCivs do
@@ -4675,12 +4719,14 @@ function AssignStartingPlots:LekGlobalSix_OK_LogDiagnostics()
 	local ok1, det1 = AssignStartingPlots.LekGlobalSix_OK_Section1_CentreBand(self);
 	local ok2, det2 = AssignStartingPlots.LekGlobalSix_OK_Section2_d2(self);
 	local ok3, det3 = AssignStartingPlots.LekGlobalSix_OK_Section3_InlandSalt(self);
+	local ok4, det4 = AssignStartingPlots.LekGlobalSix_OK_Section4_TwoCoastalGeoCycle(self);
 	local ok6, det6 = AssignStartingPlots.LekGlobalSix_OK_Section6_SiteQuality_PostPlacement(self);
 	LekPlacementProbeLog("### LekGlobalSix_OK diag runId=" .. rid ..
 		" spec=SCRATCHPAD-placement-spec-v0.11 s1_centre_9_18=" .. (ok1 and "pass" or "fail") .. " " .. tostring(det1) ..
 		" s2_secondNearest_le15=" .. (ok2 and "pass" or "fail") .. " " .. tostring(det2) ..
 		" s3_inland_salt_dLe3_max4=" .. (ok3 and "pass" or "fail") .. " " .. tostring(det3) ..
-		" s4_ring_s5_bias=not_enforced_yet" ..
+		" s4_twoCoastal_geoCycle=" .. (ok4 and "pass" or "fail") .. " " .. tostring(det4) ..
+		" s5_bias=not_enforced_yet" ..
 		" s6_EvaluateCandidate_meets_minimums=" .. (ok6 and "pass" or "fail") .. " " .. tostring(det6));
 end
 
