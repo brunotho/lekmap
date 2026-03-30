@@ -1,4 +1,4 @@
-# Placement spec v0.6 (authoritative)
+# Placement spec v0.7 (authoritative)
 
 Target behaviour for **global six-start placement** (Pangaea / **6 players only** for now). Implementation: **Lane A** — clean slate for the new solver; **vanilla / pre-Lekmap code paths stay in the file but are commented out rather than deleted** when superseded.
 
@@ -20,6 +20,20 @@ Implement **full strictness** (all `OK` clauses + full `EvaluateCandidatePlot` g
 
 ---
 
+## Order of operations (geographic regions vs player assignment)
+
+1. **`GenerateRegions`** — Builds **six** fixed **geographic** areas **`r = 1…6`** on the map (each has a rectangle / candidate hunt area). **`regionTypes[r]`** (grassland, forest class, etc.) is **per region**, **not** per player. **Nothing here** picks which **human** sits where.
+
+2. **`ChooseLocations`** / **global solver** — For **each** **`r`**, choose **one** capital plot **`startingPlots[r] = { x, y }`** (usually inside region **`r`**’s candidates). The **6-tuple is keyed by `r`**, the **map region index**. **`EvaluateCandidatePlot`** is called with **`regionTypes[r]`** for that search — you **are** “doing your thing **within** each region,” but the **labels** are **`r`**, not “player 3” yet.
+
+3. **`BalanceAndAssign`** — **After** all six **`startingPlots[r]`** exist: **permute** **which player / civ** receives **which `r`**. Uses coast, river, XML **priority/avoid** (including **forest-as-region-class**, etc.): e.g. a forest-priority civ should end up on an **`r`** whose **type + plot** still validly matched scoring. It **does not** output new **`(x,y)`**; it **consumes** what step 2 wrote.
+
+**Why this order:** capitals must exist **before** the engine can attach a **specific** civ to a **specific** region’s plot. **“Region assignment”** in the sense **player↔`r`** comes **last**. **“Region assignment”** in the sense **where on Earth is region 5’s rectangle** comes **first** (step 1).
+
+**§5 / early bind:** To verify **OK** (“some civ can go on each **`r`** with XML satisfied”), the solver may **internally** assume a **trial** civ↔`r` matching **while** searching tuples — that is **not** **`BalanceAndAssign` running early**; it is duplicating the **same constraints** B&A will enforce later.
+
+---
+
 ## Terminology + code pointers
 
 | Term | Meaning | Where in repo |
@@ -33,7 +47,7 @@ Implement **full strictness** (all `OK` clauses + full `EvaluateCandidatePlot` g
 | **`CivNeedsCoastalStart`**, **`CivNeedsRiverStart`** | **XML-driven** booleans. | **`1_HBMapmakerUtilities.lua`** ~`L775`, ~`L785` |
 | **`PlaceImpactAndRipples(x,y)`** | Writes **`distanceData`** ripples + **resource/CS/NW** impact layers for one placed start. **`OK`** simulation uses **full** calls, not distance-only. | ~`L2847` |
 
-**Civ bias vs tile quality:** XML **priority/avoid** = **region type** per **`self.regionTypes[r]`** (tundra, jungle, forest, …). **`EvaluateCandidatePlot(`** is **local rings** + **`distance_bias`** for **site** quality. **Early bind:** fix a **civ↔region `r`** plan (and coast/river needs) **before** coordinate search so **`BalanceAndAssign`** can match the same multiset.
+**Civ bias vs tile quality:** XML **priority/avoid** applies **after** **`BalanceAndAssign`** picks **which civ** sits on **which `r`**. During step 2 the code scores candidates with **`regionTypes[r]`** only (terrain class for that **map region**). **Forest** in XML is that kind of **region / biome bias**, not a separate **`OK()`** forest-tile count. **Early bind** = solver may **simulate** a civ↔`r` plan **while** searching so the multiset stays **B&A-feasible** — **not** that **`BalanceAndAssign` runs before** **`startingPlots[r]`** exist.
 
 **`MixedBias` / `CivNeedsPlaceFirstCoastalStart`:** mirror the same **pre-pass logic** `ChooseLocations` uses today (including random clearing of coastal need when **`MixedBias`** rolls), so the solver’s planned civ-needs match what **`BalanceAndAssign`** expects.
 
@@ -46,7 +60,7 @@ Implement **full strictness** (all `OK` clauses + full `EvaluateCandidatePlot` g
 | **`BalanceAndAssign` / Variation A** | **Confirmed:** global solver **only** fills **`startingPlots[1…6]`** with coordinates that satisfy **`OK()`**. **`BalanceAndAssign`** runs **after** that: it **assigns players to regions** and applies coast / river / priority / avoid — it does **not** search the map for the six plots. The solver must only output tuples for which **some** vanilla assignment exists (**`BalanceAndAssign` handoff** above). |
 | **`d₂` metric (OK §2)** | Same as §1: **pairwise `PlotDistance` / `Map.PlotDistance`** between the **two capital plots** (each **start** vs each of the **other five**); **second-nearest** distance must be **`≤ 15`**. |
 | **Map centre distance (OK §1)** | **Hard band:** **`8 < d(p) < 19`** (integer distance ⇒ **`9 ≤ d(p) ≤ 18`**) from map centre using **`Map.PlotDistance` / `PlotDistance`** on each final capital plot **`p`**. **Tie-break** among passing tuples: minimise **`maxᵢ \|d(pᵢ) − 13\|`**; further ties **`Map.Rand`** (fair pick among ties). **Replaces** v0.3 **{12,13,14}** annulus. |
-| **Non-coastal (OK §3 inland salt)** | **Implementation:** use the **same** “this start counts as coastal for bias / salt” predicate as **`4a`** today (e.g. **`self.plotDataIsCoastal`**, **`CivNeedsCoastalStart`**, whichever chain **`FindStart`** / **`EvaluateCandidatePlot`** already agrees with **`BalanceAndAssign`**) so “non-coastal” for the salt count is **not** a second, conflicting definition. |
+| **Non-coastal (OK §3 inland salt)** | **Same logic as today for “inland civ / inland starting spot”** in **`4a`** (e.g. **`plotDataIsCoastal`** / coastal-need chain aligned with **`BalanceAndAssign`**). Inland salt counts apply only when that predicate says **non-coastal**. |
 | **Map script hook** | **Chosen: A — thin hook** at **`ChooseLocations`** (or equivalent) **entry** after **`GAMEOPTION_DISABLE_START_BIAS`** check; record **`file:line`** in revision log when coded. |
 | **OK §7 / site quality** | **Full** **`EvaluateCandidatePlot`** + **full** **`PlaceImpactAndRipples`** in **fixed region order 1→6**, then snapshot-restore layers after each failed tuple. |
 | **Inland salt (OK §4)** | Hex **distance ≤ 3** from start; count **salt ocean** (**`IsWater` and not `IsLake`**) **`≤ 4`** per **non-coastal** start. (**Single authoritative numbers**; any older heuristic using **d≤4** in interim code is **obsolete** once the solver lands.) |
@@ -91,7 +105,7 @@ The six **`startingPlots[r]`** must be compatible with **`BalanceAndAssign`**’
 
 ---
 
-## Global `OK` checklist (v0.6)
+## Global `OK` checklist (v0.7)
 
 1. **Map centre distance:** **`9 ≤ d(p) ≤ 18`** for each start (**same** as **`d > 8` and `d < 19`** in integer **`PlotDistance`**). Among passing tuples: tie-break **`min maxᵢ \|d(pᵢ) − 13\|`**, then **`Map.Rand`** on remaining ties.  
 2. **`d₂ ≤ 15`:** **`PlotDistance`** between capital plots; each start’s **second-nearest** of the other five **`≤ 15`**.  
@@ -142,3 +156,4 @@ The six **`startingPlots[r]`** must be compatible with **`BalanceAndAssign`**’
 | 2026-03-27 | **v0.4:** **§1** centre band **`9 ≤ d ≤ 18`** (**`>8`/`<19`**); **ideal `d = 13`** for tie-break; dropped **{12,13,14}**; merged old **`dCenter ≤ 18`** into this band. |
 | 2026-03-27 | **v0.5:** **Variation A** locked for **`BalanceAndAssign`**; tie-break **`min maxᵢ\|d−13\|`** then **`min Σ\|d−13\|`**; search/regen = **first-version target**; **map hook** options table; **`file:line` TBD** on implement. |
 | 2026-03-27 | **v0.6:** Hook **A** chosen; **`d₂`** = **`PlotDistance`**; coastal predicate for §3 aligned with **`4a`**; **six-cycle** intuition; B&A order clarified; tie-break after **`min max|d−13|`** = **`Map.Rand`**; forest = **no extra OK**. |
+| 2026-03-30 | **v0.7:** **Order of operations** (GenerateRegions → `startingPlots[r]` → **`BalanceAndAssign`**); inland/coastal = **same as `4a`**; forest / XML = **vanilla B&A** + **`regionTypes[r]`** scoring. |
