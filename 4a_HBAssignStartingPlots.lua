@@ -161,6 +161,7 @@ function AssignStartingPlots.Create()
 		GenerateRegions = AssignStartingPlots.GenerateRegions,
 		ChooseLocations = AssignStartingPlots.ChooseLocations,
 		LekGlobalSixChooseLocations = AssignStartingPlots.LekGlobalSixChooseLocations,
+		LekGlobalSix_OK_RunAll = AssignStartingPlots.LekGlobalSix_OK_RunAll,
 		LekGlobalSix_OK_LogDiagnostics = AssignStartingPlots.LekGlobalSix_OK_LogDiagnostics,
 		BalanceAndAssign = AssignStartingPlots.BalanceAndAssign,
 		PlaceNaturalWonders = AssignStartingPlots.PlaceNaturalWonders,
@@ -4794,7 +4795,12 @@ end
 
 function AssignStartingPlots:LekGlobalSixChooseLocations(args)
 	local rid = tostring(_lek_run_id or "na");
-	LekPlacementProbeLog("### LekGlobalSixChooseLocations runId=" .. rid .. " implementation=stub result=false");
+	local n = self.iNumCivs or 0;
+	local elig = (n == 6) and 1 or 0;
+	LekPlacementProbeLog("### LekGlobalSixChooseLocations runId=" .. rid ..
+		" implementation=stub result=false" ..
+		" eligible_iNumCivs_eq_6=" .. tostring(elig) ..
+		" next=candidate_pools_OK_tuple_PlaceImpact_order1to6");
 	return false;
 end
 
