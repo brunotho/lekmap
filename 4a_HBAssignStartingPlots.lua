@@ -165,6 +165,8 @@ function AssignStartingPlots.Create()
 		LekGlobalSix_GatherRawFindStartStyleCandidateIndices = AssignStartingPlots.LekGlobalSix_GatherRawFindStartStyleCandidateIndices,
 		LekGlobalSix_CountRawFindStartStyleCandidates = AssignStartingPlots.LekGlobalSix_CountRawFindStartStyleCandidates,
 		LekGlobalSix_CountEvaluateMeetsMinInRawPool = AssignStartingPlots.LekGlobalSix_CountEvaluateMeetsMinInRawPool,
+		LekGlobalSix_ApplyDistanceRipplesForStartOnly = AssignStartingPlots.LekGlobalSix_ApplyDistanceRipplesForStartOnly,
+		LekGlobalSix_LogRippleOrderedSampleDryRun = AssignStartingPlots.LekGlobalSix_LogRippleOrderedSampleDryRun,
 		LekGlobalSix_OK_LogDiagnostics = AssignStartingPlots.LekGlobalSix_OK_LogDiagnostics,
 		BalanceAndAssign = AssignStartingPlots.BalanceAndAssign,
 		PlaceNaturalWonders = AssignStartingPlots.PlaceNaturalWonders,
@@ -3009,6 +3011,70 @@ function AssignStartingPlots:PlaceImpactAndRipples(x, y)
 	end
 end
 ------------------------------------------------------------------------------
+function AssignStartingPlots:LekGlobalSix_ApplyDistanceRipplesForStartOnly(x, y)
+	local iW, iH = Map.GetGridSize();
+	local wrapX = Map:IsWrapX();
+	local wrapY = Map:IsWrapY();
+	local impact_value = 99;
+	local ripple_decider = Map.GetCustomOption(6);
+	local ripple_values = {97, 95, 92, 88, 83, 77, 70, 62, 51, 41, 30, 18};
+	if ripple_decider == 1 then
+		local ripple_values = {97, 95, 92, 89, 69, 57, 24, 15};
+	end
+	if ripple_decider == 2 then
+		local ripple_values = {97, 95, 92, 88, 83, 77, 70, 62, 51, 41, 30, 18};
+	end
+	if ripple_decider == 3 then
+		local ripple_values = {99, 98, 97, 89, 88, 83, 77, 70, 62, 51, 41, 30, 18, 12};
+	end
+	local odd = self.firstRingYIsOdd;
+	local even = self.firstRingYIsEven;
+	local nextX, nextY, plot_adjustments;
+	local impactPlotIndex = y * iW + x + 1;
+	self.distanceData[impactPlotIndex] = impact_value;
+	self.playerCollisionData[impactPlotIndex] = true;
+	self.cityStateData[impactPlotIndex] = 1;
+	for ripple_radius, ripple_value in ipairs(ripple_values) do
+		local currentX = x - ripple_radius;
+		local currentY = y;
+		for direction_index = 1, 6 do
+			for plot_to_handle = 1, ripple_radius do
+				if currentY / 2 > math.floor(currentY / 2) then
+					plot_adjustments = odd[direction_index];
+				else
+					plot_adjustments = even[direction_index];
+				end
+				nextX = currentX + plot_adjustments[1];
+				nextY = currentY + plot_adjustments[2];
+				if wrapX == false and (nextX < 0 or nextX >= iW) then
+				elseif wrapY == false and (nextY < 0 or nextY >= iH) then
+				else
+					local realX = nextX;
+					local realY = nextY;
+					if wrapX then
+						realX = realX % iW;
+					end
+					if wrapY then
+						realY = realY % iH;
+					end
+					local ringPlotIndex = realY * iW + realX + 1;
+					if self.distanceData[ringPlotIndex] > 0 then
+						local stronger_value = math.max(self.distanceData[ringPlotIndex], ripple_value);
+						local overlap_value = math.min(97, math.floor(stronger_value * 1.4));
+						self.distanceData[ringPlotIndex] = overlap_value;
+					else
+						self.distanceData[ringPlotIndex] = ripple_value;
+					end
+					if ripple_radius <= 6 then
+						self.cityStateData[ringPlotIndex] = 1;
+					end
+				end
+				currentX, currentY = nextX, nextY;
+			end
+		end
+	end
+end
+------------------------------------------------------------------------------
 function AssignStartingPlots:MeasureSinglePlot(x, y, region_type, distance_from_city)
 	local data = table.fill(false, 5);
 	-- Note that "Food" is not strictly about tile yield.
@@ -3624,6 +3690,86 @@ function AssignStartingPlots:LekGlobalSix_CountEvaluateMeetsMinInRawPool(region_
 		end
 	end
 	return pass, rawCount;
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekGlobalSix_LogRippleOrderedSampleDryRun()
+	if self.iNumCivs ~= 6 then
+		return;
+	end
+	local rid = tostring(_lek_run_id or "na");
+	local iW, iH = Map.GetGridSize();
+	local gridCells = iW * iH;
+	local snapDD = {};
+	local snapPC = {};
+	local snapCS = {};
+	for i = 1, gridCells do
+		snapDD[i] = self.distanceData[i];
+		snapPC[i] = self.playerCollisionData[i];
+		snapCS[i] = self.cityStateData[i];
+	end
+	local snapSP = {};
+	for r = 1, 6 do
+		local t = self.startingPlots[r];
+		snapSP[r] = t and { t[1], t[2], t[3] } or nil;
+	end
+	for r = 1, 6 do
+		self.startingPlots[r] = nil;
+	end
+	local function restoreAll()
+		for i = 1, gridCells do
+			self.distanceData[i] = snapDD[i];
+			self.playerCollisionData[i] = snapPC[i];
+			self.cityStateData[i] = snapCS[i];
+		end
+		for r = 1, 6 do
+			self.startingPlots[r] = snapSP[r];
+		end
+	end
+	local pickLine = {};
+	local failPick = nil;
+	for r = 1, 6 do
+		local list = AssignStartingPlots.LekGlobalSix_GatherRawFindStartStyleCandidateIndices(self, r, false);
+		local rt = self.regionTypes[r];
+		if not rt then
+			failPick = "nil_regionType_r=" .. tostring(r);
+			break;
+		end
+		local elig = {};
+		for i = 1, #list do
+			local plotIndex = list[i];
+			local bias = self.distanceData[plotIndex];
+			if not (bias and bias > 0) then
+				local score, meetsMin = self:EvaluateCandidatePlot(plotIndex, rt);
+				if meetsMin then
+					elig[#elig + 1] = plotIndex;
+				end
+			end
+		end
+		if #elig == 0 then
+			failPick = "no_eligible_plot_r=" .. tostring(r);
+			break;
+		end
+		local pickIdx = Map.Rand(#elig, "LekGlobalSixRippleDryRun") + 1;
+		local plotIndex = elig[pickIdx];
+		local x = (plotIndex - 1) % iW;
+		local y = (plotIndex - x - 1) / iW;
+		self.startingPlots[r] = { x, y, 0 };
+		pickLine[#pickLine + 1] = string.format("%d@%d,%d", r, x, y);
+		self:LekGlobalSix_ApplyDistanceRipplesForStartOnly(x, y);
+	end
+	if failPick then
+		restoreAll();
+		LekPlacementProbeLog("### LekGlobalSix rippleOrderDryRun runId=" .. rid ..
+			" mode=rippleOnlyNoResourceImpact status=in_order_pick_failed " .. failPick);
+		return;
+	end
+	local R = AssignStartingPlots.LekGlobalSix_OK_RunAll(self);
+	restoreAll();
+	LekPlacementProbeLog("### LekGlobalSix rippleOrderDryRun runId=" .. rid ..
+		" mode=rippleOnlyNoResourceImpact status=complete order=r123456 randomAmongEligPerRegion=1" ..
+		" picks=" .. table.concat(pickLine, ";") ..
+		" first_fail=" .. tostring(R.first_fail or "none") ..
+		" all_hard_pass=" .. (R.all_hard_pass and "1" or "0"));
 end
 ------------------------------------------------------------------------------
 function AssignStartingPlots:FindStart(region_number, NoCoast)
@@ -4939,6 +5085,9 @@ function AssignStartingPlots:LekGlobalSixChooseLocations(args)
 		" implementation=stub result=false hook=after_DetermineRegionTypes" ..
 		" eligible_iNumCivs_eq_6=" .. tostring(elig) ..
 		" next=candidate_pools_OK_tuple_PlaceImpact_order1to6" .. snap);
+	if elig == 1 then
+		self:LekGlobalSix_LogRippleOrderedSampleDryRun();
+	end
 	return false;
 end
 
