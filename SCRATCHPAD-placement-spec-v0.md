@@ -1,4 +1,4 @@
-# Placement spec v0.4 (authoritative)
+# Placement spec v0.5 (authoritative)
 
 Target behaviour for **global six-start placement** (Pangaea / **6 players only** for now). Implementation: **Lane A** — clean slate for the new solver; **vanilla / pre-Lekmap code paths stay in the file but are commented out rather than deleted** when superseded.
 
@@ -43,7 +43,8 @@ Implement **full strictness** (all `OK` clauses + full `EvaluateCandidatePlot` g
 
 | Topic | Decision |
 |--------|----------|
-| **Map centre distance (OK §1)** | **Hard band:** **`8 < d(p) < 19`** (integer distance ⇒ **`9 ≤ d(p) ≤ 18`**) from map centre using **`Map.PlotDistance` / `PlotDistance`** on each final capital plot **`p`**. **Ideal:** **`d(p) = 13`** — use as **tie-break** between passing 6-tuples (e.g. minimise **Σ \|d(pᵢ) − 13\|** or worst-case deviation) unless a different **`finalScore`** rule is chosen. **Replaces** v0.3 **{12,13,14}** annulus. |
+| **`BalanceAndAssign` / Variation A** | **Confirmed:** global solver (when implemented) **only** fills **`startingPlots[1…6]`** with plots that satisfy **`OK()`**. **Vanilla `BalanceAndAssign`** owns **player↔region** assignment **unchanged** — **no** custom ordering that forces a given **player index** to a given **`r`** ahead of vanilla phases. |
+| **Map centre distance (OK §1)** | **Hard band:** **`8 < d(p) < 19`** (integer distance ⇒ **`9 ≤ d(p) ≤ 18`**) from map centre using **`Map.PlotDistance` / `PlotDistance`** on each final capital plot **`p`**. **Tie-break** among passing 6-tuples: minimise **`M = maxᵢ \|d(pᵢ) − 13\|`** (smallest worst deviation from ideal **13**); if still tied, **secondary:** minimise **`Σᵢ \|d(pᵢ) − 13\|`**. **Replaces** v0.3 **{12,13,14}** annulus. |
 | **OK §7 / site quality** | **Full** **`EvaluateCandidatePlot`** + **full** **`PlaceImpactAndRipples`** in **fixed region order 1→6**, then snapshot-restore layers after each failed tuple. |
 | **Inland salt (OK §4)** | Hex **distance ≤ 3** from start; count **salt ocean** (**`IsWater` and not `IsLake`**) **`≤ 4`** per **non-coastal** start. (**Single authoritative numbers**; any older heuristic using **d≤4** in interim code is **obsolete** once the solver lands.) |
 | **Coastal adjacency on ring** | **Only** when **exactly two** coastal majors: **`C`** not adjacent to **`C`** on the **geographic** six-cycle. |
@@ -77,9 +78,9 @@ The six **`startingPlots[r]`** must be compatible with **`BalanceAndAssign`**’
 
 ---
 
-## Global `OK` checklist (v0.4)
+## Global `OK` checklist (v0.5)
 
-1. **Map centre distance:** **`9 ≤ d(p) ≤ 18`** for each start (**same** as **`d > 8` and `d < 19`** in integer **`PlotDistance`**). **Preference:** all else equal, prefer tuples closer to **`d = 13`** per start (see resolved table).  
+1. **Map centre distance:** **`9 ≤ d(p) ≤ 18`** for each start (**same** as **`d > 8` and `d < 19`** in integer **`PlotDistance`**). Among passing tuples: **primary** tie-break **`min maxᵢ \|d(pᵢ) − 13\|`**; **secondary** **`min Σᵢ \|d(pᵢ) − 13\|`** (see resolved table).  
 2. **`d₂ ≤ 15`** for each start (second-nearest of five others).  
 3. **Inland salt:** non-coastal starts: **≤ 4** salt-ocean hexes within **d ≤ 3**.  
 4. **Two coastals:** on rotated geographic cycle, **no adjacent `C`/`C`**.  
@@ -92,15 +93,29 @@ The six **`startingPlots[r]`** must be compatible with **`BalanceAndAssign`**’
 
 - **100** failed **complete** 6-tuples **per map layout**.  
 - **4** map layouts total (**1** initial **+** **3** regens) ⇒ **400** failed tuples max before **fallback**.  
+- **First implementation target** for the above counts; **tune after metrics** (regen rate, wall-clock), not preemptively.  
 - **Fallback:** **`ChooseLocations`** as today (**including** interim virtual-six block **until** removed/disabled per Lane A).  
 - Log **failure kind** each time (ring, **d₂**, salt, 2-coastal, bias, **`meets_minimums`**, ripples, …).
 
 ---
 
-## Still TBD (ask before inventing)
+## Map script hook (where the solver runs — options)
 
-- Any **new** rule that **contradicts** vanilla **`BalanceAndAssign`** ordering (e.g. forcing a **specific** player index to a region **before** vanilla’s phases).  
-- **Map script hook** exact line — implement when touching **`ChooseLocations`**.
+**Meaning:** Civ runs **`AssignStartingPlots`** → **`ChooseLocations`** fills **`startingPlots[r]`** → **`BalanceAndAssign`** matches players. The **hook** is the **chosen place** that decides “run **global six-tuple `OK()` solver**” vs “legacy **`ChooseLocations`** / virtual-six / **`FindStart`** per region”. A clear hook keeps **`_lek_global_six_solver`** / **`GAMEOPTION_DISABLE_START_BIAS`** behaviour auditable.
+
+| Option | Idea | Pros | Cons |
+|--------|------|------|------|
+| **A — Thin hook** | **One** branch at **`ChooseLocations`** (or equivalent) **entry** after setup: e.g. `if _lek_global_six_solver and conditions then LekGlobalSixPlace() else vanilla end`. | Easy to **grep**; one place to enforce **disable-bias** short-circuit; obvious fallback path. | Must thread any **pre-`ChooseLocations`** setup the solver needs into that entry. |
+| **B — Scattered guards** | Multiple **`if solver`** checks inside **`FindStart`**, virtual six, drafts, etc. | Can reuse small bits of legacy path. | Easy to **miss a branch**; hard to prove **every** route respects flags and **fallback**. |
+| **C — Map script only** | Hook lives in **`LekmapPangaeaFractal…lua`** (or one map file): set flags / call a thin override so **other** map types never see the solver. | **Isolates** Pangaea experiments. | **Duplicate** if a second map script wants the same solver; core **`4a`** may still need a **callable entry** API. |
+
+**When implementing:** pick **A** (recommended), **B**, or **C**; add **`file:line`** (or function name) to the **revision log** so the hook stays documented.
+
+---
+
+## Still TBD (on implementation only)
+
+- Record **exact** **`file:line`** for the chosen hook (see above).
 
 ---
 
@@ -112,3 +127,4 @@ The six **`startingPlots[r]`** must be compatible with **`BalanceAndAssign`**’
 | 2026-03-27 | v0.1–v0.2: pointer table, random ring, **400** tries, full ripples, bias clarity. |
 | 2026-03-27 | **v0.3 authoritative:** **R/δ** locked, **inland salt** **d≤3 / max4** canonical, **`GAMEOPTION`**, **Lane A** + comment-not-delete, **`MixedBias` parity**, **forest** = region class only unless extended, interim virtual-six **non-contract**, **`finalScore`** optional tie-break only. |
 | 2026-03-27 | **v0.4:** **§1** centre band **`9 ≤ d ≤ 18`** (**`>8`/`<19`**); **ideal `d = 13`** for tie-break; dropped **{12,13,14}**; merged old **`dCenter ≤ 18`** into this band. |
+| 2026-03-27 | **v0.5:** **Variation A** locked for **`BalanceAndAssign`**; tie-break **`min maxᵢ\|d−13\|`** then **`min Σ\|d−13\|`**; search/regen = **first-version target**; **map hook** options table; **`file:line` TBD** on implement. |
