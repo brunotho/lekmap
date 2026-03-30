@@ -4575,7 +4575,7 @@ function AssignStartingPlots:LekGlobalSix_OK_Section1_CentreBand()
 		if not sp or type(sp[1]) ~= "number" or type(sp[2]) ~= "number" then
 			return false, "missing_r=" .. tostring(r);
 		end
-		local d = self:LekGlobalSix_PlotDistance(sp[1], sp[2], cx, cy);
+		local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, sp[1], sp[2], cx, cy);
 		if d == nil then
 			return false, "no_PlotDistance";
 		end
@@ -4599,7 +4599,7 @@ function AssignStartingPlots:LekGlobalSix_OK_Section2_d2()
 				if not tj or type(tj[1]) ~= "number" or type(tj[2]) ~= "number" then
 					return false, "missing_j=" .. tostring(j);
 				end
-				local d = self:LekGlobalSix_PlotDistance(ti[1], ti[2], tj[1], tj[2]);
+				local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, ti[1], ti[2], tj[1], tj[2]);
 				if d == nil then
 					return false, "no_PlotDistance";
 				end
@@ -4615,14 +4615,47 @@ function AssignStartingPlots:LekGlobalSix_OK_Section2_d2()
 	return true, "";
 end
 
+function AssignStartingPlots:LekGlobalSix_OK_Section3_InlandSalt()
+	local iW, iH = Map.GetGridSize();
+	local maxR, maxSalt = 3, 4;
+	for r = 1, self.iNumCivs do
+		local t = self.startingPlots[r];
+		if not t or type(t[1]) ~= "number" or type(t[2]) ~= "number" then
+			return false, "missing_r=" .. tostring(r);
+		end
+		local x, y = t[1], t[2];
+		local plotIndex = y * iW + x + 1;
+		if self.plotDataIsCoastal[plotIndex] ~= true then
+			local nSalt = 0;
+			for ny = 0, iH - 1 do
+				for nx = 0, iW - 1 do
+					local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, x, y, nx, ny);
+					if d ~= nil and d <= maxR then
+						local p2 = Map.GetPlot(nx, ny);
+						if p2 and p2:IsWater() and not p2:IsLake() then
+							nSalt = nSalt + 1;
+						end
+					end
+				end
+			end
+			if nSalt > maxSalt then
+				return false, string.format("r=%d inland nSaltOcean=%d max=%d xy=%d,%d", r, nSalt, maxSalt, x, y);
+			end
+		end
+	end
+	return true, "";
+end
+
 function AssignStartingPlots:LekGlobalSix_OK_LogDiagnostics()
 	local rid = tostring(_lek_run_id or "na");
-	local ok1, det1 = self:LekGlobalSix_OK_Section1_CentreBand();
-	local ok2, det2 = self:LekGlobalSix_OK_Section2_d2();
+	local ok1, det1 = AssignStartingPlots.LekGlobalSix_OK_Section1_CentreBand(self);
+	local ok2, det2 = AssignStartingPlots.LekGlobalSix_OK_Section2_d2(self);
+	local ok3, det3 = AssignStartingPlots.LekGlobalSix_OK_Section3_InlandSalt(self);
 	LekPlacementProbeLog("### LekGlobalSix_OK diag runId=" .. rid ..
 		" spec=SCRATCHPAD-placement-spec-v0.11 s1_centre_9_18=" .. (ok1 and "pass" or "fail") .. " " .. tostring(det1) ..
 		" s2_secondNearest_le15=" .. (ok2 and "pass" or "fail") .. " " .. tostring(det2) ..
-		" s3_s6=not_enforced_yet");
+		" s3_inland_salt_dLe3_max4=" .. (ok3 and "pass" or "fail") .. " " .. tostring(det3) ..
+		" s4_ring_s5_bias_s6_site=not_enforced_yet");
 end
 
 function AssignStartingPlots:LekGlobalSixChooseLocations(args)
