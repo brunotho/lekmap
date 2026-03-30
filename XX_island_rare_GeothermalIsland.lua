@@ -59,7 +59,6 @@ function TryPlaceGeothermalIsland(plotTypes, centerX, centerY, islLandInRing, pa
 	local cx = WrapCoord(centerX, params.iW, params.wrapX);
 	local cy = WrapCoord(centerY, params.iH, params.wrapY);
 	if cx < 0 or cx >= params.iW or cy < 0 or cy >= params.iH then return false; end
-	if cy < 3 or cy >= params.iH - 3 then return false; end
 
 	local disk = GetHexDisk(cx, cy, DISK_R, params.iW, params.iH, params.wrapX, params.wrapY);
 	if #disk < 7 then return false; end
@@ -71,6 +70,32 @@ function TryPlaceGeothermalIsland(plotTypes, centerX, centerY, islLandInRing, pa
 		local k = gx .. "," .. gy;
 		landSet[k] = true;
 		landTiles[#landTiles + 1] = { gx, gy };
+	end
+
+	local needNS = not params.wrapY;
+	local needWE = not params.wrapX;
+	local touchNS = not needNS;
+	local touchWE = not needWE;
+	for _, t in ipairs(landTiles) do
+		local gx, gy = t[1], t[2];
+		if needNS and (gy <= 1 or gy >= params.iH - 2) then
+			touchNS = true;
+		end
+		if needWE and (gx <= 1 or gx >= params.iW - 2) then
+			touchWE = true;
+		end
+	end
+	if needNS and needWE then
+		if not (touchNS or touchWE) then
+			return false;
+		end
+	else
+		if needNS and not touchNS then
+			return false;
+		end
+		if needWE and not touchWE then
+			return false;
+		end
 	end
 
 	for d = 1, 6 do

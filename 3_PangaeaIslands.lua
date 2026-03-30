@@ -28,6 +28,7 @@ include("XX_island_rare_Crescent");
 include("XX_island_rare_SolomonsMinesIsland");
 include("XX_island_rare_VolcanicRing");
 include("XX_island_rare_GeothermalIsland");
+include("XX_island_rare_WrapSoftLandbridge");
 -- include("XX_island_rare_FjordPeninsula");
 -- include("XX_island_rare_BrokenHeart");
 -- include("XX_island_rare_EdgeOfWorld");
@@ -71,6 +72,7 @@ local RareIslands = {
 	{ type = "solomonsMinesIsland", odds = 1, pullBack = 2, effMin = 2, effMax = 5, budget = 1.67 },
 	{ type = "sinaiIsland",        	odds = 1, pullBack = 2, effMin = 2, effMax = 5, budget = 1.5 },
 	{ type = "geothermalIsland",  	odds = 2, pullBack = 2, effMin = 2, effMax = 5, budget = 1.2 },
+	{ type = "wrapSoftLandbridge",  odds = 1, pullBack = 2, effMin = 2, effMax = 5, budget = 0.55 },
 	{ type = "junglePeak",         	odds = 2, pullBack = 3, effMin = 2, effMax = 5, budget = 1.65 },
 	{ type = "lakeRidge",          	odds = 2, pullBack = 0, effMin = 0, effMax = 0, budget = 0 },
 	-- { type = "fjordPeninsula",     odds = 1, pullBack = 4, effMin = 4, effMax = 6, budget = 0.65 },
@@ -193,6 +195,7 @@ end
 
 local NAMED_PRIORITY = {
 	polarMerge = 1,
+	wrapSoftLandbridge = 3,
 };
 local TIER_BASE_PRIORITY = {
 	rare        = 5,
@@ -491,6 +494,18 @@ function GeneratePangaeaIslands(self, genOpts)
 		]]
 		elseif islandType == "steppingStone" then
 			if TryPlaceSteppingStoneIsland(self.plotTypes, opts) then
+				spentBudget = spentBudget + GetBudget(islandType);
+				islandsPlaced = islandsPlaced + 1;
+			end
+		elseif islandType == "wrapSoftLandbridge" then
+			local placedBridge = false;
+			for _wb = 1, 28 do
+				if TryPlaceWrapSoftLandbridge(self.plotTypes, opts) then
+					placedBridge = true;
+					break;
+				end
+			end
+			if placedBridge then
 				spentBudget = spentBudget + GetBudget(islandType);
 				islandsPlaced = islandsPlaced + 1;
 			end
