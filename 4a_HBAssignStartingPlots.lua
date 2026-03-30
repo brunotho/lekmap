@@ -4660,8 +4660,8 @@ function AssignStartingPlots:LekGlobalSix_OK_Section4_TwoCoastalGeoCycle()
 			return false, "missing_r=" .. tostring(r);
 		end
 		local x, y = t[1], t[2];
-		local plotIndex = y * iW + x + 1;
-		local isC = (self.plotDataIsCoastal[plotIndex] == true);
+		local plot = Map.GetPlot(x, y);
+		local isC = (plot and plot:IsCoastalLand()) or false;
 		local ang = math.atan2(y - cy, x - cx);
 		slots[#slots + 1] = { r = r, ang = ang, coastal = isC };
 	end
@@ -4690,6 +4690,30 @@ function AssignStartingPlots:LekGlobalSix_OK_Section4_TwoCoastalGeoCycle()
 	return true, "geoAngleOrder_twoC_nonAdjacent";
 end
 
+function AssignStartingPlots.LekGlobalSix_OK_EvaluateCandidateEarlyRejectReason(plotIndex)
+	if _polar_merge_excluded_plots and _polar_merge_excluded_plots[plotIndex] then
+		return "polar_merge_excluded";
+	end
+	if _fjord_peninsula_excluded_plots and _fjord_peninsula_excluded_plots[plotIndex] then
+		return "fjord_peninsula_excluded";
+	end
+	local iW, iH = Map.GetGridSize();
+	local x = (plotIndex - 1) % iW;
+	local y = (plotIndex - x - 1) / iW;
+	local distFromEdge = math.min(y, iH - 1 - y);
+	if distFromEdge < 8 then
+		return "edge_lt8";
+	end
+	local plot = Map.GetPlot(x, y);
+	if not plot then
+		return "nil_plot";
+	end
+	if plot:GetTerrainType() == TerrainTypes.TERRAIN_SNOW then
+		return "snow";
+	end
+	return nil;
+end
+
 function AssignStartingPlots:LekGlobalSix_OK_Section6_SiteQuality_PostPlacement()
 	local iW, iH = Map.GetGridSize();
 	for r = 1, self.iNumCivs do
@@ -4708,26 +4732,64 @@ function AssignStartingPlots:LekGlobalSix_OK_Section6_SiteQuality_PostPlacement(
 		local score, meetsMin = self:EvaluateCandidatePlot(plotIndex, rt);
 		self.distanceData[plotIndex] = savedDD;
 		if not meetsMin then
-			return false, string.format("r=%d plotIndex=%d score=%s", r, plotIndex, tostring(score));
+			local early = AssignStartingPlots.LekGlobalSix_OK_EvaluateCandidateEarlyRejectReason(plotIndex);
+			if early then
+				return false, string.format("r=%d plotIndex=%d score=%s early=%s", r, plotIndex, tostring(score), early);
+			end
+			return false, string.format("r=%d plotIndex=%d score=%s early=ok suspect=rings_junk_or_distancebias", r, plotIndex, tostring(score));
 		end
 	end
 	return true, "mode=postplacement_eval_mask_own_impact_tile";
 end
 
-function AssignStartingPlots:LekGlobalSix_OK_LogDiagnostics()
-	local rid = tostring(_lek_run_id or "na");
+function AssignStartingPlots:LekGlobalSix_OK_RunAll()
 	local ok1, det1 = AssignStartingPlots.LekGlobalSix_OK_Section1_CentreBand(self);
 	local ok2, det2 = AssignStartingPlots.LekGlobalSix_OK_Section2_d2(self);
 	local ok3, det3 = AssignStartingPlots.LekGlobalSix_OK_Section3_InlandSalt(self);
 	local ok4, det4 = AssignStartingPlots.LekGlobalSix_OK_Section4_TwoCoastalGeoCycle(self);
 	local ok6, det6 = AssignStartingPlots.LekGlobalSix_OK_Section6_SiteQuality_PostPlacement(self);
+	local first_fail, first_det = nil, "";
+	if not ok1 then
+		first_fail, first_det = "s1", det1;
+	elseif not ok2 then
+		first_fail, first_det = "s2", det2;
+	elseif not ok3 then
+		first_fail, first_det = "s3", det3;
+	elseif not ok4 then
+		first_fail, first_det = "s4", det4;
+	elseif not ok6 then
+		first_fail, first_det = "s6", det6;
+	end
+	local all_hard_pass = ok1 and ok2 and ok3 and ok4 and ok6;
+	return {
+		s1_ok = ok1,
+		s1_det = det1,
+		s2_ok = ok2,
+		s2_det = det2,
+		s3_ok = ok3,
+		s3_det = det3,
+		s4_ok = ok4,
+		s4_det = det4,
+		s6_ok = ok6,
+		s6_det = det6,
+		first_fail = first_fail,
+		first_fail_detail = first_det,
+		all_hard_pass = all_hard_pass,
+	};
+end
+
+function AssignStartingPlots:LekGlobalSix_OK_LogDiagnostics()
+	local rid = tostring(_lek_run_id or "na");
+	local R = AssignStartingPlots.LekGlobalSix_OK_RunAll(self);
 	LekPlacementProbeLog("### LekGlobalSix_OK diag runId=" .. rid ..
-		" spec=SCRATCHPAD-placement-spec-v0.11 s1_centre_9_18=" .. (ok1 and "pass" or "fail") .. " " .. tostring(det1) ..
-		" s2_secondNearest_le15=" .. (ok2 and "pass" or "fail") .. " " .. tostring(det2) ..
-		" s3_inland_salt_dLe3_max4=" .. (ok3 and "pass" or "fail") .. " " .. tostring(det3) ..
-		" s4_twoCoastal_geoCycle=" .. (ok4 and "pass" or "fail") .. " " .. tostring(det4) ..
+		" spec=SCRATCHPAD-placement-spec-v0.11 first_fail=" .. tostring(R.first_fail or "none") ..
+		" all_hard_pass=" .. (R.all_hard_pass and "1" or "0") ..
+		" s1_centre_9_18=" .. (R.s1_ok and "pass" or "fail") .. " " .. tostring(R.s1_det) ..
+		" s2_secondNearest_le15=" .. (R.s2_ok and "pass" or "fail") .. " " .. tostring(R.s2_det) ..
+		" s3_inland_salt_dLe3_max4=" .. (R.s3_ok and "pass" or "fail") .. " " .. tostring(R.s3_det) ..
+		" s4_twoCoastal_geoCycle_IsCoastalLand=" .. (R.s4_ok and "pass" or "fail") .. " " .. tostring(R.s4_det) ..
 		" s5_bias=not_enforced_yet" ..
-		" s6_EvaluateCandidate_meets_minimums=" .. (ok6 and "pass" or "fail") .. " " .. tostring(det6));
+		" s6_EvaluateCandidate_meets_minimums=" .. (R.s6_ok and "pass" or "fail") .. " " .. tostring(R.s6_det));
 end
 
 function AssignStartingPlots:LekGlobalSixChooseLocations(args)
