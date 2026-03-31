@@ -5227,6 +5227,7 @@ function AssignStartingPlots:LekGlobalSix_TupleBiasFeasibilityFromPools(byRegion
 		return true, "skipped_GAMEOPTION_DISABLE_START_BIAS", stats;
 	end
 	local poolMeta = {};
+	local coastalSaltOnly = (self._lek_global_six_coastal_bias_requires_salt == true);
 	for r = 1, 6 do
 		local cc, rc = false, false;
 		local br = byRegion[r];
@@ -5234,7 +5235,11 @@ function AssignStartingPlots:LekGlobalSix_TupleBiasFeasibilityFromPools(byRegion
 			for i = 1, #br do
 				local c = br[i];
 				local m = AssignStartingPlots.LekGlobalSix_MeasureBiasConditionsAtXY(self, c.x, c.y);
-				if m.alongOcean or m.nextToLake then
+				if coastalSaltOnly then
+					if m.alongOcean then
+						cc = true;
+					end
+				elseif m.alongOcean or m.nextToLake then
 					cc = true;
 				end
 				if m.isRiver or m.nearRiver then
@@ -5372,7 +5377,11 @@ function AssignStartingPlots:LekGlobalSix_OK_Section5_BalanceAndAssignFeasible()
 	if not plist then
 		return false, tostring(perr or "plist_nil");
 	end
+	local coastalSaltOnly5 = (self._lek_global_six_coastal_bias_requires_salt == true);
 	local function okCoastal(r)
+		if coastalSaltOnly5 then
+			return meta[r].alongOcean;
+		end
 		return meta[r].alongOcean or meta[r].nextToLake;
 	end
 	local function okRiver(r)
@@ -6202,6 +6211,7 @@ function AssignStartingPlots:LekGlobalSix_RunTupleSearch()
 					" minEligRegionsAmongPlayers=" .. tostring(st.minEligRegionsAmongPlayers or -1) ..
 					" s5avoidHard=" .. tostring(st.s5avoidHard or -1) ..
 					" s5primHard=" .. tostring(st.s5primHard or -1) ..
+					" coastalBiasSaltOnly=" .. ((self._lek_global_six_coastal_bias_requires_salt == true) and "1" or "0") ..
 					" note=regionsCoastalCapable_counts_regions_with_any_coastalOK_plot_in_pool_injective_can_still_fail_prim_avoid_interlock");
 			end
 

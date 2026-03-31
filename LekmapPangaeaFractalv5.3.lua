@@ -2437,6 +2437,8 @@ function StartPlotSystem()
 	     -- §5 start bias: coastal/river stay hard. Vanilla-like: avoid is preference-only for injective §5 (all-t1 Pangaea vs avoid-grass civs). Re-enable hard avoid: _lek_global_six_s5_avoid_hard = true;
 	     start_plot_database._lek_global_six_s5_avoid_hard = false;
 	     -- start_plot_database._lek_global_six_s5_prim_hard = false; -- optional: soften multi-region priority only
+	     -- Coastal start bias: true = only salt-water adjacency (plotDataIsCoastal / alongOcean), not lake coast — vanillaHB tuple gate used alongOcean|nextToLake.
+	     start_plot_database._lek_global_six_coastal_bias_requires_salt = true;
 	     -- tupleBiasFeasibility: necessary check — §5-style injective matching on “region r can satisfy coastal/river if some pool plot matches MeasureBiasConditionsAtXY”. skip_impossible skips DFS for that phase (log decision=). Disable: _lek_global_six_tuple_bias_feasibility_gate = false.
 	     -- tupleSpacingReorder: at depth≥2, try candidates with larger min hex distance to already-placed starts first. Logs: ### LekGlobalSix tupleSpacingReorder sample (when _lek_tuple_pool_diag) + spacingDepthCalls / spacingNontrivialPerm on phase end. Disable: _lek_global_six_tuple_spacing_reorder = false.
 	     -- Tuple DFS: thin_first (default) = ascending pool size; constraint_weighted (default) = tie-break by fewer coastal plots in capped pool first (§4/§5 slack). Logs: dfsOrderMode + sortKeys on ### LekGlobalSix tupleDfsOrder.
@@ -2541,10 +2543,11 @@ function StartPlotSystem()
 		local msg = "### LekMapGen StartPlotSystem short_circuit runId=" .. tostring(_lek_run_id or "na")
 			.. " layout=" .. tostring(att) .. "/" .. tostring(maxL)
 			.. " skip=BalanceAndAssign_rescue_spacing_NW_resources";
-		print(msg);
-		appendLekLog({ msg });
 		if LekPlacementProbeLog then
 			LekPlacementProbeLog(msg);
+		else
+			print(msg);
+			appendLekLog({ msg });
 		end
 		return;
 	end
