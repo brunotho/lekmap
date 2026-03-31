@@ -169,6 +169,7 @@ function AssignStartingPlots.Create()
 		LekGlobalSixChooseLocations = AssignStartingPlots.LekGlobalSixChooseLocations,
 		LekGlobalSix_OK_RunAll = AssignStartingPlots.LekGlobalSix_OK_RunAll,
 		LekGlobalSix_GatherRawFindStartStyleCandidateIndices = AssignStartingPlots.LekGlobalSix_GatherRawFindStartStyleCandidateIndices,
+		LekGlobalSix_GatherTupleStyleCandidateIndices = AssignStartingPlots.LekGlobalSix_GatherTupleStyleCandidateIndices,
 		LekGlobalSix_CountRawFindStartStyleCandidates = AssignStartingPlots.LekGlobalSix_CountRawFindStartStyleCandidates,
 		LekGlobalSix_CountEvaluateMeetsMinInRawPool = AssignStartingPlots.LekGlobalSix_CountEvaluateMeetsMinInRawPool,
 		LekGlobalSix_ApplyDistanceRipplesForStartOnly = AssignStartingPlots.LekGlobalSix_ApplyDistanceRipplesForStartOnly,
@@ -3521,7 +3522,7 @@ function AssignStartingPlots:EvaluateCandidatePlot(plotIndex, region_type)
 	local finalScore = innerRingScore + middleRingScore + outerRingScore + coastScore;
 
 	--[[ Lekmap placement cleanup (spec v0.3): optional finalScore steering disabled so ranking
-	    does not fight future global OK() centre-band + salt checks (see LekGlobalSix_OK_GetCentreBand). Re-enable
+	    does not fight future global OK() hard checks (map-centre d in 9..18, inland salt). Re-enable
 	    for local experiments only.
 	local saltSeaAdj = 0;
 	do
@@ -3607,6 +3608,8 @@ function AssignStartingPlots:IterateThroughCandidatePlotList(plot_list, region_t
 	return election_results
 end
 ------------------------------------------------------------------------------
+-- Vanilla HB-style scan with center/middle/outer tier bookkeeping (same plot set as full rectangle).
+-- Global-six tuple search uses LekGlobalSix_GatherTupleStyleCandidateIndices + map-centre ring sort instead.
 function AssignStartingPlots:LekGlobalSix_GatherRawFindStartStyleCandidateIndices(region_number, NoCoast)
 	local region_data_table = self.regionData[region_number];
 	if not region_data_table then
@@ -3688,12 +3691,58 @@ function AssignStartingPlots:LekGlobalSix_GatherRawFindStartStyleCandidateIndice
 	return list;
 end
 
+-- Global-six tuple path: same land/area/coast filters as GatherRawFindStartStyleCandidateIndices
+-- but scans the full region rectangle without center/middle/outer tier scheduling (spec: ideal map-centre
+-- ring ordering is applied in GatherSearchCandidatesOrdered, not HB FindStart donuts).
+function AssignStartingPlots:LekGlobalSix_GatherTupleStyleCandidateIndices(region_number, NoCoast)
+	local region_data_table = self.regionData[region_number];
+	if not region_data_table then
+		return {};
+	end
+	local iW, iH = Map.GetGridSize();
+	local iWestX = region_data_table[1];
+	local iSouthY = region_data_table[2];
+	local iWidth = region_data_table[3];
+	local iHeight = region_data_table[4];
+	local iAreaID = region_data_table[5];
+	local seen = {};
+	for region_y = 0, iHeight - 1 do
+		for region_x = 0, iWidth - 1 do
+			local x = (region_x + iWestX) % iW;
+			local y = (region_y + iSouthY) % iH;
+			local plotIndex = y * iW + x + 1;
+			local plot = Map.GetPlot(x, y);
+			if plot then
+				local plotType = plot:GetPlotType();
+				if plotType == PlotTypes.PLOT_HILLS or plotType == PlotTypes.PLOT_LAND then
+					if self.plotDataIsNextToCoast[plotIndex] == true then
+					elseif self.plotDataIsThreeFromCoast[plotIndex] == true then
+					else
+						local area_of_plot = plot:GetArea();
+						if area_of_plot == iAreaID or iAreaID == -1 then
+							if not (NoCoast == true and self.plotDataIsCoastal[plotIndex] == true) then
+								seen[plotIndex] = true;
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+	local list = {};
+	for pi in pairs(seen) do
+		list[#list + 1] = pi;
+	end
+	table.sort(list);
+	return list;
+end
+
 function AssignStartingPlots:LekGlobalSix_CountRawFindStartStyleCandidates(region_number, NoCoast)
-	return #AssignStartingPlots.LekGlobalSix_GatherRawFindStartStyleCandidateIndices(self, region_number, NoCoast);
+	return #AssignStartingPlots.LekGlobalSix_GatherTupleStyleCandidateIndices(self, region_number, NoCoast);
 end
 
 function AssignStartingPlots:LekGlobalSix_CountEvaluateMeetsMinInRawPool(region_number, NoCoast)
-	local list = AssignStartingPlots.LekGlobalSix_GatherRawFindStartStyleCandidateIndices(self, region_number, NoCoast);
+	local list = AssignStartingPlots.LekGlobalSix_GatherTupleStyleCandidateIndices(self, region_number, NoCoast);
 	local rawCount = #list;
 	local rt = self.regionTypes[region_number];
 	if not rt or rawCount == 0 then
@@ -3749,7 +3798,7 @@ function AssignStartingPlots:LekGlobalSix_LogRippleOrderedSampleDryRun()
 	local pickLine = {};
 	local failPick = nil;
 	for r = 1, 6 do
-		local list = AssignStartingPlots.LekGlobalSix_GatherRawFindStartStyleCandidateIndices(self, r, false);
+		local list = AssignStartingPlots.LekGlobalSix_GatherTupleStyleCandidateIndices(self, r, false);
 		local rt = self.regionTypes[r];
 		if not rt then
 			failPick = "nil_regionType_r=" .. tostring(r);
@@ -4843,36 +4892,13 @@ function AssignStartingPlots:LekGlobalSix_PlotDistance(x1, y1, x2, y2)
 	return nil;
 end
 
-function AssignStartingPlots:LekGlobalSix_OK_GetCentreBand()
-	local lo = self._lek_ok_s1_d_min;
-	local hi = self._lek_ok_s1_d_max;
-	if type(lo) ~= "number" then
-		lo = 8;
-	end
-	if type(hi) ~= "number" then
-		hi = 19;
-	end
-	if lo > hi then
-		lo, hi = 9, 18;
-	end
-	return lo, hi;
-end
-
-function AssignStartingPlots:LekGlobalSix_OK_GetCentreTargetD()
-	local lo, hi = AssignStartingPlots.LekGlobalSix_OK_GetCentreBand(self);
-	return math.floor((lo + hi) / 2);
-end
-
-function AssignStartingPlots:LekGlobalSix_OK_GetSecondNearestMax()
-	local m = self._lek_ok_s2_second_nearest_max;
-	if type(m) ~= "number" or m < 1 then
-		m = 17;
-	end
-	return m;
-end
+-- SCRATCHPAD-placement-spec-v0.11 global-six geometry (§1 annulus, §2 spacing).
+local LEK_G6_S1_D_MIN = 9;
+local LEK_G6_S1_D_MAX = 18;
+local LEK_G6_S1_TARGET_D = 13;
+local LEK_G6_S2_SECOND_NEAREST_MAX = 15;
 
 function AssignStartingPlots:LekGlobalSix_OK_Section1_CentreBand()
-	local dMin, dMax = AssignStartingPlots.LekGlobalSix_OK_GetCentreBand(self);
 	local iW, iH = Map.GetGridSize();
 	local cx = math.floor(iW / 2);
 	local cy = math.floor(iH / 2);
@@ -4885,15 +4911,14 @@ function AssignStartingPlots:LekGlobalSix_OK_Section1_CentreBand()
 		if d == nil then
 			return false, "no_PlotDistance";
 		end
-		if d < dMin or d > dMax then
-			return false, string.format("r=%d d=%d xy=%d,%d band=%d-%d", r, d, sp[1], sp[2], dMin, dMax);
+		if d < LEK_G6_S1_D_MIN or d > LEK_G6_S1_D_MAX then
+			return false, string.format("r=%d d=%d xy=%d,%d", r, d, sp[1], sp[2]);
 		end
 	end
 	return true, "";
 end
 
 function AssignStartingPlots:LekGlobalSix_OK_Section2_d2()
-	local d2Max = AssignStartingPlots.LekGlobalSix_OK_GetSecondNearestMax(self);
 	for i = 1, self.iNumCivs do
 		local ti = self.startingPlots[i];
 		if not ti or type(ti[1]) ~= "number" or type(ti[2]) ~= "number" then
@@ -4915,8 +4940,8 @@ function AssignStartingPlots:LekGlobalSix_OK_Section2_d2()
 		end
 		table.sort(dists);
 		local d2 = dists[2];
-		if d2 > d2Max then
-			return false, string.format("i=%d secondNearest=%d max=%d", i, d2, d2Max);
+		if d2 > LEK_G6_S2_SECOND_NEAREST_MAX then
+			return false, string.format("i=%d secondNearest=%d", i, d2);
 		end
 	end
 	return true, "";
@@ -5273,13 +5298,11 @@ end
 function AssignStartingPlots:LekGlobalSix_OK_LogDiagnostics()
 	local rid = tostring(_lek_run_id or "na");
 	local R = AssignStartingPlots.LekGlobalSix_OK_RunAll(self);
-	local b1, b2 = AssignStartingPlots.LekGlobalSix_OK_GetCentreBand(self);
-	local s2m = AssignStartingPlots.LekGlobalSix_OK_GetSecondNearestMax(self);
 	LekPlacementProbeLog("### LekGlobalSix_OK diag runId=" .. rid ..
 		" spec=SCRATCHPAD-placement-spec-v0.11 first_fail=" .. tostring(R.first_fail or "none") ..
 		" all_hard_pass=" .. (R.all_hard_pass and "1" or "0") ..
-		" s1_centreBand=" .. tostring(b1) .. "_" .. tostring(b2) .. "=" .. (R.s1_ok and "pass" or "fail") .. " " .. tostring(R.s1_det) ..
-		" s2_secondNearest_max=" .. tostring(s2m) .. "=" .. (R.s2_ok and "pass" or "fail") .. " " .. tostring(R.s2_det) ..
+		" s1_centre_9_18=" .. (R.s1_ok and "pass" or "fail") .. " " .. tostring(R.s1_det) ..
+		" s2_secondNearest_le15=" .. (R.s2_ok and "pass" or "fail") .. " " .. tostring(R.s2_det) ..
 		" s3_inland_salt_dLe3_max4=" .. (R.s3_ok and "pass" or "fail") .. " " .. tostring(R.s3_det) ..
 		" s4_twoCoastal_geoCycle_IsCoastalLand=" .. (R.s4_ok and "pass" or "fail") .. " " .. tostring(R.s4_det) ..
 		" s5_bias_BAndA_feasible=" .. (R.s5_ok and "pass" or "fail") .. " " .. tostring(R.s5_det) ..
@@ -5337,7 +5360,6 @@ function AssignStartingPlots:LekGlobalSix_TiebreakMaxCentrDeviation()
 	local iW, iH = Map.GetGridSize();
 	local cx = math.floor(iW / 2);
 	local cy = math.floor(iH / 2);
-	local targetD = AssignStartingPlots.LekGlobalSix_OK_GetCentreTargetD(self);
 	local worst = 0;
 	for r = 1, 6 do
 		local sp = self.startingPlots[r];
@@ -5345,7 +5367,7 @@ function AssignStartingPlots:LekGlobalSix_TiebreakMaxCentrDeviation()
 		if not d then
 			return math.huge;
 		end
-		local dev = math.abs(d - targetD);
+		local dev = math.abs(d - LEK_G6_S1_TARGET_D);
 		if dev > worst then
 			worst = dev;
 		end
@@ -5354,12 +5376,11 @@ function AssignStartingPlots:LekGlobalSix_TiebreakMaxCentrDeviation()
 end
 
 function AssignStartingPlots:LekGlobalSix_CountMaskedMeetsMinOutsideInsideCentreBand(region_r)
-	local list = AssignStartingPlots.LekGlobalSix_GatherRawFindStartStyleCandidateIndices(self, region_r, false);
+	local list = AssignStartingPlots.LekGlobalSix_GatherTupleStyleCandidateIndices(self, region_r, false);
 	local rt = self.regionTypes[region_r];
 	if not rt then
 		return 0, 0, nil, nil;
 	end
-	local dBandLo, dBandHi = AssignStartingPlots.LekGlobalSix_OK_GetCentreBand(self);
 	local iW, iH = Map.GetGridSize();
 	local cx = math.floor(iW / 2);
 	local cy = math.floor(iH / 2);
@@ -5380,7 +5401,7 @@ function AssignStartingPlots:LekGlobalSix_CountMaskedMeetsMinOutsideInsideCentre
 			if d then
 				if dLo == nil or d < dLo then dLo = d; end
 				if dHi == nil or d > dHi then dHi = d; end
-				if d >= dBandLo and d <= dBandHi then
+				if d >= LEK_G6_S1_D_MIN and d <= LEK_G6_S1_D_MAX then
 					inBand = inBand + 1;
 				end
 			end
@@ -5390,12 +5411,11 @@ function AssignStartingPlots:LekGlobalSix_CountMaskedMeetsMinOutsideInsideCentre
 end
 
 function AssignStartingPlots:LekGlobalSix_GatherSearchCandidatesOrdered(region_r)
-	local list = AssignStartingPlots.LekGlobalSix_GatherRawFindStartStyleCandidateIndices(self, region_r, false);
+	local list = AssignStartingPlots.LekGlobalSix_GatherTupleStyleCandidateIndices(self, region_r, false);
 	local rt = self.regionTypes[region_r];
 	if not rt then
 		return {};
 	end
-	local dMin, dMax = AssignStartingPlots.LekGlobalSix_OK_GetCentreBand(self);
 	local iW, iH = Map.GetGridSize();
 	local cx = math.floor(iW / 2);
 	local cy = math.floor(iH / 2);
@@ -5406,18 +5426,22 @@ function AssignStartingPlots:LekGlobalSix_GatherSearchCandidatesOrdered(region_r
 		local y = (plotIndex - x - 1) / iW;
 		local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, x, y, cx, cy);
 		if not d then
-		elseif d < dMin or d > dMax then
+		elseif d < LEK_G6_S1_D_MIN or d > LEK_G6_S1_D_MAX then
 		else
 			local savedDD = self.distanceData[plotIndex];
 			self.distanceData[plotIndex] = 0;
 			local score, meetsMin = self:EvaluateCandidatePlot(plotIndex, rt);
 			self.distanceData[plotIndex] = savedDD;
 			if meetsMin then
-				out[#out + 1] = { plotIndex = plotIndex, x = x, y = y, score = score };
+				local ringDev = math.abs(d - LEK_G6_S1_TARGET_D);
+				out[#out + 1] = { plotIndex = plotIndex, x = x, y = y, score = score, ringDev = ringDev, dMapCenter = d };
 			end
 		end
 	end
 	table.sort(out, function(a, b)
+		if a.ringDev ~= b.ringDev then
+			return a.ringDev < b.ringDev;
+		end
 		if a.score ~= b.score then
 			return a.score > b.score;
 		end
@@ -5470,7 +5494,7 @@ function AssignStartingPlots:LekGlobalSix_RunTupleSearch()
 			LekPlacementProbeLog("### LekGlobalSix tupleSearch runId=" .. rid ..
 				" status=no_candidates region=" .. tostring(r) ..
 				" meetsMin_maskOwnDD_allRaw=" .. tostring(maskedAll) ..
-				" meetsMin_inCentreBand=" .. tostring(inBand) ..
+				" meetsMin_maskOwnDD_inS1band9_18=" .. tostring(inBand) ..
 				" meetsMin_dCenterRange=" .. dr);
 			return false, 0, 0, maxFail, "no_candidates_r=" .. tostring(r);
 		end

@@ -2435,10 +2435,6 @@ function StartPlotSystem()
 	     start_plot_database._lek_global_six_regen_max_layouts = 4;
 	     start_plot_database._lek_enable_virtual_six_retries = false;
 	     start_plot_database._lek_disable_virtual_six = true;
-	     -- Strict SCRATCHPAD v0.11 geometry (narrower search, harder tuple hits):
-	     -- start_plot_database._lek_ok_s1_d_min = 9;
-	     -- start_plot_database._lek_ok_s1_d_max = 18;
-	     -- start_plot_database._lek_ok_s2_second_nearest_max = 15;
 	     -- start_plot_database._lek_enable_virtual_six_retries = true
 	     -- start_plot_database._lek_disable_virtual_six = false
 	     start_plot_database._lek_flatten_region_start_tiers = false
