@@ -181,7 +181,7 @@ Single checklist of **everything** we have named while iterating on global-six. 
 |------|--------|
 | **`no_candidates`** | **`meetsMin ∧ §1` empty** for some **`r`** — **search reorder irrelevant**; fix band / region land / **`meetsMin`**. |
 | **Ripple dry-run vs tuple** | Same seed: **`no_eligible_plot_r=k`** vs non-empty **`searchOrderedN`** — **different** rules/path; debug alignment separately. |
-| **Budgets** | **`_lek_global_six_max_fail_complete`**, **`_lek_global_six_max_leaf_evals`** in **`LekmapPangaeaFractalv5.3.lua`**; **`leafEvals`** must stay **≥** useful leaf count or cap stops search first. |
+| **Budgets** | **`_lek_global_six_max_fail_complete`**, **`_lek_global_six_max_leaf_evals`** in **`LekmapPangaeaFractalv5.3.lua`**; **`leafEvals`** must stay **≥** useful leaf count or cap stops search first. **Perf:** each leaf runs **6× ripples + `OK_RunAll`** (incl. costly §3 scans); **10⁵** fails ⇒ **many minutes** per layout—use **`### LekGlobalSix tupleSearchProgress`** (every **`_lek_global_six_tuple_progress_every`**, default **2000** when **`maxFail≥5000`**) so the run does not look hung. |
 | **Regen** | **`_lek_global_six_regen_max_layouts`**, **`tuple_solver_no_accepted_tuple`**. |
 
 ### B.5 Recommended sequencing
