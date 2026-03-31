@@ -5644,6 +5644,10 @@ function AssignStartingPlots:LekGlobalSix_RunTupleSearch()
 	if type(maxLeaf) ~= "number" or maxLeaf < 1 then
 		maxLeaf = 800;
 	end
+	local progressEvery = self._lek_global_six_tuple_progress_every;
+	if type(progressEvery) ~= "number" or progressEvery < 1 then
+		progressEvery = (maxFail >= 5000) and 2000 or 0;
+	end
 	local doTupleDiag = (self._lek_tuple_pool_diag ~= false);
 	if doTupleDiag then
 		AssignStartingPlots.LekGlobalSix_LogTupleProbeLayerSnapshot(self);
@@ -5719,6 +5723,14 @@ function AssignStartingPlots:LekGlobalSix_RunTupleSearch()
 				failComplete = failComplete + 1;
 				noteFail(R);
 				bumpFailHist(R.first_fail);
+				if progressEvery > 0 and failComplete % progressEvery == 0 then
+					LekPlacementProbeLog("### LekGlobalSix tupleSearchProgress runId=" .. rid ..
+						" failComplete=" .. tostring(failComplete) ..
+						" leafEvals=" .. tostring(leafEvals) ..
+						" maxFail=" .. tostring(maxFail) ..
+						" last_fail=" .. tostring(lastFailKind or "?") ..
+						" failHist=" .. fmtFailHist());
+				end
 			end
 			return;
 		end

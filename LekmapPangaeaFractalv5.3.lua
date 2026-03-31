@@ -2433,9 +2433,11 @@ function StartPlotSystem()
 	     start_plot_database._lek_global_six_solver = true;
 	     start_plot_database._lek_global_six_ripple_dry_run = true;
 	     start_plot_database._lek_tuple_pool_diag = true;
-	     -- max_fail_complete: stop after this many full 6-tuples that fail OK(). max_leaf_evals: cap on OK_RunAll() runs (each "leaf" is one complete assignment); must be >= fail cap if both bind while still searching.
-	     start_plot_database._lek_global_six_max_fail_complete = 100000;
-	     start_plot_database._lek_global_six_max_leaf_evals = 200000;
+	     -- max_fail_complete / max_leaf_evals: each leaf = full 6 placements + PlaceImpactAndRipples + OK_RunAll (expensive). 100k+ fails can take many minutes per layout—use for batch only. Progress: ### LekGlobalSix tupleSearchProgress every 2000 fails when maxFail>=5000 (override with _lek_global_six_tuple_progress_every).
+	     start_plot_database._lek_global_six_max_fail_complete = 12000;
+	     start_plot_database._lek_global_six_max_leaf_evals = 40000;
+	     -- start_plot_database._lek_global_six_max_fail_complete = 100000;
+	     -- start_plot_database._lek_global_six_max_leaf_evals = 300000;
 	     start_plot_database._lek_global_six_regen_max_layouts = 4;
 	     start_plot_database._lek_enable_virtual_six_retries = false;
 	     start_plot_database._lek_disable_virtual_six = true;
