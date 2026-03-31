@@ -3662,20 +3662,25 @@ function AssignStartingPlots:LekGlobalSix_GatherRawFindStartStyleCandidateIndice
 						if area_of_plot == iAreaID or iAreaID == -1 then
 							local test_x = region_x + iWestX;
 							local test_y = region_y + iSouthY;
+							local function tryMark()
+								if NoCoast == true and self.plotDataIsCoastal[plotIndex] == true then
+									return;
+								end
+								if self.plotDataIsCoastal[plotIndex] == true then
+									if not (self.AllowInlandSea == 1 or plot:IsCoastalLand(300)) then
+										return;
+									end
+								end
+								seen[plotIndex] = true;
+							end
 							if (test_x >= iCenterTestWestX and test_x <= iCenterTestEastX) and
 							   (test_y >= iCenterTestSouthY and test_y <= iCenterTestNorthY) then
-								if not (NoCoast == true and self.plotDataIsCoastal[plotIndex] == true) then
-									seen[plotIndex] = true;
-								end
+								tryMark();
 							elseif (test_x >= iMiddleTestWestX and test_x <= iMiddleTestEastX) and
 							       (test_y >= iMiddleTestSouthY and test_y <= iMiddleTestNorthY) then
-								if not (NoCoast == true and self.plotDataIsCoastal[plotIndex] == true) then
-									seen[plotIndex] = true;
-								end
+								tryMark();
 							else
-								if not (NoCoast == true and self.plotDataIsCoastal[plotIndex] == true) then
-									seen[plotIndex] = true;
-								end
+								tryMark();
 							end
 						end
 					end
@@ -3721,7 +3726,13 @@ function AssignStartingPlots:LekGlobalSix_GatherTupleStyleCandidateIndices(regio
 						local area_of_plot = plot:GetArea();
 						if area_of_plot == iAreaID or iAreaID == -1 then
 							if not (NoCoast == true and self.plotDataIsCoastal[plotIndex] == true) then
-								seen[plotIndex] = true;
+								if self.plotDataIsCoastal[plotIndex] == true then
+									if self.AllowInlandSea == 1 or plot:IsCoastalLand(300) then
+										seen[plotIndex] = true;
+									end
+								else
+									seen[plotIndex] = true;
+								end
 							end
 						end
 					end
@@ -4911,7 +4922,9 @@ function AssignStartingPlots:LekGlobalSix_OK_Section1_CentreBand()
 		if d == nil then
 			return false, "no_PlotDistance";
 		end
-		if d < LEK_G6_S1_D_MIN or d > LEK_G6_S1_D_MAX then
+		local dLo = self._lek_g6_runtime_s1_min or LEK_G6_S1_D_MIN;
+		local dHi = self._lek_g6_runtime_s1_max or LEK_G6_S1_D_MAX;
+		if d < dLo or d > dHi then
 			return false, string.format("r=%d d=%d xy=%d,%d", r, d, sp[1], sp[2]);
 		end
 	end
@@ -4940,16 +4953,48 @@ function AssignStartingPlots:LekGlobalSix_OK_Section2_d2()
 		end
 		table.sort(dists);
 		local d2 = dists[2];
-		if d2 > LEK_G6_S2_SECOND_NEAREST_MAX then
+		local s2cap = self._lek_g6_runtime_s2_max or LEK_G6_S2_SECOND_NEAREST_MAX;
+		if d2 > s2cap then
 			return false, string.format("i=%d secondNearest=%d", i, d2);
 		end
 	end
 	return true, "";
 end
 
-function AssignStartingPlots:LekGlobalSix_OK_Section3_InlandSalt()
+local LEK_G6_S3_INLAND_SALT_HEX_R = 3;
+local LEK_G6_S3_INLAND_SALT_MAX_OCEAN = 4;
+
+function AssignStartingPlots.LekGlobalSix_OK_InlandSaltCell(self, plotIndex, rForMsg)
 	local iW, iH = Map.GetGridSize();
-	local maxR, maxSalt = 3, 4;
+	local x = (plotIndex - 1) % iW;
+	local y = (plotIndex - x - 1) / iW;
+	if self.plotDataIsCoastal[plotIndex] == true then
+		return true, "";
+	end
+	local maxR, maxSalt = LEK_G6_S3_INLAND_SALT_HEX_R, LEK_G6_S3_INLAND_SALT_MAX_OCEAN;
+	local nSalt = 0;
+	for ny = 0, iH - 1 do
+		for nx = 0, iW - 1 do
+			local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, x, y, nx, ny);
+			if d ~= nil and d <= maxR then
+				local p2 = Map.GetPlot(nx, ny);
+				if p2 and p2:IsWater() and not p2:IsLake() then
+					nSalt = nSalt + 1;
+				end
+			end
+		end
+	end
+	if nSalt > maxSalt then
+		if rForMsg ~= nil then
+			return false, string.format("r=%d inland nSaltOcean=%d max=%d xy=%d,%d", rForMsg, nSalt, maxSalt, x, y);
+		end
+		return false, string.format("inland nSaltOcean=%d max=%d plotIndex=%d xy=%d,%d", nSalt, maxSalt, plotIndex, x, y);
+	end
+	return true, "";
+end
+
+function AssignStartingPlots:LekGlobalSix_OK_Section3_InlandSalt()
+	local iW = select(1, Map.GetGridSize());
 	for r = 1, self.iNumCivs do
 		local t = self.startingPlots[r];
 		if not t or type(t[1]) ~= "number" or type(t[2]) ~= "number" then
@@ -4957,22 +5002,9 @@ function AssignStartingPlots:LekGlobalSix_OK_Section3_InlandSalt()
 		end
 		local x, y = t[1], t[2];
 		local plotIndex = y * iW + x + 1;
-		if self.plotDataIsCoastal[plotIndex] ~= true then
-			local nSalt = 0;
-			for ny = 0, iH - 1 do
-				for nx = 0, iW - 1 do
-					local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, x, y, nx, ny);
-					if d ~= nil and d <= maxR then
-						local p2 = Map.GetPlot(nx, ny);
-						if p2 and p2:IsWater() and not p2:IsLake() then
-							nSalt = nSalt + 1;
-						end
-					end
-				end
-			end
-			if nSalt > maxSalt then
-				return false, string.format("r=%d inland nSaltOcean=%d max=%d xy=%d,%d", r, nSalt, maxSalt, x, y);
-			end
+		local ok3, det3 = AssignStartingPlots.LekGlobalSix_OK_InlandSaltCell(self, plotIndex, r);
+		if not ok3 then
+			return false, det3;
 		end
 	end
 	return true, "";
@@ -5074,13 +5106,11 @@ function AssignStartingPlots:LekGlobalSix_OK_Section6_SiteQuality_PostPlacement(
 	return true, "mode=postplacement_eval_mask_own_impact_tile";
 end
 
-function AssignStartingPlots:LekGlobalSix_MeasureBiasConditionsNoNormalize(region_number)
-	local t = self.startingPlots[region_number];
-	if not t or type(t[1]) ~= "number" or type(t[2]) ~= "number" then
+function AssignStartingPlots:LekGlobalSix_MeasureBiasConditionsAtXY(x, y)
+	local iW, iH = Map.GetGridSize();
+	if type(x) ~= "number" or type(y) ~= "number" or x < 0 or y < 0 or x >= iW or y >= iH then
 		return { alongOcean = false, nextToLake = false, isRiver = false, nearRiver = false };
 	end
-	local x, y = t[1], t[2];
-	local iW, iH = Map.GetGridSize();
 	local plotIndex = y * iW + x + 1;
 	local plot = Map.GetPlot(x, y);
 	local alongOcean = (self.plotDataIsCoastal[plotIndex] == true);
@@ -5116,30 +5146,25 @@ function AssignStartingPlots:LekGlobalSix_MeasureBiasConditionsNoNormalize(regio
 	return { alongOcean = alongOcean, nextToLake = nextToLake, isRiver = isRiver, nearRiver = nearRiver };
 end
 
-function AssignStartingPlots:LekGlobalSix_OK_Section5_BalanceAndAssignFeasible()
-	if self.iNumCivs ~= 6 then
-		return true, "n/a_iNumCivs_ne_6";
+function AssignStartingPlots:LekGlobalSix_MeasureBiasConditionsNoNormalize(region_number)
+	local t = self.startingPlots[region_number];
+	if not t or type(t[1]) ~= "number" or type(t[2]) ~= "number" then
+		return { alongOcean = false, nextToLake = false, isRiver = false, nearRiver = false };
 	end
-	local okOpt, dsb = pcall(function()
-		return Game.GetCustomOption("GAMEOPTION_DISABLE_START_BIAS");
-	end);
-	if okOpt and dsb == 1 then
-		return true, "skipped_GAMEOPTION_DISABLE_START_BIAS";
-	end
-	local meta = {};
-	for r = 1, 6 do
-		meta[r] = AssignStartingPlots.LekGlobalSix_MeasureBiasConditionsNoNormalize(self, r);
-	end
+	return AssignStartingPlots.LekGlobalSix_MeasureBiasConditionsAtXY(self, t[1], t[2]);
+end
+
+function AssignStartingPlots:LekGlobalSix_Section5_BuildPlayerBiasPlist()
 	local plist = {};
 	for loop = 1, 6 do
 		local playerNum = self.player_ID_list[loop];
 		local player = Players[playerNum];
 		if not player then
-			return false, "nil_player_pid=" .. tostring(playerNum);
+			return nil, "nil_player_pid=" .. tostring(playerNum);
 		end
 		local row = GameInfo.Civilizations[player:GetCivilizationType()];
 		if not row then
-			return false, "nil_civinfo_pid=" .. tostring(playerNum);
+			return nil, "nil_civinfo_pid=" .. tostring(playerNum);
 		end
 		local civType = row.Type;
 		local bNeedsCoastalStart = CivNeedsCoastalStart(civType);
@@ -5177,7 +5202,175 @@ function AssignStartingPlots:LekGlobalSix_OK_Section5_BalanceAndAssignFeasible()
 		end
 	end
 	if #plist ~= 6 then
-		return false, "internal_player_count_ne_6";
+		return nil, "internal_player_count_ne_6";
+	end
+	return plist, nil;
+end
+
+function AssignStartingPlots:LekGlobalSix_TupleBiasFeasibilityFromPools(byRegion)
+	local stats = {
+		nCoastalPlayers = 0,
+		nRiverPlayers = 0,
+		nRegionsCoastalCapable = 0,
+		nRegionsRiverCapable = 0,
+		injective = 0,
+		skippedOption = 0,
+	};
+	if self.iNumCivs ~= 6 then
+		return true, "n/a_iNumCivs_ne_6", stats;
+	end
+	local okOpt, dsb = pcall(function()
+		return Game.GetCustomOption("GAMEOPTION_DISABLE_START_BIAS");
+	end);
+	if okOpt and dsb == 1 then
+		stats.skippedOption = 1;
+		return true, "skipped_GAMEOPTION_DISABLE_START_BIAS", stats;
+	end
+	local poolMeta = {};
+	for r = 1, 6 do
+		local cc, rc = false, false;
+		local br = byRegion[r];
+		if br then
+			for i = 1, #br do
+				local c = br[i];
+				local m = AssignStartingPlots.LekGlobalSix_MeasureBiasConditionsAtXY(self, c.x, c.y);
+				if m.alongOcean or m.nextToLake then
+					cc = true;
+				end
+				if m.isRiver or m.nearRiver then
+					rc = true;
+				end
+			end
+		end
+		poolMeta[r] = { canCoastal = cc, canRiver = rc };
+		if cc then
+			stats.nRegionsCoastalCapable = stats.nRegionsCoastalCapable + 1;
+		end
+		if rc then
+			stats.nRegionsRiverCapable = stats.nRegionsRiverCapable + 1;
+		end
+	end
+	local plist, perr = AssignStartingPlots.LekGlobalSix_Section5_BuildPlayerBiasPlist(self);
+	if not plist then
+		return true, "gate_open_plist_err=" .. tostring(perr), stats;
+	end
+	for _, p in ipairs(plist) do
+		if p.tag == "coastal" then
+			stats.nCoastalPlayers = stats.nCoastalPlayers + 1;
+		elseif p.tag == "river" then
+			stats.nRiverPlayers = stats.nRiverPlayers + 1;
+		end
+	end
+	local function okPrim(p, r)
+		for _, rtNeed in ipairs(p.pr) do
+			if self.regionTypes[r] == rtNeed then
+				return true;
+			end
+		end
+		return false;
+	end
+	local function okAvoid(p, r)
+		for _, rtBad in ipairs(p.av) do
+			if self.regionTypes[r] == rtBad then
+				return false;
+			end
+		end
+		return true;
+	end
+	local avoidHardF = (self._lek_global_six_s5_avoid_hard ~= false);
+	local primHardF = (self._lek_global_six_s5_prim_hard ~= false);
+	stats.s5avoidHard = avoidHardF and 1 or 0;
+	stats.s5primHard = primHardF and 1 or 0;
+	local function pred(p, r)
+		if p.tag == "coastal" then
+			return poolMeta[r].canCoastal;
+		elseif p.tag == "river" then
+			return poolMeta[r].canRiver;
+		elseif p.tag == "pri1" then
+			return true;
+		elseif p.tag == "prim" then
+			if not primHardF then
+				return true;
+			end
+			return okPrim(p, r);
+		elseif p.tag == "avoid" then
+			if not avoidHardF then
+				return true;
+			end
+			return okAvoid(p, r);
+		end
+		return true;
+	end
+	local function countElig(p)
+		local n = 0;
+		for r = 1, 6 do
+			if pred(p, r) then
+				n = n + 1;
+			end
+		end
+		return n;
+	end
+	table.sort(plist, function(a, b)
+		local ca, cb = countElig(a), countElig(b);
+		if ca ~= cb then
+			return ca < cb;
+		end
+		return a.pid < b.pid;
+	end);
+	local tagOrd = {};
+	local eligOrd = {};
+	for _, p in ipairs(plist) do
+		tagOrd[#tagOrd + 1] = p.tag;
+		eligOrd[#eligOrd + 1] = tostring(countElig(p));
+	end
+	stats.matchingOrderTags = table.concat(tagOrd, ",");
+	stats.matchingOrderEligRegionCount = table.concat(eligOrd, ",");
+	stats.minEligRegionsAmongPlayers = 6;
+	for i = 1, #eligOrd do
+		local n = tonumber(eligOrd[i]);
+		if n ~= nil and n < stats.minEligRegionsAmongPlayers then
+			stats.minEligRegionsAmongPlayers = n;
+		end
+	end
+	local occ = {};
+	local function dfsMatch(k)
+		if k > #plist then
+			return true;
+		end
+		local p = plist[k];
+		for r = 1, 6 do
+			if not occ[r] and pred(p, r) then
+				occ[r] = true;
+				if dfsMatch(k + 1) then
+					return true;
+				end
+				occ[r] = false;
+			end
+		end
+		return false;
+	end
+	local ok = dfsMatch(1);
+	stats.injective = ok and 1 or 0;
+	return ok, ok and "pool_meta_injective_ok" or "no_injective_civ_to_region_with_pool_capabilities", stats;
+end
+
+function AssignStartingPlots:LekGlobalSix_OK_Section5_BalanceAndAssignFeasible()
+	if self.iNumCivs ~= 6 then
+		return true, "n/a_iNumCivs_ne_6";
+	end
+	local okOpt, dsb = pcall(function()
+		return Game.GetCustomOption("GAMEOPTION_DISABLE_START_BIAS");
+	end);
+	if okOpt and dsb == 1 then
+		return true, "skipped_GAMEOPTION_DISABLE_START_BIAS";
+	end
+	local meta = {};
+	for r = 1, 6 do
+		meta[r] = AssignStartingPlots.LekGlobalSix_MeasureBiasConditionsNoNormalize(self, r);
+	end
+	local plist, perr = AssignStartingPlots.LekGlobalSix_Section5_BuildPlayerBiasPlist(self);
+	if not plist then
+		return false, tostring(perr or "plist_nil");
 	end
 	local function okCoastal(r)
 		return meta[r].alongOcean or meta[r].nextToLake;
@@ -5201,6 +5394,8 @@ function AssignStartingPlots:LekGlobalSix_OK_Section5_BalanceAndAssignFeasible()
 		end
 		return true;
 	end
+	local avoidHard = (self._lek_global_six_s5_avoid_hard ~= false);
+	local primHard = (self._lek_global_six_s5_prim_hard ~= false);
 	local function pred(p, r)
 		if p.tag == "coastal" then
 			return okCoastal(r);
@@ -5209,8 +5404,14 @@ function AssignStartingPlots:LekGlobalSix_OK_Section5_BalanceAndAssignFeasible()
 		elseif p.tag == "pri1" then
 			return true;
 		elseif p.tag == "prim" then
+			if not primHard then
+				return true;
+			end
 			return okPrim(p, r);
 		elseif p.tag == "avoid" then
+			if not avoidHard then
+				return true;
+			end
 			return okAvoid(p, r);
 		end
 		return true;
@@ -5251,7 +5452,14 @@ function AssignStartingPlots:LekGlobalSix_OK_Section5_BalanceAndAssignFeasible()
 	if not dfs(1) then
 		return false, "no_injective_civ_region_matching_coastal_river_priority_avoid";
 	end
-	return true, "backtrack_mixedBias_coastalClear_if_placeFirst_MeasureNoNormalize";
+	local det = "backtrack_mixedBias_coastalClear_if_placeFirst_MeasureNoNormalize";
+	if not avoidHard then
+		det = det .. " avoidSoft_coastalRiverStillHard";
+	end
+	if not primHard then
+		det = det .. " primSoft_coastalRiverStillHard";
+	end
+	return true, det;
 end
 
 function AssignStartingPlots:LekGlobalSix_OK_RunAll()
@@ -5276,6 +5484,26 @@ function AssignStartingPlots:LekGlobalSix_OK_RunAll()
 		first_fail, first_det = "s6", det6;
 	end
 	local all_hard_pass = ok1 and ok2 and ok3 and ok4 and ok5 and ok6;
+	local failed_sections = {};
+	if not ok1 then
+		failed_sections[#failed_sections + 1] = "s1";
+	end
+	if not ok2 then
+		failed_sections[#failed_sections + 1] = "s2";
+	end
+	if not ok3 then
+		failed_sections[#failed_sections + 1] = "s3";
+	end
+	if not ok4 then
+		failed_sections[#failed_sections + 1] = "s4";
+	end
+	if not ok5 then
+		failed_sections[#failed_sections + 1] = "s5";
+	end
+	if not ok6 then
+		failed_sections[#failed_sections + 1] = "s6";
+	end
+	local fail_combo_key = (#failed_sections > 0) and table.concat(failed_sections, "+") or "";
 	return {
 		s1_ok = ok1,
 		s1_det = det1,
@@ -5292,17 +5520,22 @@ function AssignStartingPlots:LekGlobalSix_OK_RunAll()
 		first_fail = first_fail,
 		first_fail_detail = first_det,
 		all_hard_pass = all_hard_pass,
+		failed_sections = failed_sections,
+		fail_combo_key = fail_combo_key,
 	};
 end
 
 function AssignStartingPlots:LekGlobalSix_OK_LogDiagnostics()
 	local rid = tostring(_lek_run_id or "na");
 	local R = AssignStartingPlots.LekGlobalSix_OK_RunAll(self);
+	local dLo = self._lek_g6_runtime_s1_min or self._lek_ok_diag_last_tuple_phase_s1min or LEK_G6_S1_D_MIN;
+	local dHi = self._lek_g6_runtime_s1_max or self._lek_ok_diag_last_tuple_phase_s1max or LEK_G6_S1_D_MAX;
+	local s2cap = self._lek_g6_runtime_s2_max or self._lek_ok_diag_last_tuple_phase_s2max or LEK_G6_S2_SECOND_NEAREST_MAX;
 	LekPlacementProbeLog("### LekGlobalSix_OK diag runId=" .. rid ..
 		" spec=SCRATCHPAD-placement-spec-v0.11 first_fail=" .. tostring(R.first_fail or "none") ..
 		" all_hard_pass=" .. (R.all_hard_pass and "1" or "0") ..
-		" s1_centre_" .. tostring(LEK_G6_S1_D_MIN) .. "_" .. tostring(LEK_G6_S1_D_MAX) .. "=" .. (R.s1_ok and "pass" or "fail") .. " " .. tostring(R.s1_det) ..
-		" s2_secondNearest_le" .. tostring(LEK_G6_S2_SECOND_NEAREST_MAX) .. "=" .. (R.s2_ok and "pass" or "fail") .. " " .. tostring(R.s2_det) ..
+		" s1_centre_" .. tostring(dLo) .. "_" .. tostring(dHi) .. "=" .. (R.s1_ok and "pass" or "fail") .. " " .. tostring(R.s1_det) ..
+		" s2_secondNearest_le" .. tostring(s2cap) .. "=" .. (R.s2_ok and "pass" or "fail") .. " " .. tostring(R.s2_det) ..
 		" s3_inland_salt_dLe3_max4=" .. (R.s3_ok and "pass" or "fail") .. " " .. tostring(R.s3_det) ..
 		" s4_twoCoastal_geoCycle_IsCoastalLand=" .. (R.s4_ok and "pass" or "fail") .. " " .. tostring(R.s4_det) ..
 		" s5_bias_BAndA_feasible=" .. (R.s5_ok and "pass" or "fail") .. " " .. tostring(R.s5_det) ..
@@ -5401,7 +5634,9 @@ function AssignStartingPlots:LekGlobalSix_CountMaskedMeetsMinOutsideInsideCentre
 			if d then
 				if dLo == nil or d < dLo then dLo = d; end
 				if dHi == nil or d > dHi then dHi = d; end
-				if d >= LEK_G6_S1_D_MIN and d <= LEK_G6_S1_D_MAX then
+				local bandLo = self._lek_g6_runtime_s1_min or LEK_G6_S1_D_MIN;
+				local bandHi = self._lek_g6_runtime_s1_max or LEK_G6_S1_D_MAX;
+				if d >= bandLo and d <= bandHi then
 					inBand = inBand + 1;
 				end
 			end
@@ -5459,7 +5694,9 @@ function AssignStartingPlots:LekGlobalSix_TuplePoolDiagCollect(region_r)
 		local x = (plotIndex - 1) % iW;
 		local y = (plotIndex - x - 1) / iW;
 		local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, x, y, cx, cy);
-		local inBand = d and d >= LEK_G6_S1_D_MIN and d <= LEK_G6_S1_D_MAX;
+		local bandLo = self._lek_g6_runtime_s1_min or LEK_G6_S1_D_MIN;
+		local bandHi = self._lek_g6_runtime_s1_max or LEK_G6_S1_D_MAX;
+		local inBand = d and d >= bandLo and d <= bandHi;
 		if inBand then
 			rawInS1band = rawInS1band + 1;
 			if self.plotDataIsCoastal[plotIndex] == true then
@@ -5527,6 +5764,61 @@ function AssignStartingPlots:LekGlobalSix_LogTuplePoolDiagLine(region_r, searchO
 		" note=tupleUses_NoCoastFalse_coastExcl_nextToCoast_and_threeFromCoast");
 end
 
+function AssignStartingPlots:LekGlobalSix_CoastalCountInSearchPool(byRegion, region_r)
+	local list = byRegion[region_r];
+	if not list then
+		return 0;
+	end
+	local c = 0;
+	for i = 1, #list do
+		local pi = list[i].plotIndex;
+		if self.plotDataIsCoastal[pi] == true then
+			c = c + 1;
+		end
+	end
+	return c;
+end
+
+function AssignStartingPlots:LekGlobalSix_BuildTupleDepthOrder(byRegion)
+	local depthOrder = { 1, 2, 3, 4, 5, 6 };
+	local thinFirst = (self._lek_global_six_dfs_thin_first ~= false);
+	local constraintWeighted = (self._lek_global_six_dfs_constraint_weighted ~= false);
+	local mode;
+	if thinFirst and constraintWeighted then
+		mode = "thin_then_coastal_tight";
+		table.sort(depthOrder, function(a, b)
+			local na, nb = #byRegion[a], #byRegion[b];
+			if na ~= nb then
+				return na < nb;
+			end
+			local ca = AssignStartingPlots.LekGlobalSix_CoastalCountInSearchPool(self, byRegion, a);
+			local cb = AssignStartingPlots.LekGlobalSix_CoastalCountInSearchPool(self, byRegion, b);
+			if ca ~= cb then
+				return ca < cb;
+			end
+			return a < b;
+		end);
+	elseif thinFirst then
+		mode = "thin_first_only";
+		table.sort(depthOrder, function(a, b)
+			local na, nb = #byRegion[a], #byRegion[b];
+			if na ~= nb then
+				return na < nb;
+			end
+			return a < b;
+		end);
+	else
+		mode = "fixed_r1_r6";
+	end
+	local keyParts = {};
+	for ri = 1, 6 do
+		local rr = depthOrder[ri];
+		local nc = AssignStartingPlots.LekGlobalSix_CoastalCountInSearchPool(self, byRegion, rr);
+		keyParts[#keyParts + 1] = string.format("r%d=n%d/c%d", rr, #byRegion[rr], nc);
+	end
+	return depthOrder, mode, table.concat(keyParts, ";");
+end
+
 function AssignStartingPlots:LekGlobalSix_LogTupleHeadGeometry(byRegion)
 	local rid = tostring(_lek_run_id or "na");
 	local heads = {};
@@ -5567,9 +5859,92 @@ function AssignStartingPlots:LekGlobalSix_LogTupleHeadGeometry(byRegion)
 		local d2 = dists[2];
 		snParts[#snParts + 1] = string.format("r%d=%s", ri, d2 ~= nil and tostring(d2) or "na");
 	end
+	local s2cap = self._lek_g6_runtime_s2_max or LEK_G6_S2_SECOND_NEAREST_MAX;
 	LekPlacementProbeLog("### LekGlobalSix tupleHeadSecondNearest runId=" .. rid ..
 		" " .. table.concat(snParts, " ") ..
-		" s2_cap=" .. tostring(LEK_G6_S2_SECOND_NEAREST_MAX));
+		" s2_cap=" .. tostring(s2cap));
+end
+
+function AssignStartingPlots:LekGlobalSix_Rank1HeadFirstS2Violator(byRegion, s2cap)
+	if type(s2cap) ~= "number" then
+		return nil, nil;
+	end
+	local heads = {};
+	for r = 1, 6 do
+		local list = byRegion[r];
+		local c = list and list[1];
+		if not c then
+			return nil, nil;
+		end
+		heads[r] = { x = c.x, y = c.y };
+	end
+	for ri = 1, 6 do
+		local dists = {};
+		for j = 1, 6 do
+			if j ~= ri then
+				local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, heads[ri].x, heads[ri].y, heads[j].x, heads[j].y);
+				if d then
+					dists[#dists + 1] = d;
+				end
+			end
+		end
+		table.sort(dists);
+		local d2 = dists[2];
+		if d2 ~= nil and d2 > s2cap then
+			return ri, d2;
+		end
+	end
+	return nil, nil;
+end
+
+function AssignStartingPlots.LekGlobalSix_DefaultTupleRelaxationPhases()
+	return {
+		{ name = "base", max_fail_complete = 1000, max_leaf_evals = 8000, s1_min = LEK_G6_S1_D_MIN, s1_max = LEK_G6_S1_D_MAX, s2_max = LEK_G6_S2_SECOND_NEAREST_MAX },
+		{ name = "s2_plus_1", max_fail_complete = 1000, max_leaf_evals = 8000, s1_min = LEK_G6_S1_D_MIN, s1_max = LEK_G6_S1_D_MAX, s2_max = LEK_G6_S2_SECOND_NEAREST_MAX + 1 },
+		{ name = "s2_plus_2", max_fail_complete = 1000, max_leaf_evals = 8000, s1_min = LEK_G6_S1_D_MIN, s1_max = LEK_G6_S1_D_MAX, s2_max = LEK_G6_S2_SECOND_NEAREST_MAX + 2 },
+		{ name = "s2_plus_2_s1max_plus_1", max_fail_complete = 1000, max_leaf_evals = 8000, s1_min = LEK_G6_S1_D_MIN, s1_max = LEK_G6_S1_D_MAX + 1, s2_max = LEK_G6_S2_SECOND_NEAREST_MAX + 2 },
+	};
+end
+
+function AssignStartingPlots:LekGlobalSix_FallbackSearchCandidateForRegion(region_r)
+	local list = AssignStartingPlots.LekGlobalSix_GatherTupleStyleCandidateIndices(self, region_r, false);
+	local rt = self.regionTypes[region_r];
+	if not rt then
+		return nil;
+	end
+	local iW, iH = Map.GetGridSize();
+	local cx = math.floor(iW / 2);
+	local cy = math.floor(iH / 2);
+	local best = nil;
+	local bestRank = nil;
+	for idx = 1, #list do
+		local plotIndex = list[idx];
+		local x = (plotIndex - 1) % iW;
+		local y = (plotIndex - x - 1) / iW;
+		local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, x, y, cx, cy);
+		if d then
+			local ringDev = math.abs(d - LEK_G6_S1_TARGET_D);
+			local savedDD = self.distanceData[plotIndex];
+			self.distanceData[plotIndex] = 0;
+			local score, meetsMin = self:EvaluateCandidatePlot(plotIndex, rt);
+			self.distanceData[plotIndex] = savedDD;
+			local okSalt, _ = AssignStartingPlots.LekGlobalSix_OK_InlandSaltCell(self, plotIndex, nil);
+			local rank = ringDev * 1000000 - score;
+			if okSalt and (best == nil or rank < bestRank or (rank == bestRank and plotIndex < best.plotIndex)) then
+				bestRank = rank;
+				best = {
+					plotIndex = plotIndex,
+					x = x,
+					y = y,
+					score = score,
+					ringDev = ringDev,
+					dMapCenter = d,
+					meetsMin = meetsMin,
+				};
+			end
+		end
+	end
+	return best;
 end
 
 function AssignStartingPlots:LekGlobalSix_GatherSearchCandidatesOrdered(region_r)
@@ -5582,21 +5957,26 @@ function AssignStartingPlots:LekGlobalSix_GatherSearchCandidatesOrdered(region_r
 	local cx = math.floor(iW / 2);
 	local cy = math.floor(iH / 2);
 	local out = {};
+	local bandLo = self._lek_g6_runtime_s1_min or LEK_G6_S1_D_MIN;
+	local bandHi = self._lek_g6_runtime_s1_max or LEK_G6_S1_D_MAX;
 	for idx = 1, #list do
 		local plotIndex = list[idx];
 		local x = (plotIndex - 1) % iW;
 		local y = (plotIndex - x - 1) / iW;
 		local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, x, y, cx, cy);
 		if not d then
-		elseif d < LEK_G6_S1_D_MIN or d > LEK_G6_S1_D_MAX then
+		elseif d < bandLo or d > bandHi then
 		else
 			local savedDD = self.distanceData[plotIndex];
 			self.distanceData[plotIndex] = 0;
 			local score, meetsMin = self:EvaluateCandidatePlot(plotIndex, rt);
 			self.distanceData[plotIndex] = savedDD;
 			if meetsMin then
-				local ringDev = math.abs(d - LEK_G6_S1_TARGET_D);
-				out[#out + 1] = { plotIndex = plotIndex, x = x, y = y, score = score, ringDev = ringDev, dMapCenter = d };
+				local okSalt, _ = AssignStartingPlots.LekGlobalSix_OK_InlandSaltCell(self, plotIndex, nil);
+				if okSalt then
+					local ringDev = math.abs(d - LEK_G6_S1_TARGET_D);
+					out[#out + 1] = { plotIndex = plotIndex, x = x, y = y, score = score, ringDev = ringDev, dMapCenter = d };
+				end
 			end
 		end
 	end
@@ -5607,8 +5987,30 @@ function AssignStartingPlots:LekGlobalSix_GatherSearchCandidatesOrdered(region_r
 		if a.score ~= b.score then
 			return a.score > b.score;
 		end
-		return a.plotIndex < b.plotIndex;
+			return a.plotIndex < b.plotIndex;
 	end);
+	if #out == 0 and self._lek_global_six_tuple_empty_pool_fallback ~= false then
+		local fb = AssignStartingPlots.LekGlobalSix_FallbackSearchCandidateForRegion(self, region_r);
+		if fb then
+			local rid = tostring(_lek_run_id or "na");
+			LekPlacementProbeLog("### LekGlobalSix tuplePoolFallback runId=" .. rid ..
+				" region=" .. tostring(region_r) ..
+				" x=" .. tostring(fb.x) .. " y=" .. tostring(fb.y) ..
+				" pi=" .. tostring(fb.plotIndex) ..
+				" dMapC=" .. tostring(fb.dMapCenter) ..
+				" ringDevToTargetD=" .. tostring(fb.ringDev) ..
+				" EvaluateCandidate_meetsMin=" .. (fb.meetsMin and "1" or "0") ..
+				" note=min_ringDev_then_max_score_over_tupleStylePlots");
+			out[1] = {
+				plotIndex = fb.plotIndex,
+				x = fb.x,
+				y = fb.y,
+				score = fb.score,
+				ringDev = fb.ringDev,
+				dMapCenter = fb.dMapCenter,
+			};
+		end
+	end
 	local cap = self._lek_global_six_max_candidates_per_region;
 	if type(cap) ~= "number" or cap < 1 then
 		cap = 36;
@@ -5636,170 +6038,537 @@ function AssignStartingPlots:LekGlobalSix_RunTupleSearch()
 	if self.iNumCivs ~= 6 then
 		return false, 0, 0, 0, nil;
 	end
-	local maxFail = self._lek_global_six_max_fail_complete;
-	if type(maxFail) ~= "number" or maxFail < 1 then
-		maxFail = 100;
+	self._lek_tuple_search_success_phase_name = nil;
+	self._lek_tuple_search_success_phase_index = nil;
+
+	local phases;
+	if self._lek_global_six_tuple_relaxation_phases == false then
+		local mf = self._lek_global_six_max_fail_complete;
+		if type(mf) ~= "number" or mf < 1 then
+			mf = 100;
+		end
+		local ml = self._lek_global_six_max_leaf_evals;
+		if type(ml) ~= "number" or ml < 1 then
+			ml = 800;
+		end
+		phases = {
+			{
+				name = "single",
+				max_fail_complete = mf,
+				max_leaf_evals = ml,
+				s1_min = LEK_G6_S1_D_MIN,
+				s1_max = LEK_G6_S1_D_MAX,
+				s2_max = LEK_G6_S2_SECOND_NEAREST_MAX,
+			},
+		};
+	elseif type(self._lek_global_six_tuple_relaxation_phases) == "table" and #self._lek_global_six_tuple_relaxation_phases > 0 then
+		phases = self._lek_global_six_tuple_relaxation_phases;
+	else
+		phases = AssignStartingPlots.LekGlobalSix_DefaultTupleRelaxationPhases();
 	end
-	local maxLeaf = self._lek_global_six_max_leaf_evals;
-	if type(maxLeaf) ~= "number" or maxLeaf < 1 then
-		maxLeaf = 800;
-	end
-	local progressEvery = self._lek_global_six_tuple_progress_every;
-	if type(progressEvery) ~= "number" or progressEvery < 1 then
-		progressEvery = (maxFail >= 5000) and 2000 or 0;
-	end
+
 	local doTupleDiag = (self._lek_tuple_pool_diag ~= false);
 	if doTupleDiag then
 		AssignStartingPlots.LekGlobalSix_LogTupleProbeLayerSnapshot(self);
 	end
-	local byRegion = {};
-	for r = 1, 6 do
-		byRegion[r] = AssignStartingPlots.LekGlobalSix_GatherSearchCandidatesOrdered(self, r);
-		if doTupleDiag then
-			AssignStartingPlots.LekGlobalSix_LogTuplePoolDiagLine(self, r, #byRegion[r]);
+
+	local lastFailKind = nil;
+	local lastFC, lastLE, lastMaxF = 0, 0, 0;
+
+	for phaseIdx, ph in ipairs(phases) do
+		local phaseName = ph.name or ("phase" .. tostring(phaseIdx));
+		local s1a = ph.s1_min;
+		local s1b = ph.s1_max;
+		local s2m = ph.s2_max;
+		if type(s1a) ~= "number" then
+			s1a = LEK_G6_S1_D_MIN;
 		end
-		if #byRegion[r] == 0 then
-			local maskedAll, inBand, dLo, dHi = AssignStartingPlots.LekGlobalSix_CountMaskedMeetsMinOutsideInsideCentreBand(self, r);
+		if type(s1b) ~= "number" then
+			s1b = LEK_G6_S1_D_MAX;
+		end
+		if type(s2m) ~= "number" then
+			s2m = LEK_G6_S2_SECOND_NEAREST_MAX;
+		end
+		self._lek_g6_runtime_s1_min = s1a;
+		self._lek_g6_runtime_s1_max = s1b;
+		self._lek_g6_runtime_s2_max = s2m;
+		self._lek_ok_diag_last_tuple_phase_s1min = s1a;
+		self._lek_ok_diag_last_tuple_phase_s1max = s1b;
+		self._lek_ok_diag_last_tuple_phase_s2max = s2m;
+
+		local maxFail = ph.max_fail_complete;
+		if type(maxFail) ~= "number" or maxFail < 1 then
+			maxFail = self._lek_global_six_max_fail_complete;
+		end
+		if type(maxFail) ~= "number" or maxFail < 1 then
+			maxFail = 100;
+		end
+		local maxLeaf = ph.max_leaf_evals;
+		if type(maxLeaf) ~= "number" or maxLeaf < 1 then
+			maxLeaf = self._lek_global_six_max_leaf_evals;
+		end
+		if type(maxLeaf) ~= "number" or maxLeaf < 1 then
+			maxLeaf = 800;
+		end
+		local progressEvery = self._lek_global_six_tuple_progress_every;
+		if type(progressEvery) ~= "number" or progressEvery < 1 then
+			progressEvery = (maxFail >= 5000) and 2000 or 0;
+		end
+
+		LekPlacementProbeLog("### LekGlobalSix tuplePhase begin runId=" .. rid ..
+			" phaseIndex=" .. tostring(phaseIdx) .. "/" .. tostring(#phases) ..
+			" name=" .. phaseName ..
+			" s1=" .. tostring(s1a) .. "-" .. tostring(s1b) ..
+			" s2max=" .. tostring(s2m) ..
+			" maxFail=" .. tostring(maxFail) ..
+			" maxLeaf=" .. tostring(maxLeaf));
+
+		local byRegion = {};
+		local abortRegion = nil;
+		for r = 1, 6 do
+			byRegion[r] = AssignStartingPlots.LekGlobalSix_GatherSearchCandidatesOrdered(self, r);
+			if doTupleDiag then
+				AssignStartingPlots.LekGlobalSix_LogTuplePoolDiagLine(self, r, #byRegion[r]);
+			end
+			if #byRegion[r] == 0 then
+				abortRegion = r;
+				break;
+			end
+		end
+
+		if abortRegion then
+			local maskedAll, inBand, dLo, dHi = AssignStartingPlots.LekGlobalSix_CountMaskedMeetsMinOutsideInsideCentreBand(self, abortRegion);
 			local dr = "na";
 			if dLo ~= nil and dHi ~= nil then
 				dr = tostring(dLo) .. "-" .. tostring(dHi);
 			end
-			LekPlacementProbeLog("### LekGlobalSix tupleSearch runId=" .. rid ..
-				" status=no_candidates region=" .. tostring(r) ..
+			LekPlacementProbeLog("### LekGlobalSix tuplePhase no_tupleStyle_land runId=" .. rid ..
+				" phaseIndex=" .. tostring(phaseIdx) ..
+				" name=" .. phaseName ..
+				" region=" .. tostring(abortRegion) ..
 				" meetsMin_maskOwnDD_allRaw=" .. tostring(maskedAll) ..
 				" meetsMin_inS1band=" .. tostring(inBand) ..
-				" meetsMin_dCenterRange=" .. dr);
-			return false, 0, 0, maxFail, "no_candidates_r=" .. tostring(r);
-		end
-	end
-	if doTupleDiag then
-		AssignStartingPlots.LekGlobalSix_LogTupleHeadGeometry(self, byRegion);
-	end
-	local depthOrder = { 1, 2, 3, 4, 5, 6 };
-	local thinFirst = (self._lek_global_six_dfs_thin_first ~= false);
-	if thinFirst then
-		table.sort(depthOrder, function(a, b)
-			local na, nb = #byRegion[a], #byRegion[b];
-			if na ~= nb then
-				return na < nb;
+				" meetsMin_dCenterRange=" .. dr ..
+				" note=no_plot_passes_GatherTupleStyle_filters");
+			lastMaxF = maxFail;
+			lastFC, lastLE = 0, 0;
+			lastFailKind = "no_candidates_r=" .. tostring(abortRegion);
+			LekPlacementProbeLog("### LekGlobalSix tuplePhase end runId=" .. rid ..
+				" phaseIndex=" .. tostring(phaseIdx) ..
+				" name=" .. phaseName ..
+				" status=skip_empty_pool");
+		else
+			if doTupleDiag then
+				AssignStartingPlots.LekGlobalSix_LogTupleHeadGeometry(self, byRegion);
 			end
-			return a < b;
-		end);
-	end
-	if doTupleDiag then
-		local parts = {};
-		for d = 1, 6 do
-			local rg = depthOrder[d];
-			parts[#parts + 1] = string.format("d%d=r%d(n=%d)", d, rg, #byRegion[rg]);
-		end
-		LekPlacementProbeLog("### LekGlobalSix tupleDfsOrder runId=" .. rid ..
-			" thin_first=" .. (thinFirst and "1" or "0") .. " " .. table.concat(parts, "; "));
-	end
-	local baseline = AssignStartingPlots.LekGlobalSix_SnapshotPlaceImpactState(self);
-	local failComplete = 0;
-	local leafEvals = 0;
-	local bestPack = nil;
-	local bestTb = nil;
-	local lastFailKind = nil;
-	local failHist = {};
-	local function bumpFailHist(ff)
-		local k = tostring(ff or "?");
-		failHist[k] = (failHist[k] or 0) + 1;
-	end
-	local function fmtFailHist()
-		local keys = {};
-		for k, _ in pairs(failHist) do
-			keys[#keys + 1] = k;
-		end
-		table.sort(keys);
-		local parts = {};
-		for _, k in ipairs(keys) do
-			parts[#parts + 1] = k .. ":" .. tostring(failHist[k]);
-		end
-		return table.concat(parts, ",");
-	end
-
-	local function noteFail(R)
-		lastFailKind = tostring(R.first_fail or "?");
-	end
-
-	local function dfs(depth)
-		if leafEvals >= maxLeaf then
-			return;
-		end
-		if bestPack == nil and failComplete >= maxFail then
-			return;
-		end
-		if depth > 6 then
-			leafEvals = leafEvals + 1;
-			local R = AssignStartingPlots.LekGlobalSix_OK_RunAll(self);
-			if R.all_hard_pass then
-				local tb = AssignStartingPlots.LekGlobalSix_TiebreakMaxCentrDeviation(self);
-				if bestPack == nil or tb < bestTb or (tb == bestTb and Map.Rand(2, "LekGlobalSixTB") == 1) then
-					bestTb = tb;
-					bestPack = AssignStartingPlots.LekGlobalSix_CopyStartsTableForBest(self);
+			local depthOrder, dfsOrderMode, dfsOrderKeys =
+				AssignStartingPlots.LekGlobalSix_BuildTupleDepthOrder(self, byRegion);
+			if doTupleDiag then
+				local parts = {};
+				for d = 1, 6 do
+					local rg = depthOrder[d];
+					local nc = AssignStartingPlots.LekGlobalSix_CoastalCountInSearchPool(self, byRegion, rg);
+					parts[#parts + 1] = string.format("d%d=r%d(n=%d,c=%d)", d, rg, #byRegion[rg], nc);
 				end
+				LekPlacementProbeLog("### LekGlobalSix tupleDfsOrder runId=" .. rid ..
+					" phaseIndex=" .. tostring(phaseIdx) ..
+					" name=" .. phaseName ..
+					" dfsOrderMode=" .. tostring(dfsOrderMode) ..
+					" thin_first=" .. tostring((self._lek_global_six_dfs_thin_first ~= false) and 1 or 0) ..
+					" constraint_weighted=" .. tostring((self._lek_global_six_dfs_constraint_weighted ~= false) and 1 or 0) ..
+					" sortKeys=" .. tostring(dfsOrderKeys) ..
+					" " .. table.concat(parts, "; "));
+			end
+
+			local biasGateOk = true;
+			local biasGateReason = "gate_off";
+			local biasGateStats = nil;
+			if self._lek_global_six_tuple_bias_feasibility_gate ~= false then
+				biasGateOk, biasGateReason, biasGateStats = AssignStartingPlots.LekGlobalSix_TupleBiasFeasibilityFromPools(self, byRegion);
+				local st = biasGateStats or {};
+				LekPlacementProbeLog("### LekGlobalSix tupleBiasFeasibility runId=" .. rid ..
+					" phaseIndex=" .. tostring(phaseIdx) ..
+					" name=" .. phaseName ..
+					" decision=" .. (biasGateOk and "proceed_dfs" or "skip_impossible") ..
+					" reason=" .. tostring(biasGateReason) ..
+					" coastalPlayers=" .. tostring(st.nCoastalPlayers or -1) ..
+					" regionsCoastalCapable=" .. tostring(st.nRegionsCoastalCapable or -1) ..
+					" riverPlayers=" .. tostring(st.nRiverPlayers or -1) ..
+					" regionsRiverCapable=" .. tostring(st.nRegionsRiverCapable or -1) ..
+					" injectivePoolMeta=" .. tostring(st.injective or -1) ..
+					" skippedBiasOption=" .. tostring(st.skippedOption or 0) ..
+					" matchingOrderTags=" .. tostring(st.matchingOrderTags or "na") ..
+					" eligRegionsPerPlayerInOrder=" .. tostring(st.matchingOrderEligRegionCount or "na") ..
+					" minEligRegionsAmongPlayers=" .. tostring(st.minEligRegionsAmongPlayers or -1) ..
+					" s5avoidHard=" .. tostring(st.s5avoidHard or -1) ..
+					" s5primHard=" .. tostring(st.s5primHard or -1) ..
+					" note=regionsCoastalCapable_counts_regions_with_any_coastalOK_plot_in_pool_injective_can_still_fail_prim_avoid_interlock");
+			end
+
+			if not biasGateOk then
+				lastFC = 0;
+				lastLE = 0;
+				lastMaxF = maxFail;
+				lastFailKind = "s5";
+				LekPlacementProbeLog("### LekGlobalSix tuplePhase end runId=" .. rid ..
+					" phaseIndex=" .. tostring(phaseIdx) ..
+					" name=" .. phaseName ..
+					" status=skip_bias_injective_pool" ..
+					" detail=" .. tostring(biasGateReason));
 			else
-				failComplete = failComplete + 1;
-				noteFail(R);
-				bumpFailHist(R.first_fail);
-				if progressEvery > 0 and failComplete % progressEvery == 0 then
-					LekPlacementProbeLog("### LekGlobalSix tupleSearchProgress runId=" .. rid ..
-						" failComplete=" .. tostring(failComplete) ..
-						" leafEvals=" .. tostring(leafEvals) ..
-						" maxFail=" .. tostring(maxFail) ..
-						" last_fail=" .. tostring(lastFailKind or "?") ..
-						" failHist=" .. fmtFailHist());
+			local skipDfsRank1S2 = false;
+			if self._lek_global_six_tuple_skip_dfs_rank1_head_s2 == true then
+				local vr0, vd20 = AssignStartingPlots.LekGlobalSix_Rank1HeadFirstS2Violator(self, byRegion, s2m);
+				if vr0 ~= nil then
+					skipDfsRank1S2 = true;
+					LekPlacementProbeLog("### LekGlobalSix tuplePhase skip_dfs_precheck_rank1_heads_s2 runId=" .. rid ..
+						" phaseIndex=" .. tostring(phaseIdx) ..
+						" name=" .. phaseName ..
+						" violator_r=" .. tostring(vr0) ..
+						" secondNearest=" .. tostring(vd20) ..
+						" s2max=" .. tostring(s2m) ..
+						" note=false_negative_possible_set_start_plot_database._lek_global_six_tuple_skip_dfs_rank1_head_s2_false");
 				end
 			end
-			return;
-		end
-		local reg = depthOrder[depth];
-		local snap = AssignStartingPlots.LekGlobalSix_SnapshotPlaceImpactState(self);
-		local cands = byRegion[reg];
-		for ci = 1, #cands do
-			if leafEvals >= maxLeaf then
-				break;
+
+			if skipDfsRank1S2 then
+				lastFC = 0;
+				lastLE = 0;
+				lastMaxF = maxFail;
+				lastFailKind = "s2";
+				LekPlacementProbeLog("### LekGlobalSix tuplePhase end runId=" .. rid ..
+					" phaseIndex=" .. tostring(phaseIdx) ..
+					" name=" .. phaseName ..
+					" status=skip_dfs_rank1_head_s2_precheck failComplete=0 leafEvals=0");
+			else
+			local baseline = AssignStartingPlots.LekGlobalSix_SnapshotPlaceImpactState(self);
+			local failComplete = 0;
+			local leafEvals = 0;
+			local bestPack = nil;
+			local bestTb = nil;
+			local phaseLastFail = nil;
+			local failHist = {};
+			local function bumpFailHist(ff)
+				local k = tostring(ff or "?");
+				failHist[k] = (failHist[k] or 0) + 1;
 			end
-			if bestPack == nil and failComplete >= maxFail then
-				break;
+			local function fmtFailHist()
+				local keys = {};
+				for k, _ in pairs(failHist) do
+					keys[#keys + 1] = k;
+				end
+				table.sort(keys);
+				local parts = {};
+				for _, k in ipairs(keys) do
+					parts[#parts + 1] = k .. ":" .. tostring(failHist[k]);
+				end
+				return table.concat(parts, ",");
 			end
-			AssignStartingPlots.LekGlobalSix_RestorePlaceImpactState(self, snap);
-			local c = cands[ci];
-			self.startingPlots[reg] = { c.x, c.y, c.score };
-			self:PlaceImpactAndRipples(c.x, c.y);
-			dfs(depth + 1);
+			local doCompositeFailHist = (self._lek_global_six_tuple_ok_composite_fail_hist ~= false);
+			local failAnyHist = {};
+			local failComboHist = {};
+			local function bumpCompositeFailHist(R)
+				if not doCompositeFailHist or R.all_hard_pass then
+					return;
+				end
+				for _, sec in ipairs(R.failed_sections) do
+					failAnyHist[sec] = (failAnyHist[sec] or 0) + 1;
+				end
+				local ck = R.fail_combo_key;
+				if type(ck) == "string" and ck ~= "" then
+					failComboHist[ck] = (failComboHist[ck] or 0) + 1;
+				end
+			end
+			local function fmtAnyHist(h)
+				local keys = {};
+				for k, _ in pairs(h) do
+					keys[#keys + 1] = k;
+				end
+				table.sort(keys);
+				local parts = {};
+				for _, k in ipairs(keys) do
+					parts[#parts + 1] = k .. ":" .. tostring(h[k]);
+				end
+				return table.concat(parts, ",");
+			end
+			local function fmtComboHistTop(h, maxKeys)
+				local m = maxKeys or 12;
+				local arr = {};
+				for k, v in pairs(h) do
+					if type(v) == "number" then
+						arr[#arr + 1] = { k = k, v = v };
+					end
+				end
+				table.sort(arr, function(a, b)
+					if a.v ~= b.v then
+						return a.v > b.v;
+					end
+					return a.k < b.k;
+				end);
+				local parts = {};
+				for i = 1, math.min(#arr, m) do
+					parts[#parts + 1] = arr[i].k .. ":" .. tostring(arr[i].v);
+				end
+				local s = table.concat(parts, ",");
+				if #arr > m then
+					return s .. ",…(+" .. tostring(#arr - m) .. "_more_keys)";
+				end
+				return s;
+			end
+			local function tuplePhaseBudgetHint()
+				local hitFailCap = (failComplete >= maxFail) and 1 or 0;
+				local hitLeafCap = (leafEvals >= maxLeaf) and 1 or 0;
+				local domK, domN = nil, -1;
+				for k, n in pairs(failHist) do
+					if type(n) == "number" and n > domN then
+						domN = n;
+						domK = k;
+					end
+				end
+				local hint = "na";
+				if hitFailCap == 1 or hitLeafCap == 1 then
+					if domK == "s2" then
+						hint = "budget_hit_try_raise_maxFail_maxLeaf_or_wait_for_relax_phase";
+					elseif domK == "s5" then
+						hint = "budget_hit_s5_heavy_bias_injective";
+					elseif domK == "s1" then
+						hint = "budget_hit_s1_heavy_centre_band_mismatch_relaxed_later";
+					else
+						hint = "budget_hit_review_failHist";
+					end
+				end
+				local almost = 0;
+				if (hitFailCap == 1 or hitLeafCap == 1) and failComplete > 50 and domK ~= nil then
+					almost = 1;
+				end
+				return hitFailCap, hitLeafCap, domK or "none", almost, hint;
+			end
+			local function noteFail(R)
+				phaseLastFail = tostring(R.first_fail or "?");
+			end
+
+			local spacingDepthCalls = 0;
+			local spacingNontrivial = 0;
+			local spacingSampleDone = false;
+
+			local function dfs(depth)
+				if leafEvals >= maxLeaf then
+					return;
+				end
+				if bestPack == nil and failComplete >= maxFail then
+					return;
+				end
+				if depth > 6 then
+					leafEvals = leafEvals + 1;
+					local R = AssignStartingPlots.LekGlobalSix_OK_RunAll(self);
+					if R.all_hard_pass then
+						local tb = AssignStartingPlots.LekGlobalSix_TiebreakMaxCentrDeviation(self);
+						if bestPack == nil or tb < bestTb or (tb == bestTb and Map.Rand(2, "LekGlobalSixTB") == 1) then
+							bestTb = tb;
+							bestPack = AssignStartingPlots.LekGlobalSix_CopyStartsTableForBest(self);
+						end
+					else
+						failComplete = failComplete + 1;
+						noteFail(R);
+						bumpFailHist(R.first_fail);
+						bumpCompositeFailHist(R);
+						if progressEvery > 0 and failComplete % progressEvery == 0 then
+							local extra = "";
+							if doCompositeFailHist then
+								extra = " failAnyHist=" .. fmtAnyHist(failAnyHist);
+							end
+							LekPlacementProbeLog("### LekGlobalSix tupleSearchProgress runId=" .. rid ..
+								" phaseIndex=" .. tostring(phaseIdx) ..
+								" name=" .. phaseName ..
+								" failComplete=" .. tostring(failComplete) ..
+								" leafEvals=" .. tostring(leafEvals) ..
+								" maxFail=" .. tostring(maxFail) ..
+								" last_fail=" .. tostring(phaseLastFail or "?") ..
+								" failHist=" .. fmtFailHist() .. extra);
+						end
+					end
+					return;
+				end
+				local reg = depthOrder[depth];
+				local snap = AssignStartingPlots.LekGlobalSix_SnapshotPlaceImpactState(self);
+				local cands = byRegion[reg];
+				local visitKeys = nil;
+				if self._lek_global_six_tuple_spacing_reorder ~= false and depth > 1 and #cands > 1 then
+					spacingDepthCalls = spacingDepthCalls + 1;
+					local nCand = #cands;
+					local keys = {};
+					for i = 1, nCand do
+						local c = cands[i];
+						local minD = 999;
+						for dp = 1, depth - 1 do
+							local pr = depthOrder[dp];
+							local t = self.startingPlots[pr];
+							if t and type(t[1]) == "number" and type(t[2]) == "number" then
+								local dxy = AssignStartingPlots.LekGlobalSix_PlotDistance(self, c.x, c.y, t[1], t[2]);
+								if dxy ~= nil and dxy < minD then
+									minD = dxy;
+								end
+							end
+						end
+						keys[i] = { idx = i, minD = minD, ringDev = c.ringDev, score = c.score };
+					end
+					table.sort(keys, function(a, b)
+						if a.minD ~= b.minD then
+							return a.minD > b.minD;
+						end
+						if a.ringDev ~= b.ringDev then
+							return a.ringDev < b.ringDev;
+						end
+						if a.score ~= b.score then
+							return a.score > b.score;
+						end
+						return a.idx < b.idx;
+					end);
+					visitKeys = keys;
+					local nontrivial = false;
+					for j = 1, nCand do
+						if keys[j].idx ~= j then
+							nontrivial = true;
+							break;
+						end
+					end
+					if nontrivial then
+						spacingNontrivial = spacingNontrivial + 1;
+						if doTupleDiag and not spacingSampleDone then
+							spacingSampleDone = true;
+							local b0 = cands[1].plotIndex;
+							local a0 = cands[keys[1].idx].plotIndex;
+							local b1 = nCand >= 2 and cands[2].plotIndex or -1;
+							local a1 = nCand >= 2 and cands[keys[2].idx].plotIndex or -1;
+							LekPlacementProbeLog("### LekGlobalSix tupleSpacingReorder sample runId=" .. rid ..
+								" phaseIndex=" .. tostring(phaseIdx) ..
+								" name=" .. phaseName ..
+								" depth=" .. tostring(depth) ..
+								" region=" .. tostring(reg) ..
+								" nCand=" .. tostring(nCand) ..
+								" plotHead_natural=" .. tostring(b0) .. "," .. tostring(b1) ..
+								" plotHead_reordered=" .. tostring(a0) .. "," .. tostring(a1) ..
+								" bestMinDToPlaced=" .. tostring(keys[1].minD));
+						end
+					end
+				end
+				local function tryCand(ci)
+					if leafEvals >= maxLeaf then
+						return;
+					end
+					if bestPack == nil and failComplete >= maxFail then
+						return;
+					end
+					AssignStartingPlots.LekGlobalSix_RestorePlaceImpactState(self, snap);
+					local c = cands[ci];
+					self.startingPlots[reg] = { c.x, c.y, c.score };
+					self:PlaceImpactAndRipples(c.x, c.y);
+					dfs(depth + 1);
+				end
+				if visitKeys then
+					for j = 1, #visitKeys do
+						if leafEvals >= maxLeaf then
+							break;
+						end
+						if bestPack == nil and failComplete >= maxFail then
+							break;
+						end
+						tryCand(visitKeys[j].idx);
+					end
+				else
+					for ci = 1, #cands do
+						if leafEvals >= maxLeaf then
+							break;
+						end
+						if bestPack == nil and failComplete >= maxFail then
+							break;
+						end
+						tryCand(ci);
+					end
+				end
+				AssignStartingPlots.LekGlobalSix_RestorePlaceImpactState(self, snap);
+				self.startingPlots[reg] = nil;
+			end
+
+			dfs(1);
+			AssignStartingPlots.LekGlobalSix_RestorePlaceImpactState(self, baseline);
+			for r = 1, 6 do
+				self.startingPlots[r] = nil;
+			end
+
+			lastFC = failComplete;
+			lastLE = leafEvals;
+			lastMaxF = maxFail;
+			lastFailKind = phaseLastFail;
+
+			local compositeExtra = "";
+			if doCompositeFailHist and failComplete > 0 then
+				compositeExtra =
+					" failAnyHist=" .. fmtAnyHist(failAnyHist) ..
+					" failComboHist_top=" .. fmtComboHistTop(failComboHist, 16);
+			end
+			if self._lek_global_six_tuple_spacing_reorder ~= false then
+				compositeExtra = compositeExtra ..
+					" spacingDepthCalls=" .. tostring(spacingDepthCalls) ..
+					" spacingNontrivialPerm=" .. tostring(spacingNontrivial);
+			end
+			if not bestPack then
+				local hF, hL, domK, almostW, hintS = tuplePhaseBudgetHint();
+				LekPlacementProbeLog("### LekGlobalSix tuplePhase end runId=" .. rid ..
+					" phaseIndex=" .. tostring(phaseIdx) ..
+					" name=" .. phaseName ..
+					" status=fail_budget" ..
+					" failComplete=" .. tostring(failComplete) ..
+					" leafEvals=" .. tostring(leafEvals) ..
+					" maxFail=" .. tostring(maxFail) ..
+					" maxLeaf=" .. tostring(maxLeaf) ..
+					" last_fail=" .. tostring(phaseLastFail or "na") ..
+					" cap_hit_fail=" .. tostring(hF) ..
+					" cap_hit_leaf=" .. tostring(hL) ..
+					" dominant_first_fail=" .. tostring(domK) ..
+					" search_budget_saturated_suspect=" .. tostring(almostW) ..
+					" hint=" .. hintS ..
+					" failHist=" .. fmtFailHist() .. compositeExtra);
+			else
+				for r = 1, 6 do
+					local p = bestPack[r];
+					self.startingPlots[r] = { p[1], p[2], p[3] };
+					self:PlaceImpactAndRipples(p[1], p[2]);
+				end
+				self._lek_tuple_search_success_phase_name = phaseName;
+				self._lek_tuple_search_success_phase_index = phaseIdx;
+				LekPlacementProbeLog("### LekGlobalSix tuplePhase success runId=" .. rid ..
+					" phaseIndex=" .. tostring(phaseIdx) ..
+					" name=" .. phaseName ..
+					" failComplete=" .. tostring(failComplete) ..
+					" leafEvals=" .. tostring(leafEvals) ..
+					" tiebreak_maxAbsDminus13=" .. tostring(bestTb) ..
+					compositeExtra);
+				LekPlacementProbeLog("### LekGlobalSix tupleSearch runId=" .. rid ..
+					" status=ok relax_phase=" .. phaseName ..
+					" relax_phaseIndex=" .. tostring(phaseIdx) ..
+					" failComplete=" .. tostring(failComplete) ..
+					" leafEvals=" .. tostring(leafEvals) ..
+					" tiebreak_maxAbsDminus13=" .. tostring(bestTb));
+				self._lek_g6_runtime_s1_min = nil;
+				self._lek_g6_runtime_s1_max = nil;
+				self._lek_g6_runtime_s2_max = nil;
+				return true, failComplete, leafEvals, maxFail, nil;
+			end
+			end
+			end
 		end
-		AssignStartingPlots.LekGlobalSix_RestorePlaceImpactState(self, snap);
-		self.startingPlots[reg] = nil;
 	end
 
-	dfs(1);
-	AssignStartingPlots.LekGlobalSix_RestorePlaceImpactState(self, baseline);
-	for r = 1, 6 do
-		self.startingPlots[r] = nil;
-	end
-
-	if not bestPack then
-		LekPlacementProbeLog("### LekGlobalSix tupleSearch runId=" .. rid ..
-			" status=fail failComplete=" .. tostring(failComplete) ..
-			" leafEvals=" .. tostring(leafEvals) ..
-			" maxFail=" .. tostring(maxFail) ..
-			" last_fail=" .. tostring(lastFailKind or "na") ..
-			" failHist=" .. fmtFailHist());
-		return false, failComplete, leafEvals, maxFail, lastFailKind;
-	end
-
-	for r = 1, 6 do
-		local p = bestPack[r];
-		self.startingPlots[r] = { p[1], p[2], p[3] };
-		self:PlaceImpactAndRipples(p[1], p[2]);
-	end
+	self._lek_g6_runtime_s1_min = nil;
+	self._lek_g6_runtime_s1_max = nil;
+	self._lek_g6_runtime_s2_max = nil;
 	LekPlacementProbeLog("### LekGlobalSix tupleSearch runId=" .. rid ..
-		" status=ok failComplete=" .. tostring(failComplete) ..
-		" leafEvals=" .. tostring(leafEvals) ..
-		" tiebreak_maxAbsDminus13=" .. tostring(bestTb));
-	return true, failComplete, leafEvals, maxFail, nil;
+		" status=fail_all_phases last_phase_failComplete=" .. tostring(lastFC) ..
+		" leafEvals=" .. tostring(lastLE) ..
+		" maxFail=" .. tostring(lastMaxF) ..
+		" last_fail=" .. tostring(lastFailKind or "na"));
+	return false, lastFC, lastLE, lastMaxF, lastFailKind;
 end
 
 function AssignStartingPlots:LekGlobalSixChooseLocations(args)
@@ -5855,11 +6624,16 @@ function AssignStartingPlots:LekGlobalSixChooseLocations(args)
 	if why ~= nil then
 		whyExtra = " why=" .. tostring(why);
 	end
+	local relaxExtra = "";
+	if okSolve and self._lek_tuple_search_success_phase_name then
+		relaxExtra = " relax_phase=" .. tostring(self._lek_tuple_search_success_phase_name) ..
+			" relax_phaseIndex=" .. tostring(self._lek_tuple_search_success_phase_index or "?");
+	end
 	LekPlacementProbeLog("### LekGlobalSixChooseLocations runId=" .. rid ..
 		" solver_return=" .. (okSolve and "true" or "false") ..
 		" failComplete=" .. tostring(fComplete) ..
 		" leafEvals=" .. tostring(leafE) ..
-		" maxFailComplete=" .. tostring(maxF) .. whyExtra);
+		" maxFailComplete=" .. tostring(maxF) .. whyExtra .. relaxExtra);
 	self._lek_global_six_tuple_solver_accepted = (okSolve == true);
 	return okSolve == true;
 end
@@ -11913,6 +12687,9 @@ function AssignStartingPlots:PlaceSpecificNumberOfResources(resource_ID, quantit
 	if plot_list == nil then
 		--print("Plot list was nil! -PlaceSpecificNumberOfResources");
 		return
+	end
+	if resource_ID == nil then
+		return amount;
 	end
 	local bCheckImpact = false;
 	local impact_table = {};

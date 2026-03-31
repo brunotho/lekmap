@@ -2433,9 +2433,20 @@ function StartPlotSystem()
 	     start_plot_database._lek_global_six_solver = true;
 	     start_plot_database._lek_global_six_ripple_dry_run = true;
 	     start_plot_database._lek_tuple_pool_diag = true;
-	     -- Tuple DFS: thin_first (default) sorts regions by ascending search pool size before backtracking. false = legacy fixed r1..r6 depth order.
+	     -- Per rejected leaf, OK already runs §1–§6; logs add failAnyHist (counts per § when that § failed, sums can exceed failComplete) and failComboHist_top (common multi-§ patterns). Disable: _lek_global_six_tuple_ok_composite_fail_hist = false.
+	     -- §5 start bias: coastal/river stay hard. Vanilla-like: avoid is preference-only for injective §5 (all-t1 Pangaea vs avoid-grass civs). Re-enable hard avoid: _lek_global_six_s5_avoid_hard = true;
+	     start_plot_database._lek_global_six_s5_avoid_hard = false;
+	     -- start_plot_database._lek_global_six_s5_prim_hard = false; -- optional: soften multi-region priority only
+	     -- tupleBiasFeasibility: necessary check — §5-style injective matching on “region r can satisfy coastal/river if some pool plot matches MeasureBiasConditionsAtXY”. skip_impossible skips DFS for that phase (log decision=). Disable: _lek_global_six_tuple_bias_feasibility_gate = false.
+	     -- tupleSpacingReorder: at depth≥2, try candidates with larger min hex distance to already-placed starts first. Logs: ### LekGlobalSix tupleSpacingReorder sample (when _lek_tuple_pool_diag) + spacingDepthCalls / spacingNontrivialPerm on phase end. Disable: _lek_global_six_tuple_spacing_reorder = false.
+	     -- Tuple DFS: thin_first (default) = ascending pool size; constraint_weighted (default) = tie-break by fewer coastal plots in capped pool first (§4/§5 slack). Logs: dfsOrderMode + sortKeys on ### LekGlobalSix tupleDfsOrder.
+	     -- start_plot_database._lek_global_six_dfs_constraint_weighted = false; -- legacy: pool size only
 	     -- start_plot_database._lek_global_six_dfs_thin_first = false;
-	     -- max_fail_complete / max_leaf_evals: each leaf = full 6 placements + ripples + OK_RunAll (expensive). Progress every 2k fails when maxFail>=5000 (_lek_global_six_tuple_progress_every).
+	     -- Tuple relaxation: default in 4a = 4×1000 fail budgets (base s1/s2 → s2+1 → s2+2 → s2+2 & s1max+1). Logs: ### LekGlobalSix tuplePhase begin/end/success.
+	     -- Optional: skip DFS when rank-1 head cells alone already break s2 (may skip valid tuples that need non-head picks — default off in 4a).
+	     -- start_plot_database._lek_global_six_tuple_skip_dfs_rank1_head_s2 = true;
+	     -- start_plot_database._lek_global_six_tuple_relaxation_phases = false; -- single phase only: uses max_fail / max_leaf below, no staged S2/S1 loosening
+	     -- max_fail_complete / max_leaf_evals: per-phase overrides optional; each phase default 1000/8000 from table in 4a if field omitted.
 	     start_plot_database._lek_global_six_max_fail_complete = 1000;
 	     start_plot_database._lek_global_six_max_leaf_evals = 8000;
 	     -- start_plot_database._lek_global_six_max_fail_complete = 12000;
