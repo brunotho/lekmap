@@ -4894,9 +4894,9 @@ end
 
 -- SCRATCHPAD-placement-spec-v0.11 global-six geometry (§1 annulus, §2 spacing).
 local LEK_G6_S1_D_MIN = 9;
-local LEK_G6_S1_D_MAX = 18;
+local LEK_G6_S1_D_MAX = 19;
 local LEK_G6_S1_TARGET_D = 13;
-local LEK_G6_S2_SECOND_NEAREST_MAX = 15;
+local LEK_G6_S2_SECOND_NEAREST_MAX = 16;
 
 function AssignStartingPlots:LekGlobalSix_OK_Section1_CentreBand()
 	local iW, iH = Map.GetGridSize();
@@ -5301,8 +5301,8 @@ function AssignStartingPlots:LekGlobalSix_OK_LogDiagnostics()
 	LekPlacementProbeLog("### LekGlobalSix_OK diag runId=" .. rid ..
 		" spec=SCRATCHPAD-placement-spec-v0.11 first_fail=" .. tostring(R.first_fail or "none") ..
 		" all_hard_pass=" .. (R.all_hard_pass and "1" or "0") ..
-		" s1_centre_9_18=" .. (R.s1_ok and "pass" or "fail") .. " " .. tostring(R.s1_det) ..
-		" s2_secondNearest_le15=" .. (R.s2_ok and "pass" or "fail") .. " " .. tostring(R.s2_det) ..
+		" s1_centre_" .. tostring(LEK_G6_S1_D_MIN) .. "_" .. tostring(LEK_G6_S1_D_MAX) .. "=" .. (R.s1_ok and "pass" or "fail") .. " " .. tostring(R.s1_det) ..
+		" s2_secondNearest_le" .. tostring(LEK_G6_S2_SECOND_NEAREST_MAX) .. "=" .. (R.s2_ok and "pass" or "fail") .. " " .. tostring(R.s2_det) ..
 		" s3_inland_salt_dLe3_max4=" .. (R.s3_ok and "pass" or "fail") .. " " .. tostring(R.s3_det) ..
 		" s4_twoCoastal_geoCycle_IsCoastalLand=" .. (R.s4_ok and "pass" or "fail") .. " " .. tostring(R.s4_det) ..
 		" s5_bias_BAndA_feasible=" .. (R.s5_ok and "pass" or "fail") .. " " .. tostring(R.s5_det) ..
@@ -5516,7 +5516,7 @@ function AssignStartingPlots:LekGlobalSix_LogTuplePoolDiagLine(region_r, searchO
 		" regionType=" .. tostring(rt) ..
 		" rawTupleStyleN=" .. tostring(D.rawN) ..
 		" rawCoastalN=" .. tostring(D.rawCoastal) ..
-		" rawInS1band9_18=" .. tostring(D.rawInS1band) ..
+		" rawInS1band=" .. tostring(D.rawInS1band) ..
 		" rawInBand_coastalN=" .. tostring(D.rawInBandCoastal) ..
 		" meetsMin_maskOwnDD=" .. tostring(D.meetsMinAll) ..
 		" meetsMin_inS1band=" .. tostring(D.meetsMinInS1band) ..
@@ -5618,7 +5618,7 @@ function AssignStartingPlots:LekGlobalSix_RunTupleSearch()
 			LekPlacementProbeLog("### LekGlobalSix tupleSearch runId=" .. rid ..
 				" status=no_candidates region=" .. tostring(r) ..
 				" meetsMin_maskOwnDD_allRaw=" .. tostring(maskedAll) ..
-				" meetsMin_maskOwnDD_inS1band9_18=" .. tostring(inBand) ..
+				" meetsMin_inS1band=" .. tostring(inBand) ..
 				" meetsMin_dCenterRange=" .. dr);
 			return false, 0, 0, maxFail, "no_candidates_r=" .. tostring(r);
 		end
