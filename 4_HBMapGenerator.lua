@@ -835,7 +835,19 @@ function LekHB_GenerateMap_Core()
 	-- although it would be possible to repair and reorganize certain dependencies with enough work.
 	
 	-- Plot types are the core layer of the map, determining land or sea, determining flatland, hills or mountains.
+	stage("before_GeneratePlotTypes");
+	local tPlotTypes0 = (os and os.clock) and os.clock() or 0;
 	GeneratePlotTypes();
+	local dtPlotTypes = ((os and os.clock) and os.clock() or 0) - tPlotTypes0;
+	local laPt = _lek_map_layout_attempt or 0;
+	local ptLine = "### LekMapGen GeneratePlotTypes_returned layoutAttempt=" .. tostring(laPt)
+		.. " dt_os_clock=" .. tostring(dtPlotTypes);
+	print(ptLine);
+	pcall(function()
+		if LekMapgenDiagLogAppend then
+			LekMapgenDiagLogAppend({ ptLine });
+		end
+	end);
 	stage("after_GeneratePlotTypes");
 	
 	-- Terrain covers climate: grassland, plains, desert, tundra, snow.
