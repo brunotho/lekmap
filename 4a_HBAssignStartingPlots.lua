@@ -3521,7 +3521,7 @@ function AssignStartingPlots:EvaluateCandidatePlot(plotIndex, region_type)
 	local finalScore = innerRingScore + middleRingScore + outerRingScore + coastScore;
 
 	--[[ Lekmap placement cleanup (spec v0.3): optional finalScore steering disabled so ranking
-	    does not fight future global OK() hard checks (map-centre d in 9..18, inland salt). Re-enable
+	    does not fight future global OK() centre-band + salt checks (see LekGlobalSix_OK_GetCentreBand). Re-enable
 	    for local experiments only.
 	local saltSeaAdj = 0;
 	do
@@ -4843,7 +4843,36 @@ function AssignStartingPlots:LekGlobalSix_PlotDistance(x1, y1, x2, y2)
 	return nil;
 end
 
+function AssignStartingPlots:LekGlobalSix_OK_GetCentreBand()
+	local lo = self._lek_ok_s1_d_min;
+	local hi = self._lek_ok_s1_d_max;
+	if type(lo) ~= "number" then
+		lo = 8;
+	end
+	if type(hi) ~= "number" then
+		hi = 19;
+	end
+	if lo > hi then
+		lo, hi = 9, 18;
+	end
+	return lo, hi;
+end
+
+function AssignStartingPlots:LekGlobalSix_OK_GetCentreTargetD()
+	local lo, hi = AssignStartingPlots.LekGlobalSix_OK_GetCentreBand(self);
+	return math.floor((lo + hi) / 2);
+end
+
+function AssignStartingPlots:LekGlobalSix_OK_GetSecondNearestMax()
+	local m = self._lek_ok_s2_second_nearest_max;
+	if type(m) ~= "number" or m < 1 then
+		m = 17;
+	end
+	return m;
+end
+
 function AssignStartingPlots:LekGlobalSix_OK_Section1_CentreBand()
+	local dMin, dMax = AssignStartingPlots.LekGlobalSix_OK_GetCentreBand(self);
 	local iW, iH = Map.GetGridSize();
 	local cx = math.floor(iW / 2);
 	local cy = math.floor(iH / 2);
@@ -4856,14 +4885,15 @@ function AssignStartingPlots:LekGlobalSix_OK_Section1_CentreBand()
 		if d == nil then
 			return false, "no_PlotDistance";
 		end
-		if d < 9 or d > 18 then
-			return false, string.format("r=%d d=%d xy=%d,%d", r, d, sp[1], sp[2]);
+		if d < dMin or d > dMax then
+			return false, string.format("r=%d d=%d xy=%d,%d band=%d-%d", r, d, sp[1], sp[2], dMin, dMax);
 		end
 	end
 	return true, "";
 end
 
 function AssignStartingPlots:LekGlobalSix_OK_Section2_d2()
+	local d2Max = AssignStartingPlots.LekGlobalSix_OK_GetSecondNearestMax(self);
 	for i = 1, self.iNumCivs do
 		local ti = self.startingPlots[i];
 		if not ti or type(ti[1]) ~= "number" or type(ti[2]) ~= "number" then
@@ -4885,8 +4915,8 @@ function AssignStartingPlots:LekGlobalSix_OK_Section2_d2()
 		end
 		table.sort(dists);
 		local d2 = dists[2];
-		if d2 > 15 then
-			return false, string.format("i=%d secondNearest=%d", i, d2);
+		if d2 > d2Max then
+			return false, string.format("i=%d secondNearest=%d max=%d", i, d2, d2Max);
 		end
 	end
 	return true, "";
@@ -5243,11 +5273,13 @@ end
 function AssignStartingPlots:LekGlobalSix_OK_LogDiagnostics()
 	local rid = tostring(_lek_run_id or "na");
 	local R = AssignStartingPlots.LekGlobalSix_OK_RunAll(self);
+	local b1, b2 = AssignStartingPlots.LekGlobalSix_OK_GetCentreBand(self);
+	local s2m = AssignStartingPlots.LekGlobalSix_OK_GetSecondNearestMax(self);
 	LekPlacementProbeLog("### LekGlobalSix_OK diag runId=" .. rid ..
 		" spec=SCRATCHPAD-placement-spec-v0.11 first_fail=" .. tostring(R.first_fail or "none") ..
 		" all_hard_pass=" .. (R.all_hard_pass and "1" or "0") ..
-		" s1_centre_9_18=" .. (R.s1_ok and "pass" or "fail") .. " " .. tostring(R.s1_det) ..
-		" s2_secondNearest_le15=" .. (R.s2_ok and "pass" or "fail") .. " " .. tostring(R.s2_det) ..
+		" s1_centreBand=" .. tostring(b1) .. "_" .. tostring(b2) .. "=" .. (R.s1_ok and "pass" or "fail") .. " " .. tostring(R.s1_det) ..
+		" s2_secondNearest_max=" .. tostring(s2m) .. "=" .. (R.s2_ok and "pass" or "fail") .. " " .. tostring(R.s2_det) ..
 		" s3_inland_salt_dLe3_max4=" .. (R.s3_ok and "pass" or "fail") .. " " .. tostring(R.s3_det) ..
 		" s4_twoCoastal_geoCycle_IsCoastalLand=" .. (R.s4_ok and "pass" or "fail") .. " " .. tostring(R.s4_det) ..
 		" s5_bias_BAndA_feasible=" .. (R.s5_ok and "pass" or "fail") .. " " .. tostring(R.s5_det) ..
@@ -5305,6 +5337,7 @@ function AssignStartingPlots:LekGlobalSix_TiebreakMaxCentrDeviation()
 	local iW, iH = Map.GetGridSize();
 	local cx = math.floor(iW / 2);
 	local cy = math.floor(iH / 2);
+	local targetD = AssignStartingPlots.LekGlobalSix_OK_GetCentreTargetD(self);
 	local worst = 0;
 	for r = 1, 6 do
 		local sp = self.startingPlots[r];
@@ -5312,7 +5345,7 @@ function AssignStartingPlots:LekGlobalSix_TiebreakMaxCentrDeviation()
 		if not d then
 			return math.huge;
 		end
-		local dev = math.abs(d - 13);
+		local dev = math.abs(d - targetD);
 		if dev > worst then
 			worst = dev;
 		end
@@ -5326,6 +5359,7 @@ function AssignStartingPlots:LekGlobalSix_CountMaskedMeetsMinOutsideInsideCentre
 	if not rt then
 		return 0, 0, nil, nil;
 	end
+	local dBandLo, dBandHi = AssignStartingPlots.LekGlobalSix_OK_GetCentreBand(self);
 	local iW, iH = Map.GetGridSize();
 	local cx = math.floor(iW / 2);
 	local cy = math.floor(iH / 2);
@@ -5346,7 +5380,7 @@ function AssignStartingPlots:LekGlobalSix_CountMaskedMeetsMinOutsideInsideCentre
 			if d then
 				if dLo == nil or d < dLo then dLo = d; end
 				if dHi == nil or d > dHi then dHi = d; end
-				if d >= 9 and d <= 18 then
+				if d >= dBandLo and d <= dBandHi then
 					inBand = inBand + 1;
 				end
 			end
@@ -5361,6 +5395,7 @@ function AssignStartingPlots:LekGlobalSix_GatherSearchCandidatesOrdered(region_r
 	if not rt then
 		return {};
 	end
+	local dMin, dMax = AssignStartingPlots.LekGlobalSix_OK_GetCentreBand(self);
 	local iW, iH = Map.GetGridSize();
 	local cx = math.floor(iW / 2);
 	local cy = math.floor(iH / 2);
@@ -5371,7 +5406,7 @@ function AssignStartingPlots:LekGlobalSix_GatherSearchCandidatesOrdered(region_r
 		local y = (plotIndex - x - 1) / iW;
 		local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, x, y, cx, cy);
 		if not d then
-		elseif d < 9 or d > 18 then
+		elseif d < dMin or d > dMax then
 		else
 			local savedDD = self.distanceData[plotIndex];
 			self.distanceData[plotIndex] = 0;
@@ -5435,7 +5470,7 @@ function AssignStartingPlots:LekGlobalSix_RunTupleSearch()
 			LekPlacementProbeLog("### LekGlobalSix tupleSearch runId=" .. rid ..
 				" status=no_candidates region=" .. tostring(r) ..
 				" meetsMin_maskOwnDD_allRaw=" .. tostring(maskedAll) ..
-				" meetsMin_maskOwnDD_inS1band9_18=" .. tostring(inBand) ..
+				" meetsMin_inCentreBand=" .. tostring(inBand) ..
 				" meetsMin_dCenterRange=" .. dr);
 			return false, 0, 0, maxFail, "no_candidates_r=" .. tostring(r);
 		end
