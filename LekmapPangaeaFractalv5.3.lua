@@ -24,8 +24,8 @@ print("### LekmapPangaeaFractal: includes done ###");
 -- Lane A: max full-map regens when global-six tuple solver rejects (spec target: 4 layouts = 1 + 3 retries).
 -- Overridden per roll from start_plot_database._lek_global_six_regen_max_layouts inside StartPlotSystem.
 _lek_global_six_regen_max_layouts = 4;
--- Regen loop runs up to N full map gens per start; leave false until solver + machine can bear it (bisect baseline).
-_lek_enable_hb_generatemap_regen_loop = false;
+-- Regen loop: GenerateMap() re-runs LekHB_GenerateMap_Core (full fractal + terrain + StartPlotSystem) until tuple solver succeeds or layouts exhausted. Previously false: logs showed requestRegen=1 but regenLoopActive=0 so no retry.
+_lek_enable_hb_generatemap_regen_loop = true;
 _lek_map_layout_attempt = nil;
 _lek_global_six_request_map_regen = false;
 
