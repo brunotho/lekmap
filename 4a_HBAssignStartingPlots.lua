@@ -5410,6 +5410,123 @@ function AssignStartingPlots:LekGlobalSix_CountMaskedMeetsMinOutsideInsideCentre
 	return maskedAll, inBand, dLo, dHi;
 end
 
+function AssignStartingPlots:LekGlobalSix_LogTupleProbeLayerSnapshot()
+	local rid = tostring(_lek_run_id or "na");
+	local iW, iH = Map.GetGridSize();
+	local n = iW * iH;
+	local ddPos, ddMax = 0, 0;
+	local pcPos, csPos = 0, 0;
+	for i = 1, n do
+		local v = self.distanceData[i];
+		if type(v) == "number" and v > 0 then
+			ddPos = ddPos + 1;
+			if v > ddMax then ddMax = v; end
+		end
+		if self.playerCollisionData[i] == true then
+			pcPos = pcPos + 1;
+		end
+		local cs = self.cityStateData[i];
+		if type(cs) == "number" and cs > 0 then
+			csPos = csPos + 1;
+		end
+	end
+	LekPlacementProbeLog("### LekGlobalSix tupleProbeLayer runId=" .. rid ..
+		" grid=" .. tostring(iW) .. "x" .. tostring(iH) ..
+		" distanceData_gt0=" .. tostring(ddPos) .. " distanceData_max=" .. tostring(ddMax) ..
+		" playerCollision_true=" .. tostring(pcPos) ..
+		" cityStateData_gt0=" .. tostring(csPos));
+end
+
+function AssignStartingPlots:LekGlobalSix_TuplePoolDiagCollect(region_r)
+	local list = AssignStartingPlots.LekGlobalSix_GatherTupleStyleCandidateIndices(self, region_r, false);
+	local rt = self.regionTypes[region_r];
+	local rawN = #list;
+	local iW, iH = Map.GetGridSize();
+	local cx = math.floor(iW / 2);
+	local cy = math.floor(iH / 2);
+	local rawCoastal = 0;
+	local rawInS1band = 0;
+	local rawInBandCoastal = 0;
+	local meetsMinAll = 0;
+	local meetsMinInS1band = 0;
+	local inBandButFailsMeetsMin = 0;
+	local dLo, dHi = nil, nil;
+	for idx = 1, rawN do
+		local plotIndex = list[idx];
+		if self.plotDataIsCoastal[plotIndex] == true then
+			rawCoastal = rawCoastal + 1;
+		end
+		local x = (plotIndex - 1) % iW;
+		local y = (plotIndex - x - 1) / iW;
+		local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, x, y, cx, cy);
+		local inBand = d and d >= LEK_G6_S1_D_MIN and d <= LEK_G6_S1_D_MAX;
+		if inBand then
+			rawInS1band = rawInS1band + 1;
+			if self.plotDataIsCoastal[plotIndex] == true then
+				rawInBandCoastal = rawInBandCoastal + 1;
+			end
+		end
+		if not rt then
+		else
+			local savedDD = self.distanceData[plotIndex];
+			self.distanceData[plotIndex] = 0;
+			local _, meetsMin = self:EvaluateCandidatePlot(plotIndex, rt);
+			self.distanceData[plotIndex] = savedDD;
+			if meetsMin then
+				meetsMinAll = meetsMinAll + 1;
+				if d then
+					if dLo == nil or d < dLo then dLo = d; end
+					if dHi == nil or d > dHi then dHi = d; end
+				end
+				if inBand then
+					meetsMinInS1band = meetsMinInS1band + 1;
+				end
+			elseif inBand then
+				inBandButFailsMeetsMin = inBandButFailsMeetsMin + 1;
+			end
+		end
+	end
+	local rangeStr = "na";
+	if dLo ~= nil and dHi ~= nil then
+		rangeStr = tostring(dLo) .. "-" .. tostring(dHi);
+	end
+	local cap = self._lek_global_six_max_candidates_per_region;
+	if type(cap) ~= "number" or cap < 1 then
+		cap = 36;
+	end
+	return {
+		rawN = rawN,
+		rawCoastal = rawCoastal,
+		rawInS1band = rawInS1band,
+		rawInBandCoastal = rawInBandCoastal,
+		meetsMinAll = meetsMinAll,
+		meetsMinInS1band = meetsMinInS1band,
+		inBandButFailsMeetsMin = inBandButFailsMeetsMin,
+		meetsMinDRange = rangeStr,
+		cap = cap,
+	};
+end
+
+function AssignStartingPlots:LekGlobalSix_LogTuplePoolDiagLine(region_r, searchOrderedN)
+	local rid = tostring(_lek_run_id or "na");
+	local D = AssignStartingPlots.LekGlobalSix_TuplePoolDiagCollect(self, region_r);
+	local rt = self.regionTypes[region_r];
+	LekPlacementProbeLog("### LekGlobalSix tuplePoolDiag runId=" .. rid ..
+		" region=" .. tostring(region_r) ..
+		" regionType=" .. tostring(rt) ..
+		" rawTupleStyleN=" .. tostring(D.rawN) ..
+		" rawCoastalN=" .. tostring(D.rawCoastal) ..
+		" rawInS1band9_18=" .. tostring(D.rawInS1band) ..
+		" rawInBand_coastalN=" .. tostring(D.rawInBandCoastal) ..
+		" meetsMin_maskOwnDD=" .. tostring(D.meetsMinAll) ..
+		" meetsMin_inS1band=" .. tostring(D.meetsMinInS1band) ..
+		" inS1band_butNotMeetsMin=" .. tostring(D.inBandButFailsMeetsMin) ..
+		" meetsMin_dCenterRange=" .. D.meetsMinDRange ..
+		" searchOrderedN=" .. tostring(searchOrderedN) ..
+		" perRegionCap=" .. tostring(D.cap) ..
+		" note=tupleUses_NoCoastFalse_coastExcl_nextToCoast_and_threeFromCoast");
+end
+
 function AssignStartingPlots:LekGlobalSix_GatherSearchCandidatesOrdered(region_r)
 	local list = AssignStartingPlots.LekGlobalSix_GatherTupleStyleCandidateIndices(self, region_r, false);
 	local rt = self.regionTypes[region_r];
@@ -5482,9 +5599,16 @@ function AssignStartingPlots:LekGlobalSix_RunTupleSearch()
 	if type(maxLeaf) ~= "number" or maxLeaf < 1 then
 		maxLeaf = 800;
 	end
+	local doTupleDiag = (self._lek_tuple_pool_diag ~= false);
+	if doTupleDiag then
+		AssignStartingPlots.LekGlobalSix_LogTupleProbeLayerSnapshot(self);
+	end
 	local byRegion = {};
 	for r = 1, 6 do
 		byRegion[r] = AssignStartingPlots.LekGlobalSix_GatherSearchCandidatesOrdered(self, r);
+		if doTupleDiag then
+			AssignStartingPlots.LekGlobalSix_LogTuplePoolDiagLine(self, r, #byRegion[r]);
+		end
 		if #byRegion[r] == 0 then
 			local maskedAll, inBand, dLo, dHi = AssignStartingPlots.LekGlobalSix_CountMaskedMeetsMinOutsideInsideCentreBand(self, r);
 			local dr = "na";
@@ -5505,6 +5629,23 @@ function AssignStartingPlots:LekGlobalSix_RunTupleSearch()
 	local bestPack = nil;
 	local bestTb = nil;
 	local lastFailKind = nil;
+	local failHist = {};
+	local function bumpFailHist(ff)
+		local k = tostring(ff or "?");
+		failHist[k] = (failHist[k] or 0) + 1;
+	end
+	local function fmtFailHist()
+		local keys = {};
+		for k, _ in pairs(failHist) do
+			keys[#keys + 1] = k;
+		end
+		table.sort(keys);
+		local parts = {};
+		for _, k in ipairs(keys) do
+			parts[#parts + 1] = k .. ":" .. tostring(failHist[k]);
+		end
+		return table.concat(parts, ",");
+	end
 
 	local function noteFail(R)
 		lastFailKind = tostring(R.first_fail or "?");
@@ -5529,6 +5670,7 @@ function AssignStartingPlots:LekGlobalSix_RunTupleSearch()
 			else
 				failComplete = failComplete + 1;
 				noteFail(R);
+				bumpFailHist(R.first_fail);
 			end
 			return;
 		end
@@ -5562,7 +5704,8 @@ function AssignStartingPlots:LekGlobalSix_RunTupleSearch()
 			" status=fail failComplete=" .. tostring(failComplete) ..
 			" leafEvals=" .. tostring(leafEvals) ..
 			" maxFail=" .. tostring(maxFail) ..
-			" last_fail=" .. tostring(lastFailKind or "na"));
+			" last_fail=" .. tostring(lastFailKind or "na") ..
+			" failHist=" .. fmtFailHist());
 		return false, failComplete, leafEvals, maxFail, lastFailKind;
 	end
 
