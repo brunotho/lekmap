@@ -21,6 +21,13 @@ include("3_PangaeaIslands");
 include("X_IslandHelpers");
 print("### LekmapPangaeaFractal: includes done ###");
 
+-- Lane A: max full-map regens when global-six tuple solver rejects (spec target: 4 layouts = 1 + 3 retries).
+-- Overridden per roll from start_plot_database._lek_global_six_regen_max_layouts inside StartPlotSystem.
+_lek_global_six_regen_max_layouts = 4;
+_lek_enable_hb_generatemap_regen_loop = true;
+_lek_map_layout_attempt = nil;
+_lek_global_six_request_map_regen = false;
+
 ------------------------------------------------------------------------------
 function GetMapScriptInfo()
 	local world_age, temperature, rainfall, sea_level, resources = GetCoreMapOptions()
@@ -2424,6 +2431,7 @@ function StartPlotSystem()
 	     -- Lane A: global-six hook + OK diag logs. false = quiet maps; true = probe (set true when testing).
 	     start_plot_database._lek_global_six_solver = true;
 	     start_plot_database._lek_global_six_ripple_dry_run = true;
+	     start_plot_database._lek_global_six_regen_max_layouts = 4;
 	     start_plot_database._lek_enable_virtual_six_retries = false;
 	     start_plot_database._lek_disable_virtual_six = true;
 	     -- start_plot_database._lek_enable_virtual_six_retries = true
@@ -2438,6 +2446,9 @@ function StartPlotSystem()
 		-- Interacts with CoastLux, makes that option undefined -- however true/false just marks guarantee/random
 		-- CoastLux = false
 		start_plot_database._lek_coastal_refish = false
+	if type(start_plot_database._lek_global_six_regen_max_layouts) == "number" and start_plot_database._lek_global_six_regen_max_layouts >= 1 then
+		_lek_global_six_regen_max_layouts = start_plot_database._lek_global_six_regen_max_layouts;
+	end
 	
 	print("Dividing the map in to Regions.");
 	-- Regional Division Method 1: Biggest Landmass
@@ -2701,4 +2712,3 @@ function StartPlotSystem()
 	-- Debug region repaint can be heavy; keep it off while we debug stalls.
 	-- DebugPaintRegionsTerrains(start_plot_database)
 end
-------------------------------------------------------------------------------

@@ -798,7 +798,7 @@ function StartPlotSystem()
 	start_plot_database:PlaceResourcesAndCityStates()
 end
 
-function GenerateMap()
+function LekHB_GenerateMap_Core()
 	print("Generating Map");
 	-- This is the core map generation function.
 	-- Every step in this process carries dependencies upon earlier steps.
@@ -841,4 +841,61 @@ function GenerateMap()
 
 	-- Continental artwork selection must wait until Areas are finalized, so it gets handled last.
 	DetermineContinents();
+	if LekMapgenDiagLogAppend then
+		LekMapgenDiagLogAppend({
+			"### LekBuildPing end_LekHB_GenerateMap_Core runId=" .. tostring(_lek_run_id or "na"),
+		});
+	end
+end
+
+function GenerateMap()
+	local function logPostCore(layoutAttempt, maxL, req, regenLoopActive)
+		local pc = "### LekGlobalSix mapRegen postCoreGenerateMap layout=" .. tostring(layoutAttempt) .. "/" .. tostring(maxL) ..
+			" requestRegen=" .. (req and "1" or "0") .. " runId=" .. tostring(_lek_run_id or "na") ..
+			" regenLoopActive=" .. (regenLoopActive and "1" or "0");
+		if LekMapgenDiagLogAppend then
+			LekMapgenDiagLogAppend({ pc });
+		end
+		print(pc);
+	end
+
+	if not _lek_enable_hb_generatemap_regen_loop then
+		LekHB_GenerateMap_Core();
+		logPostCore(1, 1, _lek_global_six_request_map_regen == true, false);
+		return;
+	end
+	local maxL = _lek_global_six_regen_max_layouts;
+	if type(maxL) ~= "number" or maxL < 1 then
+		maxL = 4;
+	end
+	for layoutAttempt = 1, maxL do
+		_lek_map_layout_attempt = layoutAttempt;
+		_lek_global_six_request_map_regen = false;
+		LekHB_GenerateMap_Core();
+		local req = (_lek_global_six_request_map_regen == true);
+		logPostCore(layoutAttempt, maxL, req, true);
+		if not req then
+			break;
+		end
+		if layoutAttempt >= maxL then
+			local msg = "### LekGlobalSix mapRegen exhausted layouts=" .. tostring(maxL) .. " runId=" .. tostring(_lek_run_id or "na");
+			print(msg);
+			if LekMapgenDiagLogAppend then
+				LekMapgenDiagLogAppend({ msg });
+			end
+			if LekPlacementProbeLog then
+				LekPlacementProbeLog(msg);
+			end
+			break;
+		end
+		local msg = "### LekGlobalSix mapRegen retry nextLayout=" .. tostring(layoutAttempt + 1) .. "/" .. tostring(maxL) .. " runId=" .. tostring(_lek_run_id or "na");
+		print(msg);
+		if LekMapgenDiagLogAppend then
+			LekMapgenDiagLogAppend({ msg });
+		end
+		if LekPlacementProbeLog then
+			LekPlacementProbeLog(msg);
+		end
+	end
+	_lek_map_layout_attempt = nil;
 end

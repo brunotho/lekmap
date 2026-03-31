@@ -59,6 +59,12 @@ function LekPlacementProbeLog(msg)
 	end);
 end
 
+function LekAllowLuxuryIndex(allowed_luxuries, resId)
+	if resId ~= nil and allowed_luxuries ~= nil then
+		allowed_luxuries[resId] = true;
+	end
+end
+
 local function LekSafeGetDisableStartBiasOption()
 	local ok, v = pcall(function()
 		return Game.GetCustomOption("GAMEOPTION_DISABLE_START_BIAS");
@@ -167,6 +173,7 @@ function AssignStartingPlots.Create()
 		LekGlobalSix_CountEvaluateMeetsMinInRawPool = AssignStartingPlots.LekGlobalSix_CountEvaluateMeetsMinInRawPool,
 		LekGlobalSix_ApplyDistanceRipplesForStartOnly = AssignStartingPlots.LekGlobalSix_ApplyDistanceRipplesForStartOnly,
 		LekGlobalSix_LogRippleOrderedSampleDryRun = AssignStartingPlots.LekGlobalSix_LogRippleOrderedSampleDryRun,
+		LekGlobalSix_RunTupleSearch = AssignStartingPlots.LekGlobalSix_RunTupleSearch,
 		LekGlobalSix_OK_LogDiagnostics = AssignStartingPlots.LekGlobalSix_OK_LogDiagnostics,
 		BalanceAndAssign = AssignStartingPlots.BalanceAndAssign,
 		PlaceNaturalWonders = AssignStartingPlots.PlaceNaturalWonders,
@@ -5012,11 +5019,192 @@ function AssignStartingPlots:LekGlobalSix_OK_Section6_SiteQuality_PostPlacement(
 	return true, "mode=postplacement_eval_mask_own_impact_tile";
 end
 
+function AssignStartingPlots:LekGlobalSix_MeasureBiasConditionsNoNormalize(region_number)
+	local t = self.startingPlots[region_number];
+	if not t or type(t[1]) ~= "number" or type(t[2]) ~= "number" then
+		return { alongOcean = false, nextToLake = false, isRiver = false, nearRiver = false };
+	end
+	local x, y = t[1], t[2];
+	local iW, iH = Map.GetGridSize();
+	local plotIndex = y * iW + x + 1;
+	local plot = Map.GetPlot(x, y);
+	local alongOcean = (self.plotDataIsCoastal[plotIndex] == true);
+	local isRiver = (plot and plot:IsRiver()) or false;
+	local nextToLake = false;
+	local nearRiver = isRiver;
+	local isEvenY = true;
+	if y / 2 > math.floor(y / 2) then
+		isEvenY = false;
+	end
+	local function scanRing(search_table)
+		for loop, plot_adjustments in ipairs(search_table) do
+			local searchX, searchY = self:ApplyHexAdjustment(x, y, plot_adjustments);
+			if searchX >= 0 and searchX < iW and searchY >= 0 and searchY < iH then
+				local searchPlot = Map.GetPlot(searchX, searchY);
+				if searchPlot then
+					if searchPlot:IsRiver() then
+						nearRiver = true;
+					end
+					local plotType = searchPlot:GetPlotType();
+					local featureType = searchPlot:GetFeatureType();
+					if plotType == PlotTypes.PLOT_OCEAN and searchPlot:IsLake() and featureType ~= FeatureTypes.FEATURE_ICE then
+						nextToLake = true;
+					end
+				end
+			end
+		end
+	end
+	local st1 = isEvenY and self.firstRingYIsEven or self.firstRingYIsOdd;
+	local st2 = isEvenY and self.secondRingYIsEven or self.secondRingYIsOdd;
+	scanRing(st1);
+	scanRing(st2);
+	return { alongOcean = alongOcean, nextToLake = nextToLake, isRiver = isRiver, nearRiver = nearRiver };
+end
+
+function AssignStartingPlots:LekGlobalSix_OK_Section5_BalanceAndAssignFeasible()
+	if self.iNumCivs ~= 6 then
+		return true, "n/a_iNumCivs_ne_6";
+	end
+	local okOpt, dsb = pcall(function()
+		return Game.GetCustomOption("GAMEOPTION_DISABLE_START_BIAS");
+	end);
+	if okOpt and dsb == 1 then
+		return true, "skipped_GAMEOPTION_DISABLE_START_BIAS";
+	end
+	local meta = {};
+	for r = 1, 6 do
+		meta[r] = AssignStartingPlots.LekGlobalSix_MeasureBiasConditionsNoNormalize(self, r);
+	end
+	local plist = {};
+	for loop = 1, 6 do
+		local playerNum = self.player_ID_list[loop];
+		local player = Players[playerNum];
+		if not player then
+			return false, "nil_player_pid=" .. tostring(playerNum);
+		end
+		local row = GameInfo.Civilizations[player:GetCivilizationType()];
+		if not row then
+			return false, "nil_civinfo_pid=" .. tostring(playerNum);
+		end
+		local civType = row.Type;
+		local bNeedsCoastalStart = CivNeedsCoastalStart(civType);
+		if self.MixedBias and CivNeedsPlaceFirstCoastalStart(civType) then
+			bNeedsCoastalStart = false;
+		end
+		if bNeedsCoastalStart then
+			plist[#plist + 1] = { tag = "coastal", pid = playerNum };
+		else
+			local bNeedsRiverStart = CivNeedsRiverStart(civType);
+			if bNeedsRiverStart then
+				plist[#plist + 1] = { tag = "river", pid = playerNum };
+			else
+				local iNumRegionPriority = GetNumStartRegionPriorityForCiv(civType);
+				if iNumRegionPriority > 0 then
+					local pr = GetStartRegionPriorityListForCiv_GetIDs(civType);
+					local len = table.maxn(pr) or 0;
+					if len == 1 then
+						plist[#plist + 1] = { tag = "pri1", pid = playerNum };
+					elseif len > 1 then
+						plist[#plist + 1] = { tag = "prim", pid = playerNum, pr = pr };
+					else
+						plist[#plist + 1] = { tag = "flex", pid = playerNum };
+					end
+				else
+					local iNumRegionAvoid = GetNumStartRegionAvoidForCiv(civType);
+					if iNumRegionAvoid > 0 then
+						local av = GetStartRegionAvoidListForCiv_GetIDs(civType);
+						plist[#plist + 1] = { tag = "avoid", pid = playerNum, av = av };
+					else
+						plist[#plist + 1] = { tag = "flex", pid = playerNum };
+					end
+				end
+			end
+		end
+	end
+	if #plist ~= 6 then
+		return false, "internal_player_count_ne_6";
+	end
+	local function okCoastal(r)
+		return meta[r].alongOcean or meta[r].nextToLake;
+	end
+	local function okRiver(r)
+		return meta[r].isRiver or meta[r].nearRiver;
+	end
+	local function okPrim(p, r)
+		for _, rtNeed in ipairs(p.pr) do
+			if self.regionTypes[r] == rtNeed then
+				return true;
+			end
+		end
+		return false;
+	end
+	local function okAvoid(p, r)
+		for _, rtBad in ipairs(p.av) do
+			if self.regionTypes[r] == rtBad then
+				return false;
+			end
+		end
+		return true;
+	end
+	local function pred(p, r)
+		if p.tag == "coastal" then
+			return okCoastal(r);
+		elseif p.tag == "river" then
+			return okRiver(r);
+		elseif p.tag == "pri1" then
+			return true;
+		elseif p.tag == "prim" then
+			return okPrim(p, r);
+		elseif p.tag == "avoid" then
+			return okAvoid(p, r);
+		end
+		return true;
+	end
+	local function countElig(p)
+		local n = 0;
+		for r = 1, 6 do
+			if pred(p, r) then
+				n = n + 1;
+			end
+		end
+		return n;
+	end
+	table.sort(plist, function(a, b)
+		local ca, cb = countElig(a), countElig(b);
+		if ca ~= cb then
+			return ca < cb;
+		end
+		return a.pid < b.pid;
+	end);
+	local occ = {};
+	local function dfs(k)
+		if k > #plist then
+			return true;
+		end
+		local p = plist[k];
+		for r = 1, 6 do
+			if not occ[r] and pred(p, r) then
+				occ[r] = true;
+				if dfs(k + 1) then
+					return true;
+				end
+				occ[r] = false;
+			end
+		end
+		return false;
+	end
+	if not dfs(1) then
+		return false, "no_injective_civ_region_matching_coastal_river_priority_avoid";
+	end
+	return true, "backtrack_mixedBias_coastalClear_if_placeFirst_MeasureNoNormalize";
+end
+
 function AssignStartingPlots:LekGlobalSix_OK_RunAll()
 	local ok1, det1 = AssignStartingPlots.LekGlobalSix_OK_Section1_CentreBand(self);
 	local ok2, det2 = AssignStartingPlots.LekGlobalSix_OK_Section2_d2(self);
 	local ok3, det3 = AssignStartingPlots.LekGlobalSix_OK_Section3_InlandSalt(self);
 	local ok4, det4 = AssignStartingPlots.LekGlobalSix_OK_Section4_TwoCoastalGeoCycle(self);
+	local ok5, det5 = AssignStartingPlots.LekGlobalSix_OK_Section5_BalanceAndAssignFeasible(self);
 	local ok6, det6 = AssignStartingPlots.LekGlobalSix_OK_Section6_SiteQuality_PostPlacement(self);
 	local first_fail, first_det = nil, "";
 	if not ok1 then
@@ -5027,10 +5215,12 @@ function AssignStartingPlots:LekGlobalSix_OK_RunAll()
 		first_fail, first_det = "s3", det3;
 	elseif not ok4 then
 		first_fail, first_det = "s4", det4;
+	elseif not ok5 then
+		first_fail, first_det = "s5", det5;
 	elseif not ok6 then
 		first_fail, first_det = "s6", det6;
 	end
-	local all_hard_pass = ok1 and ok2 and ok3 and ok4 and ok6;
+	local all_hard_pass = ok1 and ok2 and ok3 and ok4 and ok5 and ok6;
 	return {
 		s1_ok = ok1,
 		s1_det = det1,
@@ -5040,6 +5230,8 @@ function AssignStartingPlots:LekGlobalSix_OK_RunAll()
 		s3_det = det3,
 		s4_ok = ok4,
 		s4_det = det4,
+		s5_ok = ok5,
+		s5_det = det5,
 		s6_ok = ok6,
 		s6_det = det6,
 		first_fail = first_fail,
@@ -5058,8 +5250,273 @@ function AssignStartingPlots:LekGlobalSix_OK_LogDiagnostics()
 		" s2_secondNearest_le15=" .. (R.s2_ok and "pass" or "fail") .. " " .. tostring(R.s2_det) ..
 		" s3_inland_salt_dLe3_max4=" .. (R.s3_ok and "pass" or "fail") .. " " .. tostring(R.s3_det) ..
 		" s4_twoCoastal_geoCycle_IsCoastalLand=" .. (R.s4_ok and "pass" or "fail") .. " " .. tostring(R.s4_det) ..
-		" s5_bias=not_enforced_yet" ..
+		" s5_bias_BAndA_feasible=" .. (R.s5_ok and "pass" or "fail") .. " " .. tostring(R.s5_det) ..
 		" s6_EvaluateCandidate_meets_minimums=" .. (R.s6_ok and "pass" or "fail") .. " " .. tostring(R.s6_det));
+end
+
+local function LekGlobalSix_CopyBufferFields()
+	return {
+		"distanceData",
+		"playerCollisionData",
+		"cityStateData",
+		"strategicData",
+		"luxuryData",
+		"bonusData",
+		"fishData",
+		"naturalWondersData",
+		"marbleData",
+		"seaOilData",
+		"sheepData",
+	};
+end
+
+function AssignStartingPlots:LekGlobalSix_SnapshotPlaceImpactState()
+	local iW, iH = Map.GetGridSize();
+	local n = iW * iH;
+	local snap = { n = n, layers = {} };
+	for _, name in ipairs(LekGlobalSix_CopyBufferFields()) do
+		local src = self[name];
+		local cpy = {};
+		for i = 1, n do
+			cpy[i] = src[i];
+		end
+		snap.layers[name] = cpy;
+	end
+	return snap;
+end
+
+function AssignStartingPlots:LekGlobalSix_RestorePlaceImpactState(snap)
+	if not snap or not snap.layers then
+		return;
+	end
+	local n = snap.n;
+	for _, name in ipairs(LekGlobalSix_CopyBufferFields()) do
+		local src = snap.layers[name];
+		local dst = self[name];
+		if src and dst then
+			for i = 1, n do
+				dst[i] = src[i];
+			end
+		end
+	end
+end
+
+function AssignStartingPlots:LekGlobalSix_TiebreakMaxCentrDeviation()
+	local iW, iH = Map.GetGridSize();
+	local cx = math.floor(iW / 2);
+	local cy = math.floor(iH / 2);
+	local worst = 0;
+	for r = 1, 6 do
+		local sp = self.startingPlots[r];
+		local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, sp[1], sp[2], cx, cy);
+		if not d then
+			return math.huge;
+		end
+		local dev = math.abs(d - 13);
+		if dev > worst then
+			worst = dev;
+		end
+	end
+	return worst;
+end
+
+function AssignStartingPlots:LekGlobalSix_CountMaskedMeetsMinOutsideInsideCentreBand(region_r)
+	local list = AssignStartingPlots.LekGlobalSix_GatherRawFindStartStyleCandidateIndices(self, region_r, false);
+	local rt = self.regionTypes[region_r];
+	if not rt then
+		return 0, 0, nil, nil;
+	end
+	local iW, iH = Map.GetGridSize();
+	local cx = math.floor(iW / 2);
+	local cy = math.floor(iH / 2);
+	local maskedAll = 0;
+	local inBand = 0;
+	local dLo, dHi = nil, nil;
+	for idx = 1, #list do
+		local plotIndex = list[idx];
+		local x = (plotIndex - 1) % iW;
+		local y = (plotIndex - x - 1) / iW;
+		local savedDD = self.distanceData[plotIndex];
+		self.distanceData[plotIndex] = 0;
+		local score, meetsMin = self:EvaluateCandidatePlot(plotIndex, rt);
+		self.distanceData[plotIndex] = savedDD;
+		if meetsMin then
+			maskedAll = maskedAll + 1;
+			local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, x, y, cx, cy);
+			if d then
+				if dLo == nil or d < dLo then dLo = d; end
+				if dHi == nil or d > dHi then dHi = d; end
+				if d >= 9 and d <= 18 then
+					inBand = inBand + 1;
+				end
+			end
+		end
+	end
+	return maskedAll, inBand, dLo, dHi;
+end
+
+function AssignStartingPlots:LekGlobalSix_GatherSearchCandidatesOrdered(region_r)
+	local list = AssignStartingPlots.LekGlobalSix_GatherRawFindStartStyleCandidateIndices(self, region_r, false);
+	local rt = self.regionTypes[region_r];
+	if not rt then
+		return {};
+	end
+	local iW, iH = Map.GetGridSize();
+	local cx = math.floor(iW / 2);
+	local cy = math.floor(iH / 2);
+	local out = {};
+	for idx = 1, #list do
+		local plotIndex = list[idx];
+		local x = (plotIndex - 1) % iW;
+		local y = (plotIndex - x - 1) / iW;
+		local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, x, y, cx, cy);
+		if not d then
+		elseif d < 9 or d > 18 then
+		else
+			local savedDD = self.distanceData[plotIndex];
+			self.distanceData[plotIndex] = 0;
+			local score, meetsMin = self:EvaluateCandidatePlot(plotIndex, rt);
+			self.distanceData[plotIndex] = savedDD;
+			if meetsMin then
+				out[#out + 1] = { plotIndex = plotIndex, x = x, y = y, score = score };
+			end
+		end
+	end
+	table.sort(out, function(a, b)
+		if a.score ~= b.score then
+			return a.score > b.score;
+		end
+		return a.plotIndex < b.plotIndex;
+	end);
+	local cap = self._lek_global_six_max_candidates_per_region;
+	if type(cap) ~= "number" or cap < 1 then
+		cap = 36;
+	end
+	while #out > cap do
+		table.remove(out);
+	end
+	return out;
+end
+
+function AssignStartingPlots:LekGlobalSix_CopyStartsTableForBest()
+	local t = {};
+	for r = 1, 6 do
+		local sp = self.startingPlots[r];
+		if not sp then
+			return nil;
+		end
+		t[r] = { sp[1], sp[2], sp[3] };
+	end
+	return t;
+end
+
+function AssignStartingPlots:LekGlobalSix_RunTupleSearch()
+	local rid = tostring(_lek_run_id or "na");
+	if self.iNumCivs ~= 6 then
+		return false, 0, 0, 0, nil;
+	end
+	local maxFail = self._lek_global_six_max_fail_complete;
+	if type(maxFail) ~= "number" or maxFail < 1 then
+		maxFail = 100;
+	end
+	local maxLeaf = self._lek_global_six_max_leaf_evals;
+	if type(maxLeaf) ~= "number" or maxLeaf < 1 then
+		maxLeaf = 800;
+	end
+	local byRegion = {};
+	for r = 1, 6 do
+		byRegion[r] = AssignStartingPlots.LekGlobalSix_GatherSearchCandidatesOrdered(self, r);
+		if #byRegion[r] == 0 then
+			local maskedAll, inBand, dLo, dHi = AssignStartingPlots.LekGlobalSix_CountMaskedMeetsMinOutsideInsideCentreBand(self, r);
+			local dr = "na";
+			if dLo ~= nil and dHi ~= nil then
+				dr = tostring(dLo) .. "-" .. tostring(dHi);
+			end
+			LekPlacementProbeLog("### LekGlobalSix tupleSearch runId=" .. rid ..
+				" status=no_candidates region=" .. tostring(r) ..
+				" meetsMin_maskOwnDD_allRaw=" .. tostring(maskedAll) ..
+				" meetsMin_maskOwnDD_inS1band9_18=" .. tostring(inBand) ..
+				" meetsMin_dCenterRange=" .. dr);
+			return false, 0, 0, maxFail, "no_candidates_r=" .. tostring(r);
+		end
+	end
+	local baseline = AssignStartingPlots.LekGlobalSix_SnapshotPlaceImpactState(self);
+	local failComplete = 0;
+	local leafEvals = 0;
+	local bestPack = nil;
+	local bestTb = nil;
+	local lastFailKind = nil;
+
+	local function noteFail(R)
+		lastFailKind = tostring(R.first_fail or "?");
+	end
+
+	local function dfs(depth)
+		if leafEvals >= maxLeaf then
+			return;
+		end
+		if bestPack == nil and failComplete >= maxFail then
+			return;
+		end
+		if depth > 6 then
+			leafEvals = leafEvals + 1;
+			local R = AssignStartingPlots.LekGlobalSix_OK_RunAll(self);
+			if R.all_hard_pass then
+				local tb = AssignStartingPlots.LekGlobalSix_TiebreakMaxCentrDeviation(self);
+				if bestPack == nil or tb < bestTb or (tb == bestTb and Map.Rand(2, "LekGlobalSixTB") == 1) then
+					bestTb = tb;
+					bestPack = AssignStartingPlots.LekGlobalSix_CopyStartsTableForBest(self);
+				end
+			else
+				failComplete = failComplete + 1;
+				noteFail(R);
+			end
+			return;
+		end
+		local snap = AssignStartingPlots.LekGlobalSix_SnapshotPlaceImpactState(self);
+		local cands = byRegion[depth];
+		for ci = 1, #cands do
+			if leafEvals >= maxLeaf then
+				break;
+			end
+			if bestPack == nil and failComplete >= maxFail then
+				break;
+			end
+			AssignStartingPlots.LekGlobalSix_RestorePlaceImpactState(self, snap);
+			local c = cands[ci];
+			self.startingPlots[depth] = { c.x, c.y, c.score };
+			self:PlaceImpactAndRipples(c.x, c.y);
+			dfs(depth + 1);
+		end
+		AssignStartingPlots.LekGlobalSix_RestorePlaceImpactState(self, snap);
+		self.startingPlots[depth] = nil;
+	end
+
+	dfs(1);
+	AssignStartingPlots.LekGlobalSix_RestorePlaceImpactState(self, baseline);
+	for r = 1, 6 do
+		self.startingPlots[r] = nil;
+	end
+
+	if not bestPack then
+		LekPlacementProbeLog("### LekGlobalSix tupleSearch runId=" .. rid ..
+			" status=fail failComplete=" .. tostring(failComplete) ..
+			" leafEvals=" .. tostring(leafEvals) ..
+			" maxFail=" .. tostring(maxFail) ..
+			" last_fail=" .. tostring(lastFailKind or "na"));
+		return false, failComplete, leafEvals, maxFail, lastFailKind;
+	end
+
+	for r = 1, 6 do
+		local p = bestPack[r];
+		self.startingPlots[r] = { p[1], p[2], p[3] };
+		self:PlaceImpactAndRipples(p[1], p[2]);
+	end
+	LekPlacementProbeLog("### LekGlobalSix tupleSearch runId=" .. rid ..
+		" status=ok failComplete=" .. tostring(failComplete) ..
+		" leafEvals=" .. tostring(leafEvals) ..
+		" tiebreak_maxAbsDminus13=" .. tostring(bestTb));
+	return true, failComplete, leafEvals, maxFail, nil;
 end
 
 function AssignStartingPlots:LekGlobalSixChooseLocations(args)
@@ -5096,9 +5553,8 @@ function AssignStartingPlots:LekGlobalSixChooseLocations(args)
 			" evalMeetsMin_maskOwnDD_postReserve=" .. table.concat(meetParts, ",");
 	end
 	LekPlacementProbeLog("### LekGlobalSixChooseLocations runId=" .. rid ..
-		" implementation=stub result=false hook=after_DetermineRegionTypes" ..
-		" eligible_iNumCivs_eq_6=" .. tostring(elig) ..
-		" next=candidate_pools_OK_tuple_PlaceImpact_order1to6" .. snap);
+		" implementation=tuple_search_v1 hook=after_DetermineRegionTypes" ..
+		" eligible_iNumCivs_eq_6=" .. tostring(elig) .. snap);
 	if elig == 1 and self._lek_global_six_ripple_dry_run == true then
 		local okDry, errDry = pcall(function()
 			self:LekGlobalSix_LogRippleOrderedSampleDryRun();
@@ -5107,7 +5563,22 @@ function AssignStartingPlots:LekGlobalSixChooseLocations(args)
 			LekPlacementProbeLog("### LekGlobalSix rippleOrderDryRun runId=" .. rid .. " pcall_err=" .. tostring(errDry));
 		end
 	end
-	return false;
+	if elig ~= 1 then
+		self._lek_global_six_tuple_solver_accepted = true;
+		return false;
+	end
+	local okSolve, fComplete, leafE, maxF, why = self:LekGlobalSix_RunTupleSearch();
+	local whyExtra = "";
+	if why ~= nil then
+		whyExtra = " why=" .. tostring(why);
+	end
+	LekPlacementProbeLog("### LekGlobalSixChooseLocations runId=" .. rid ..
+		" solver_return=" .. (okSolve and "true" or "false") ..
+		" failComplete=" .. tostring(fComplete) ..
+		" leafEvals=" .. tostring(leafE) ..
+		" maxFailComplete=" .. tostring(maxF) .. whyExtra);
+	self._lek_global_six_tuple_solver_accepted = (okSolve == true);
+	return okSolve == true;
 end
 
 function AssignStartingPlots:ChooseLocations(args)
@@ -5141,10 +5612,12 @@ function AssignStartingPlots:ChooseLocations(args)
 		local dsb = (dsbRaw == nil) and "pcall_err" or tostring(dsbRaw);
 		LekPlacementProbeLog("### ChooseLocations begin runId=" .. rid ..
 			" iNumCivs=" .. tostring(self.iNumCivs) ..
+			" mapLayout=" .. tostring(_lek_map_layout_attempt or 1) ..
 			" _lek_global_six_solver=true GAMEOPTION_DISABLE_START_BIAS=" .. dsb);
 		if dsbRaw == 1 then
 			LekPlacementProbeLog("### LekGlobalSix runId=" .. rid .. " path=skipped reason=GAMEOPTION_DISABLE_START_BIAS");
 			lekSixBiasSkipsGlobalSolver = true;
+			self._lek_global_six_tuple_solver_accepted = true;
 		end
 	end
 
@@ -5491,6 +5964,21 @@ function AssignStartingPlots:ChooseLocations(args)
 	print("--- Impact and Ripple ---");
 	PrintContentsOfTable(self.distanceData)
 	print("-");  ]]--
+
+	if self._lek_global_six_tuple_solver_accepted == nil then
+		self._lek_global_six_tuple_solver_accepted = true;
+	end
+	local maxRegenL = _lek_global_six_regen_max_layouts;
+	if type(maxRegenL) ~= "number" or maxRegenL < 1 then
+		maxRegenL = 4;
+	end
+	local att = _lek_map_layout_attempt or 1;
+	if self._lek_global_six_solver == true and not lekSixBiasSkipsGlobalSolver and self.iNumCivs == 6
+		and self._lek_global_six_tuple_solver_accepted == false and att < maxRegenL then
+		_lek_global_six_request_map_regen = true;
+		LekPlacementProbeLog("### LekGlobalSix mapRegen request runId=" .. tostring(_lek_run_id or "na") ..
+			" layout=" .. tostring(att) .. "/" .. tostring(maxRegenL) .. " reason=tuple_solver_no_accepted_tuple");
+	end
 
 	if lekProbe then
 		local rid = tostring(_lek_run_id or "na");
@@ -9910,7 +10398,8 @@ function AssignStartingPlots:PlaceCityStates()
 			" refineReached=" .. tostring(self._lek_cs_refine_reached or 0) ..
 			" placeSuccess=" .. tostring(self._lek_cs_place_success or 0) ..
 			" selectedNil=" .. tostring(self._lek_cs_selected_nil or 0);
-		LekMapgenDiagLogAppend({ line, line2 });
+		local line3 = "### LekBuildPing after_CS_refine_debug repo=v5.2";
+		LekMapgenDiagLogAppend({ line, line2, line3 });
 	end
 end
 ------------------------------------------------------------------------------
@@ -10946,21 +11435,27 @@ function AssignStartingPlots:ProcessResourceList(frequency, impact_table_number,
 	local iW, iH = Map.GetGridSize();
 	local iNumTotalPlots = table.maxn(plot_list);
 	local iNumResourcesToPlace = math.ceil(iNumTotalPlots / frequency);
-	local iNumResourcesTypes = table.maxn(resources_to_place);
 	local res_ID, res_quantity, res_weight, res_min, res_max, res_range, res_threshold = {}, {}, {}, {}, {}, {}, {};
 	local totalWeight, accumulatedWeight = 0, 0;
+	local iNumResourcesTypes = 0;
 	for index, resource_data in ipairs(resources_to_place) do
-		res_ID[index] = resource_data[1];
-		res_quantity[index] = resource_data[2];
-		res_weight[index] = resource_data[3];
-		totalWeight = totalWeight + resource_data[3];
-		res_min[index] = resource_data[4];
-		res_max[index] = resource_data[5];
-		if res_max[index] > res_min[index] then
-			res_range[index] = res_max[index] - res_min[index] + 1;
-		else
-			res_range[index] = -1;
+		if resource_data[1] ~= nil then
+			iNumResourcesTypes = iNumResourcesTypes + 1;
+			res_ID[iNumResourcesTypes] = resource_data[1];
+			res_quantity[iNumResourcesTypes] = resource_data[2];
+			res_weight[iNumResourcesTypes] = resource_data[3];
+			totalWeight = totalWeight + resource_data[3];
+			res_min[iNumResourcesTypes] = resource_data[4];
+			res_max[iNumResourcesTypes] = resource_data[5];
+			if res_max[iNumResourcesTypes] > res_min[iNumResourcesTypes] then
+				res_range[iNumResourcesTypes] = res_max[iNumResourcesTypes] - res_min[iNumResourcesTypes] + 1;
+			else
+				res_range[iNumResourcesTypes] = -1;
+			end
 		end
+	end
+	if iNumResourcesTypes == 0 or totalWeight <= 0 then
+		return;
 	end
 	for index = 1, iNumResourcesTypes do
 		-- We'll roll a die and check each resource in turn to see if it is 
@@ -11744,11 +12239,11 @@ function AssignStartingPlots:GetListOfAllowableLuxuriesAtCitySite(x, y, radius, 
 							if terrainType == TerrainTypes.TERRAIN_COAST then
 								if plot:IsLake() == false then
 									if featureType ~= self.feature_atoll and featureType ~= FeatureTypes.FEATURE_ICE and loc_is_coastal == true then
-										allowed_luxuries[self.whale_ID] = true
-										allowed_luxuries[self.pearls_ID] = true
-										allowed_luxuries[self.crab_ID] = true
+										LekAllowLuxuryIndex(allowed_luxuries, self.whale_ID)
+										LekAllowLuxuryIndex(allowed_luxuries, self.pearls_ID)
+										LekAllowLuxuryIndex(allowed_luxuries, self.crab_ID)
 										if self.bModLuxes == true then
-											allowed_luxuries[self.coral_ID] = true
+											LekAllowLuxuryIndex(allowed_luxuries, self.coral_ID)
 										end
 									end
 								end
@@ -11758,119 +12253,119 @@ function AssignStartingPlots:GetListOfAllowableLuxuriesAtCitySite(x, y, radius, 
 							 placing luxuries at city-states and can easily support more diversity in assignments. ]]
 						elseif plotType == PlotTypes.PLOT_HILLS or plotType == PlotTypes.PLOT_LAND then
 							if terrainType == TerrainTypes.TERRAIN_TUNDRA then
-								allowed_luxuries[self.marble_ID] = true
-								allowed_luxuries[self.gold_ID] = true
-								allowed_luxuries[self.silver_ID] = true
-								allowed_luxuries[self.copper_ID] = true	
-								allowed_luxuries[self.gems_ID] = true
-								allowed_luxuries[self.salt_ID] = true
+								LekAllowLuxuryIndex(allowed_luxuries, self.marble_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.gold_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.silver_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.copper_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.gems_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.salt_ID)
 								
 								if self.bModLuxes == true then
-									allowed_luxuries[self.jade_ID] = true
-									allowed_luxuries[self.amber_ID] = true
-									allowed_luxuries[self.lapis_ID] = true
-									allowed_luxuries[self.obsidian_ID] = true
+									LekAllowLuxuryIndex(allowed_luxuries, self.jade_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.amber_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.lapis_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.obsidian_ID)
 								end
 								--
-								allowed_luxuries[self.fur_ID] = true
-								allowed_luxuries[self.dye_ID] = true
+								LekAllowLuxuryIndex(allowed_luxuries, self.fur_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.dye_ID)
 							elseif terrainType == TerrainTypes.TERRAIN_DESERT then
-								allowed_luxuries[self.marble_ID] = true
-								allowed_luxuries[self.gold_ID] = true
-								allowed_luxuries[self.silver_ID] = true
-								allowed_luxuries[self.copper_ID] = true	
-								allowed_luxuries[self.gems_ID] = true
-								allowed_luxuries[self.salt_ID] = true
+								LekAllowLuxuryIndex(allowed_luxuries, self.marble_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.gold_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.silver_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.copper_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.gems_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.salt_ID)
 								
 								if self.bModLuxes == true then
-									allowed_luxuries[self.jade_ID] = true
-									allowed_luxuries[self.amber_ID] = true
-									allowed_luxuries[self.lapis_ID] = true
-									allowed_luxuries[self.obsidian_ID] = true
+									LekAllowLuxuryIndex(allowed_luxuries, self.jade_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.amber_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.lapis_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.obsidian_ID)
 								end
 								--
-								allowed_luxuries[self.incense_ID] = true
-								allowed_luxuries[self.ivory_ID] = true
+								LekAllowLuxuryIndex(allowed_luxuries, self.incense_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.ivory_ID)
 							elseif terrainType == TerrainTypes.TERRAIN_PLAINS then
-								allowed_luxuries[self.marble_ID] = true
-								allowed_luxuries[self.gold_ID] = true
-								allowed_luxuries[self.silver_ID] = true
-								allowed_luxuries[self.copper_ID] = true	
-								allowed_luxuries[self.gems_ID] = true
-								allowed_luxuries[self.salt_ID] = true
+								LekAllowLuxuryIndex(allowed_luxuries, self.marble_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.gold_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.silver_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.copper_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.gems_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.salt_ID)
 								
 								if self.bModLuxes == true then
-									allowed_luxuries[self.jade_ID] = true
-									allowed_luxuries[self.amber_ID] = true
-									allowed_luxuries[self.lapis_ID] = true
-									allowed_luxuries[self.obsidian_ID] = true
+									LekAllowLuxuryIndex(allowed_luxuries, self.jade_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.amber_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.lapis_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.obsidian_ID)
 								end
 
 								--
-								allowed_luxuries[self.spices_ID] = true
-								allowed_luxuries[self.silk_ID] = true
-								allowed_luxuries[self.sugar_ID] = true
-								allowed_luxuries[self.citrus_ID] = true
-								allowed_luxuries[self.truffles_ID] = true
-								allowed_luxuries[self.cocoa_ID] = true
-								allowed_luxuries[self.fur_ID] = true
-								allowed_luxuries[self.dye_ID] = true
-								allowed_luxuries[self.coconut_ID] = true
-								allowed_luxuries[self.rubber_ID] = true
+								LekAllowLuxuryIndex(allowed_luxuries, self.spices_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.silk_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.sugar_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.citrus_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.truffles_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.cocoa_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.fur_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.dye_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.coconut_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.rubber_ID)
 								--
-								allowed_luxuries[self.cotton_ID] = true
-								allowed_luxuries[self.wine_ID] = true
-								allowed_luxuries[self.ivory_ID] = true
+								LekAllowLuxuryIndex(allowed_luxuries, self.cotton_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.wine_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.ivory_ID)
 								
 								if self.bModLuxes == true then
-									allowed_luxuries[self.coffee_ID] = true
-									allowed_luxuries[self.tea_ID] = true
-									allowed_luxuries[self.tobacco_ID] = true
-									allowed_luxuries[self.perfume_ID] = true
-									allowed_luxuries[self.olives_ID] = true
+									LekAllowLuxuryIndex(allowed_luxuries, self.coffee_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.tea_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.tobacco_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.perfume_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.olives_ID)
 									
 								end
 
-								allowed_luxuries[self.incense_ID] = true
+								LekAllowLuxuryIndex(allowed_luxuries, self.incense_ID)
 							elseif terrainType == TerrainTypes.TERRAIN_GRASS then
-								allowed_luxuries[self.marble_ID] = true
-								allowed_luxuries[self.gold_ID] = true
-								allowed_luxuries[self.silver_ID] = true
-								allowed_luxuries[self.copper_ID] = true	
-								allowed_luxuries[self.gems_ID] = true
-								allowed_luxuries[self.salt_ID] = true
+								LekAllowLuxuryIndex(allowed_luxuries, self.marble_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.gold_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.silver_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.copper_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.gems_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.salt_ID)
 								
 								if self.bModLuxes == true then
-									allowed_luxuries[self.jade_ID] = true
-									allowed_luxuries[self.amber_ID] = true
-									allowed_luxuries[self.lapis_ID] = true
-									allowed_luxuries[self.obsidian_ID] = true
+									LekAllowLuxuryIndex(allowed_luxuries, self.jade_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.amber_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.lapis_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.obsidian_ID)
 								end
 
 								--
-								allowed_luxuries[self.spices_ID] = true
-								allowed_luxuries[self.silk_ID] = true
-								allowed_luxuries[self.sugar_ID] = true
-								allowed_luxuries[self.citrus_ID] = true
-								allowed_luxuries[self.truffles_ID] = true
-								allowed_luxuries[self.cocoa_ID] = true
-								allowed_luxuries[self.fur_ID] = true
-								allowed_luxuries[self.dye_ID] = true
-								allowed_luxuries[self.coconut_ID] = true
+								LekAllowLuxuryIndex(allowed_luxuries, self.spices_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.silk_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.sugar_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.citrus_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.truffles_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.cocoa_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.fur_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.dye_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.coconut_ID)
 								--
-								allowed_luxuries[self.cotton_ID] = true
-								allowed_luxuries[self.wine_ID] = true
-								allowed_luxuries[self.ivory_ID] = true
+								LekAllowLuxuryIndex(allowed_luxuries, self.cotton_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.wine_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.ivory_ID)
 								
 								if self.bModLuxes == true then
-									allowed_luxuries[self.coffee_ID] = true
-									allowed_luxuries[self.tea_ID] = true
-									allowed_luxuries[self.tobacco_ID] = true
-									allowed_luxuries[self.olives_ID] = true
-									allowed_luxuries[self.rubber_ID] = true
+									LekAllowLuxuryIndex(allowed_luxuries, self.coffee_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.tea_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.tobacco_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.olives_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.rubber_ID)
 								end
 
-								allowed_luxuries[self.incense_ID] = true
+								LekAllowLuxuryIndex(allowed_luxuries, self.incense_ID)
 							end
 						end
 					end
@@ -13959,9 +14454,9 @@ function AssignStartingPlots:GetListOfAllowableLuxuriesNearCitySite(x, y, radius
 						if terrainType == TerrainTypes.TERRAIN_COAST then
 							if plot:IsLake() == false then
 								if featureType ~= self.feature_atoll and featureType ~= FeatureTypes.FEATURE_ICE and loc_is_coastal == true then
-									allowed_luxuries[self.whale_ID] = true;
-									allowed_luxuries[self.pearls_ID] = true;
-									allowed_luxuries[self.crab_ID] = true;
+									LekAllowLuxuryIndex(allowed_luxuries, self.whale_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.pearls_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.crab_ID)
 									--print("-"); print("Coast Allowed");
 								end
 							end
@@ -13969,89 +14464,89 @@ function AssignStartingPlots:GetListOfAllowableLuxuriesNearCitySite(x, y, radius
 					-- Checking for land-based eligibility.
 					elseif plotType == PlotTypes.PLOT_HILLS and terrainType ~= TerrainTypes.TERRAIN_SNOW then
 						--print("-"); print("Hills Allowed");
-						allowed_luxuries[self.gold_ID] = true;
-						allowed_luxuries[self.silver_ID] = true;
-						allowed_luxuries[self.gems_ID] = true;
+						LekAllowLuxuryIndex(allowed_luxuries, self.gold_ID)
+						LekAllowLuxuryIndex(allowed_luxuries, self.silver_ID)
+						LekAllowLuxuryIndex(allowed_luxuries, self.gems_ID)
 						if featureType == FeatureTypes.NO_FEATURE then
-							allowed_luxuries[self.marble_ID] = true;
-							allowed_luxuries[self.copper_ID] = true;
+							LekAllowLuxuryIndex(allowed_luxuries, self.marble_ID)
+							LekAllowLuxuryIndex(allowed_luxuries, self.copper_ID)
 						end
 					elseif plotType == PlotTypes.PLOT_LAND then
 						if featureType == FeatureTypes.NO_FEATURE then
 							if terrainType == TerrainTypes.TERRAIN_TUNDRA then
-								allowed_luxuries[self.fur_ID] = true;
-								allowed_luxuries[self.silver_ID] = true;
-								allowed_luxuries[self.marble_ID] = true;
-								allowed_luxuries[self.salt_ID] = true;
-								allowed_luxuries[self.copper_ID] = true;
+								LekAllowLuxuryIndex(allowed_luxuries, self.fur_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.silver_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.marble_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.salt_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.copper_ID)
 								--print("-"); print("Flat No Feature Tundra Allowed");
 							elseif terrainType == TerrainTypes.TERRAIN_DESERT then
-								allowed_luxuries[self.gold_ID] = true;
-								allowed_luxuries[self.marble_ID] = true;
-								allowed_luxuries[self.incense_ID] = true;
-								allowed_luxuries[self.salt_ID] = true;
-								allowed_luxuries[self.copper_ID] = true;
+								LekAllowLuxuryIndex(allowed_luxuries, self.gold_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.marble_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.incense_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.salt_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.copper_ID)
 								--print("-"); print("Flat No Feature Desert Allowed");
 							elseif terrainType == TerrainTypes.TERRAIN_PLAINS then
-								allowed_luxuries[self.marble_ID] = true;
-								allowed_luxuries[self.ivory_ID] = true;
-								allowed_luxuries[self.wine_ID] = true;
-								allowed_luxuries[self.incense_ID] = true;
-								allowed_luxuries[self.salt_ID] = true;
+								LekAllowLuxuryIndex(allowed_luxuries, self.marble_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.ivory_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.wine_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.incense_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.salt_ID)
 								--print("-"); print("Flat No Feature Plains Allowed");
 							elseif terrainType == TerrainTypes.TERRAIN_GRASS then
 								if plot:IsFreshWater() then
-									allowed_luxuries[self.sugar_ID] = true;
-									allowed_luxuries[self.cotton_ID] = true;
-									allowed_luxuries[self.wine_ID] = true;
+									LekAllowLuxuryIndex(allowed_luxuries, self.sugar_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.cotton_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.wine_ID)
 									--print("-"); print("Flat No Feature Fresh Grass Allowed");
 								else
-									allowed_luxuries[self.marble_ID] = true;
-									allowed_luxuries[self.ivory_ID] = true;
-									allowed_luxuries[self.cotton_ID] = true;
-									allowed_luxuries[self.wine_ID] = true;
+									LekAllowLuxuryIndex(allowed_luxuries, self.marble_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.ivory_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.cotton_ID)
+									LekAllowLuxuryIndex(allowed_luxuries, self.wine_ID)
 									--print("-"); print("Flat No Feature Grass Allowed");
 								end
 							end
 						elseif featureType == FeatureTypes.FEATURE_MARSH then		
-							allowed_luxuries[self.dye_ID] = true;
-							allowed_luxuries[self.sugar_ID] = true;
-							allowed_luxuries[self.rubber_ID_] = true;
-							allowed_luxuries[self.coconut_ID] = true;
+							LekAllowLuxuryIndex(allowed_luxuries, self.dye_ID)
+							LekAllowLuxuryIndex(allowed_luxuries, self.sugar_ID)
+							LekAllowLuxuryIndex(allowed_luxuries, self.rubber_ID)
+							LekAllowLuxuryIndex(allowed_luxuries, self.coconut_ID)
 							--print("-"); print("Flat Marsh Allowed");
 						elseif featureType == FeatureTypes.FEATURE_FLOOD_PLAINS then		
-							allowed_luxuries[self.cotton_ID] = true;
-							allowed_luxuries[self.incense_ID] = true;
-							allowed_luxuries[self.citrus_ID] = true;
+							LekAllowLuxuryIndex(allowed_luxuries, self.cotton_ID)
+							LekAllowLuxuryIndex(allowed_luxuries, self.incense_ID)
+							LekAllowLuxuryIndex(allowed_luxuries, self.citrus_ID)
 							--print("-"); print("Flat Flood Plains Allowed");
 						elseif featureType == FeatureTypes.FEATURE_JUNGLE then		
-							allowed_luxuries[self.gems_ID] = true;
-							allowed_luxuries[self.dye_ID] = true;
-							allowed_luxuries[self.spices_ID] = true;
-							allowed_luxuries[self.silk_ID] = true;
-							allowed_luxuries[self.sugar_ID] = true;
-							allowed_luxuries[self.cocoa_ID] = true;
-							allowed_luxuries[self.citrus_ID] = true;
-							allowed_luxuries[self.truffles_ID] = true;
-							allowed_luxuries[self.rubber_ID] = true;
-							allowed_luxuries[self.coconut_ID] = true;
+							LekAllowLuxuryIndex(allowed_luxuries, self.gems_ID)
+							LekAllowLuxuryIndex(allowed_luxuries, self.dye_ID)
+							LekAllowLuxuryIndex(allowed_luxuries, self.spices_ID)
+							LekAllowLuxuryIndex(allowed_luxuries, self.silk_ID)
+							LekAllowLuxuryIndex(allowed_luxuries, self.sugar_ID)
+							LekAllowLuxuryIndex(allowed_luxuries, self.cocoa_ID)
+							LekAllowLuxuryIndex(allowed_luxuries, self.citrus_ID)
+							LekAllowLuxuryIndex(allowed_luxuries, self.truffles_ID)
+							LekAllowLuxuryIndex(allowed_luxuries, self.rubber_ID)
+							LekAllowLuxuryIndex(allowed_luxuries, self.coconut_ID)
 							--print("-"); print("Flat Jungle Allowed");
 						elseif featureType == FeatureTypes.FEATURE_FOREST then		
-							allowed_luxuries[self.fur_ID] = true;
-							allowed_luxuries[self.dye_ID] = true;
-							allowed_luxuries[self.rubber_ID] = true;
-							allowed_luxuries[self.coconut_ID] = true;
+							LekAllowLuxuryIndex(allowed_luxuries, self.fur_ID)
+							LekAllowLuxuryIndex(allowed_luxuries, self.dye_ID)
+							LekAllowLuxuryIndex(allowed_luxuries, self.rubber_ID)
+							LekAllowLuxuryIndex(allowed_luxuries, self.coconut_ID)
 							--print("-"); print("Flat Forest Allowed");
 							if terrainType == TerrainTypes.TERRAIN_TUNDRA then
-								allowed_luxuries[self.silver_ID] = true;
+								LekAllowLuxuryIndex(allowed_luxuries, self.silver_ID)
 								--print("-"); print("Flat Tundra Forest Allowed");
 							else
-								allowed_luxuries[self.spices_ID] = true;
-								allowed_luxuries[self.silk_ID] = true;
-								allowed_luxuries[self.citrus_ID] = true;
-								allowed_luxuries[self.truffles_ID] = true;
-								allowed_luxuries[self.rubber_ID] = true;
-								allowed_luxuries[self.coconut_ID] = true;
+								LekAllowLuxuryIndex(allowed_luxuries, self.spices_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.silk_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.citrus_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.truffles_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.rubber_ID)
+								LekAllowLuxuryIndex(allowed_luxuries, self.coconut_ID)
 								--print("-"); print("Flat Forest No Tundra Allowed");
 							end
 						end
@@ -15189,6 +15684,7 @@ function AssignStartingPlots:FixResourceGraphics()
 		for x = 0, iW - 1 do
 			
 		local plot = Map.GetPlot(x, y)
+		if plot and not plot:IsWater() then
 		local res_ID = plot:GetResourceType(-1)
 		local featureType = plot:GetFeatureType()
 		local terrainType = plot:GetTerrainType()
@@ -15221,8 +15717,8 @@ function AssignStartingPlots:FixResourceGraphics()
 				   res_ID == self.silk_ID or 
 				   res_ID == self.dye_ID or 
 				   res_ID == self.fur_ID or
-				   red_ID == self.coconut_ID or
-				   red_ID == self.rubber_ID or
+				   res_ID == self.coconut_ID or
+				   res_ID == self.rubber_ID or
 			res_ID == self.hardwood_ID or
 			   res_ID == self.deer_ID then
 
@@ -15230,10 +15726,8 @@ function AssignStartingPlots:FixResourceGraphics()
 				and ((terrainType == TerrainTypes.TERRAIN_TUNDRA) and 80 or 90)
 				or 100;
 			if Map.Rand(100, "") < deerForestPct then
-				if (featureType ~= FeatureTypes.FEATURE_FOREST) then
+				if featureType ~= FeatureTypes.FEATURE_FOREST and featureType ~= FeatureTypes.FEATURE_JUNGLE then
 					plot:SetFeatureType(FeatureTypes.FEATURE_FOREST, -1)
-				elseif (featureType ~= FeatureTypes.FEATURE_JUNGLE) then
-					plot:SetFeatureType(FeatureTypes.FEATURE_JUNGLE, -1)
 				end
 			end
 				
@@ -15330,6 +15824,7 @@ function AssignStartingPlots:FixResourceGraphics()
 					end
 				end
 			end
+		end
 		end
 	end
 	--[[
@@ -15848,18 +16343,60 @@ function AssignStartingPlots:PlaceResourcesAndCityStates()
 			LekMapgenDiagLogAppend(msg);
 		end
 	end
+	local ridRes = tostring(_lek_run_id or "na");
+	LekMapgenDiagLogAppend("### LekBuildPing PlaceResources_post_PlaceCityStates runId=" .. ridRes);
 	-- Generate global plot lists for resource distribution.
 	self:GenerateGlobalResourcePlotLists()
-	
+	LekMapgenDiagLogAppend("### LekBuildPing PlaceResources_after_GlobalLists runId=" .. ridRes);
+
+	LekMapgenDiagLogAppend("### LekBuildPing PlaceResources_before_PlaceLuxuries runId=" .. ridRes);
 	print("Map Generation - Placing Luxuries");
-	self:PlaceLuxuries()
+	do
+		local ok, err = pcall(function() self:PlaceLuxuries() end);
+		if not ok then
+			local msg = "### PlaceResources_err runId=" .. ridRes .. " stage=PlaceLuxuries err=" .. tostring(err);
+			print(msg);
+			LekMapgenDiagLogAppend(msg);
+			error(err);
+		end
+	end
+	LekMapgenDiagLogAppend("### LekBuildPing PlaceResources_after_PlaceLuxuries runId=" .. ridRes);
 
-	-- Place Strategic and Bonus resources.
-	self:PlaceStrategicAndBonusResources()
-	self:NormalizeCityStateLocations()	
-	-- Fix Sugar graphics
-	self:FixResourceGraphics()
+	LekMapgenDiagLogAppend("### LekBuildPing PlaceResources_before_StrategicBonus runId=" .. ridRes);
+	do
+		local ok, err = pcall(function() self:PlaceStrategicAndBonusResources() end);
+		if not ok then
+			local msg = "### PlaceResources_err runId=" .. ridRes .. " stage=PlaceStrategicAndBonus err=" .. tostring(err);
+			print(msg);
+			LekMapgenDiagLogAppend(msg);
+			error(err);
+		end
+	end
+	LekMapgenDiagLogAppend("### LekBuildPing PlaceResources_after_StrategicBonus runId=" .. ridRes);
+	LekMapgenDiagLogAppend("### LekBuildPing PlaceResources_before_NormalizeCS runId=" .. ridRes);
+	do
+		local ok, err = pcall(function() self:NormalizeCityStateLocations() end);
+		if not ok then
+			local msg = "### PlaceResources_err runId=" .. ridRes .. " stage=NormalizeCityStateLocations err=" .. tostring(err);
+			print(msg);
+			LekMapgenDiagLogAppend(msg);
+			error(err);
+		end
+	end
+	LekMapgenDiagLogAppend("### LekBuildPing PlaceResources_after_NormalizeCS runId=" .. ridRes);
+	LekMapgenDiagLogAppend("### LekBuildPing PlaceResources_before_FixGraphics runId=" .. ridRes);
+	do
+		local ok, err = pcall(function() self:FixResourceGraphics() end);
+		if not ok then
+			local msg = "### PlaceResources_err runId=" .. ridRes .. " stage=FixResourceGraphics err=" .. tostring(err);
+			print(msg);
+			LekMapgenDiagLogAppend(msg);
+			error(err);
+		end
+	end
+	LekMapgenDiagLogAppend("### LekBuildPing PlaceResources_after_FixGraphics runId=" .. ridRes);
 
+	LekMapgenDiagLogAppend("### LekBuildPing PlaceResources_before_snowDeer runId=" .. ridRes);
 	-- Sparse deer on snow: 5% chance per snow tile that has at least one adjacent forest neighbor.
 	do
 		local iW, iH = Map.GetGridSize();
@@ -15884,10 +16421,12 @@ function AssignStartingPlots:PlaceResourcesAndCityStates()
 			end
 		end
 	end
+	LekMapgenDiagLogAppend("### LekBuildPing PlaceResources_after_snowDeer runId=" .. ridRes);
 
 	-- Necessary to implement placement of Natural Wonders, and possibly other plot-type changes.
 	-- This operation must be saved for last, as it invalidates all regional data by resetting Area IDs.
 	Map.RecalculateAreas();
+	LekMapgenDiagLogAppend("### LekBuildPing PlaceResources_end runId=" .. tostring(_lek_run_id or "na"));
 
 	-- Activate for debug only
 	self:PrintFinalResourceTotalsToLog()
