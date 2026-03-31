@@ -6734,6 +6734,23 @@ function AssignStartingPlots:ChooseLocations(args)
 			LekPlacementProbeLog("### LekGlobalSix runId=" .. rid .. " path=solver_finished ChooseLocations_early_return=1");
 			return;
 		else
+			local maxRegenL = _lek_global_six_regen_max_layouts;
+			if type(maxRegenL) ~= "number" or maxRegenL < 1 then
+				maxRegenL = 4;
+			end
+			local att = _lek_map_layout_attempt or 1;
+			if _lek_enable_hb_generatemap_regen_loop == true
+				and self.iNumCivs == 6
+				and self._lek_global_six_tuple_solver_accepted == false
+				and att < maxRegenL then
+				_lek_global_six_request_map_regen = true;
+				LekPlacementProbeLog("### LekGlobalSix runId=" .. rid ..
+					" path=tuple_fail_skip_legacy layout=" .. tostring(att) .. "/" .. tostring(maxRegenL));
+				LekPlacementProbeLog("### LekGlobalSix mapRegen request runId=" .. tostring(_lek_run_id or "na") ..
+					" layout=" .. tostring(att) .. "/" .. tostring(maxRegenL) ..
+					" reason=tuple_solver_no_accepted_tuple skip_legacy=1");
+				return;
+			end
 			LekPlacementProbeLog("### LekGlobalSix runId=" .. rid .. " path=fallthrough reason=solver_returned_false legacy_ChooseLocations_continues=1");
 		end
 	end

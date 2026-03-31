@@ -24,7 +24,7 @@ print("### LekmapPangaeaFractal: includes done ###");
 -- Lane A: max full-map regens when global-six tuple solver rejects (spec target: 4 layouts = 1 + 3 retries).
 -- Overridden per roll from start_plot_database._lek_global_six_regen_max_layouts inside StartPlotSystem.
 _lek_global_six_regen_max_layouts = 4;
--- Regen loop: GenerateMap() re-runs LekHB_GenerateMap_Core (full fractal + terrain + StartPlotSystem) until tuple solver succeeds or layouts exhausted. Previously false: logs showed requestRegen=1 but regenLoopActive=0 so no retry.
+-- Regen loop: GenerateMap() re-runs LekHB_GenerateMap_Core until tuple solver succeeds or layouts exhausted. On tuple failure with retries left, ChooseLocations returns early (skip legacy) and StartPlotSystem skips BalanceAndAssign/NW/resources (see ### LekMapGen StartPlotSystem short_circuit).
 _lek_enable_hb_generatemap_regen_loop = true;
 _lek_map_layout_attempt = nil;
 _lek_global_six_request_map_regen = false;
@@ -2530,6 +2530,23 @@ function StartPlotSystem()
 				end
 			end
 		end
+	end
+
+	if _lek_global_six_request_map_regen == true then
+		local att = _lek_map_layout_attempt or 1;
+		local maxL = _lek_global_six_regen_max_layouts;
+		if type(maxL) ~= "number" or maxL < 1 then
+			maxL = 4;
+		end
+		local msg = "### LekMapGen StartPlotSystem short_circuit runId=" .. tostring(_lek_run_id or "na")
+			.. " layout=" .. tostring(att) .. "/" .. tostring(maxL)
+			.. " skip=BalanceAndAssign_rescue_spacing_NW_resources";
+		print(msg);
+		appendLekLog({ msg });
+		if LekPlacementProbeLog then
+			LekPlacementProbeLog(msg);
+		end
+		return;
 	end
 	
 	print("Normalizing start locations and assigning them to Players.");

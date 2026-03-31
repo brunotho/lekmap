@@ -787,7 +787,24 @@ function StartPlotSystem()
 	
 	print("Choosing start locations for civilizations.");
 	start_plot_database:ChooseLocations()
-	
+	if _lek_global_six_request_map_regen == true then
+		local att = _lek_map_layout_attempt or 1;
+		local maxL = _lek_global_six_regen_max_layouts;
+		if type(maxL) ~= "number" or maxL < 1 then
+			maxL = 4;
+		end
+		local msg = "### LekMapGen StartPlotSystem short_circuit runId=" .. tostring(_lek_run_id or "na")
+			.. " layout=" .. tostring(att) .. "/" .. tostring(maxL)
+			.. " skip=BalanceAndAssign_NW_resources mapScript=HB_default";
+		print(msg);
+		pcall(function()
+			if LekMapgenDiagLogAppend then
+				LekMapgenDiagLogAppend({ msg });
+			end
+		end);
+		return;
+	end
+
 	print("Normalizing start locations and assigning them to Players.");
 	start_plot_database:BalanceAndAssign()
 	
@@ -857,13 +874,25 @@ function LekHB_GenerateMap_Core()
 	StartPlotSystem();
 	stage("after_StartPlotSystem");
 
-	-- Goodies depend on not colliding with resources or Natural Wonders, or being placed too near to start plots.
-	AddGoodies();
-	stage("after_AddGoodies");
+	if _lek_global_six_request_map_regen == true then
+		stage("core_skip_goodies_continents_regen_pending");
+		local sk = "### LekGlobalSix mapRegen core_skip_goodies_continents runId=" .. tostring(_lek_run_id or "na")
+			.. " layoutAttempt=" .. tostring(_lek_map_layout_attempt or 0);
+		print(sk);
+		pcall(function()
+			if LekMapgenDiagLogAppend then
+				LekMapgenDiagLogAppend({ sk });
+			end
+		end);
+	else
+		-- Goodies depend on not colliding with resources or Natural Wonders, or being placed too near to start plots.
+		AddGoodies();
+		stage("after_AddGoodies");
 
-	-- Continental artwork selection must wait until Areas are finalized, so it gets handled last.
-	DetermineContinents();
-	stage("after_DetermineContinents");
+		-- Continental artwork selection must wait until Areas are finalized, so it gets handled last.
+		DetermineContinents();
+		stage("after_DetermineContinents");
+	end
 	if LekMapgenDiagLogAppend then
 		LekMapgenDiagLogAppend({
 			"### LekBuildPing end_LekHB_GenerateMap_Core runId=" .. tostring(_lek_run_id or "na"),
