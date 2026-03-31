@@ -89,7 +89,43 @@ For ~**5–7** starts, paste **`tuplePoolDiag`** lines (or full `### LekGlobalSi
 1. **Primary bucket** from D1/D2 (e.g. **annulus_miss_inner**, **annulus_miss_outer**, **meetsMin_rare**, **cap_truncation**, **bias_dominated**).
 2. Whether **regen** would likely help (**geometry** changes) vs **unlikely** (same landmass layout family).
 
-**Promote** any recurring bucket to its own **child subspec** (D8…) with sharper fields.
+**Promote** any recurring bucket to its own **child subspec** (D9…) with sharper fields.
+
+---
+
+## Child D8 — Ripple / reserve / **bias** footprint vs tuple probe
+
+**Intent:** See whether **non-zero `distanceData`** (and sibling impact layers) **before** or **during** tuple search add “false tension”: candidates look good with **`distanceData` cleared** (solver probe) but **`EvaluateCandidatePlot` / §6** with **true** ripples would fail, or **`no_eligible_plot_r=k`** fires because **dry-run** treats bias strictly.
+
+**Parent link (conceptual):** **`OK` §6** runs after full **`PlaceImpactAndRipples`** in order 1→6. **`§5`** checks civ↔region feasibility from **actual** start plots (`MeasureBiasConditionsNoNormalize`). **ChooseLocations** may **reserve** regions / pre-seed **Solomons / geothermal** ripples. If we “pre-satisfy” XML in the **legacy** branch but the **tuple** path builds pools with **cleared** `distanceData`, we need visibility into whether **reserves** or **planned coastal counts** shrink the **effective** annulus∧meetsMin intersection.
+
+**Proposed output (one roll, a few lines — all gated by probe flag):**
+
+| Line | Content |
+|------|--------|
+| **D8a `biasLayerSnapshot_preChooseLocations`** | Grid: **`count(distanceData[i]>0)`**, **`max(distanceData)`**, same for **`playerCollisionData`** / **`cityStateData`** if non-trivial; list **reserved feature plot indices** (Solomons, geothermal, polar merge, fjord exclude — whatever exists on this script). |
+| **D8b `civNeedsSummary`** | From the same **`ChooseLocations`** pre-pass as legacy: **`iNumCoastNeeded`**, **`MixedBias` roll outcomes** (if logged), coarse **tag histogram** (coastal / river / pri1 / prim / avoid / flex) from **`L plist` construction** in **`LekGlobalSix_OK_Section5`** — or duplicate that sort/count **once** without full DFS. |
+| **D8c `tupleProbeBiasContrast` (optional, sampled)** | For **one** failing region **`r`**: among **top M** tuple-order candidates by **(ringDev, score)**, report **how many** have **`distanceData[plot]==0`** vs **`>0`** at **StartPlotSystem.begin** snapshot (unchanged during tuple). Many **`>0`** ⇒ reserves or pre-ripple **eat** the annulus even before first placed start. |
+| **D8d `section5FeasibilityAfterLegacy`** | Already partially covered by **`LekGlobalSix_OK diag`** after fallthrough; for **solver-only** rolls: explicitly log **`s5_ok`** + detail **before** legacy mutates starts (harder — can skip v1). **MVP:** keep relying on existing OK diag post-legacy; D8b is the **pre-placement** bias pressure. |
+
+**Distinguishes:** pure geometry (**D2**) vs **masked-by-ripple** pool shrink vs **§5 infeasible** no matter geometry.
+
+---
+
+## Appendix A — Roll digest (operator-pasted logs, ~6 games)
+
+Rough **taxonomy** from supplied **`###`** blocks (no new code). Map/regen **off**; budgets **1000/8000** where shown.
+
+| runId (approx) | Tuple outcome | Notes |
+|----------------|---------------|--------|
+| 429002 | **fail** `failComplete=leafEvals=1000`, `last_fail=s2` | Ripple dry-run **complete** then `first_fail=s1`. Full budget burned on **§2** in search; legacy fails **s1/s2/s6**. |
+| 504683 | Same pattern **`last_fail=s2`**, budget 1000 | Ripple **`no_eligible_plot_r=6`** (dynamic crowding or meetsMin under dry-run rule at **r=6**). |
+| 573210 | **`no_candidates_r=6`**, `leafEvals=0` | **Outer** annulus miss: `meetsMin=7`, **`inS1band=0`**, `dCenterRange=**19–21**` (compare to **inner 1–4** case on another roll). |
+| 605268 | Exhaust **s2** | Ripple complete + **§6 pass** on legacy OK diag; still **s1/s2** fail — legacy vs tuple targets differ. |
+| 675068 | Exhaust **s2** | Same family as 429002 / 605268. |
+| 798096 | Exhaust **s2** | Legacy **d=22** on one start (**§1** rim); **s6** fail on diag. |
+
+**Takeaway for subspec work:** failure modes split into (1) **§2 saturation** with full leaf budget, (2) **`no_candidates`** = **inner-only** or **outer-only** meetsMin vs **§1** band, (3) ripple dry-run **fail at r=6** while tuple still runs (pool non-empty) — **D5/D8** targeted.
 
 ---
 

@@ -35,4 +35,17 @@
 
 ---
 
+## Sample B — single full row, clean (no in-band noise), **row 41**
+
+**Contrast with main “3 rows + noise” report:** here the defect is allegedly **one horizontal row** of water (**`y = 41`** on the reporter grid), **without** scattered land tiles inside the band.
+
+**Hypothesis split:**
+
+- **B1:** If truly **one** row, suspect a loop or formula keyed to **`y == 41`** / **`y == f(iH)`** (height-dependent) rather than the **three-row** choke/rift path.
+- **B2:** If repro only on one **world size**, compare **`iH`** to **41** (e.g. **`iH - 1 - k`**, margin strip, wrap seam).
+
+**Capture:** same as § **What to capture on next occurrence**, explicitly noting **`iW, iH`**, **`y=41`** land→water transition along **two** **X** columns (east/west margin + mid-map).
+
+---
+
 *Related earlier note: “destructive horizontal strip-ocean fill after Y shift” was **disabled** in Lekmap (comments in `LekmapPangaeaFractalv5.3.lua` ~1352)—keep in mind when diffing legacy behaviour.*

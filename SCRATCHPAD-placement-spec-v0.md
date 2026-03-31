@@ -118,7 +118,7 @@ So: **vanilla does not** finish “assign players to regions” **before** your 
 
 **Cleanup landed (repo):** Default map script sets **`_lek_enable_virtual_six_retries = false`**, **`_lek_disable_virtual_six = true`**, **`_lek_flatten_region_start_tiers = false`**, **`_lek_global_six_solver = false`**. **`EvaluateCandidatePlot`** map-center / salt **`finalScore`** tweaks are **commented out** in `4a`; virtual-six helpers remain for dev re-enable.
 
-**Child subspec (diagnostics — proposed logs, not implemented yet):** [`SCRATCHPAD-placement-subspec-tuple-pool-diagnostics-v0.md`](./SCRATCHPAD-placement-subspec-tuple-pool-diagnostics-v0.md).
+**Child subspec (diagnostics — proposed logs, not implemented yet):** [`SCRATCHPAD-placement-subspec-tuple-pool-diagnostics-v0.md`](./SCRATCHPAD-placement-subspec-tuple-pool-diagnostics-v0.md) (includes **D8 bias/ripple snapshot**, **Appendix A** roll digests).
 
 ---
 
