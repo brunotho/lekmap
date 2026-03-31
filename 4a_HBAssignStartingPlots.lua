@@ -5527,6 +5527,51 @@ function AssignStartingPlots:LekGlobalSix_LogTuplePoolDiagLine(region_r, searchO
 		" note=tupleUses_NoCoastFalse_coastExcl_nextToCoast_and_threeFromCoast");
 end
 
+function AssignStartingPlots:LekGlobalSix_LogTupleHeadGeometry(byRegion)
+	local rid = tostring(_lek_run_id or "na");
+	local heads = {};
+	local seg = {};
+	for r = 1, 6 do
+		local list = byRegion[r];
+		local c = list and list[1];
+		if not c then
+			LekPlacementProbeLog("### LekGlobalSix tupleHeadGeom runId=" .. rid .. " error=missing_head r=" .. tostring(r));
+			return;
+		end
+		heads[r] = { x = c.x, y = c.y };
+		seg[#seg + 1] = string.format(
+			"r%d=x%d,y%d pi=%d dMapC=%s ringDev=%s score=%s",
+			r, c.x, c.y, c.plotIndex, tostring(c.dMapCenter), tostring(c.ringDev), tostring(c.score));
+	end
+	LekPlacementProbeLog("### LekGlobalSix tupleHeadCells runId=" .. rid .. " " .. table.concat(seg, "; "));
+	local pw = {};
+	for i = 1, 6 do
+		for j = i + 1, 6 do
+			local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, heads[i].x, heads[i].y, heads[j].x, heads[j].y);
+			pw[#pw + 1] = string.format("d%d_%d=%s", i, j, d and tostring(d) or "na");
+		end
+	end
+	LekPlacementProbeLog("### LekGlobalSix tupleHeadPairwise runId=" .. rid .. " " .. table.concat(pw, " "));
+	local snParts = {};
+	for ri = 1, 6 do
+		local dists = {};
+		for j = 1, 6 do
+			if j ~= ri then
+				local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, heads[ri].x, heads[ri].y, heads[j].x, heads[j].y);
+				if d then
+					dists[#dists + 1] = d;
+				end
+			end
+		end
+		table.sort(dists);
+		local d2 = dists[2];
+		snParts[#snParts + 1] = string.format("r%d=%s", ri, d2 ~= nil and tostring(d2) or "na");
+	end
+	LekPlacementProbeLog("### LekGlobalSix tupleHeadSecondNearest runId=" .. rid ..
+		" " .. table.concat(snParts, " ") ..
+		" s2_cap=" .. tostring(LEK_G6_S2_SECOND_NEAREST_MAX));
+end
+
 function AssignStartingPlots:LekGlobalSix_GatherSearchCandidatesOrdered(region_r)
 	local list = AssignStartingPlots.LekGlobalSix_GatherTupleStyleCandidateIndices(self, region_r, false);
 	local rt = self.regionTypes[region_r];
@@ -5622,6 +5667,9 @@ function AssignStartingPlots:LekGlobalSix_RunTupleSearch()
 				" meetsMin_dCenterRange=" .. dr);
 			return false, 0, 0, maxFail, "no_candidates_r=" .. tostring(r);
 		end
+	end
+	if doTupleDiag then
+		AssignStartingPlots.LekGlobalSix_LogTupleHeadGeometry(self, byRegion);
 	end
 	local baseline = AssignStartingPlots.LekGlobalSix_SnapshotPlaceImpactState(self);
 	local failComplete = 0;

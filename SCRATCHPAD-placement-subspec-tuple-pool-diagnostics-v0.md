@@ -4,11 +4,11 @@
 
 - **P0 — membership:** `LekGlobalSix_GatherTupleStyleCandidateIndices` (land/hills, area, coast / two-away / three-away exclusions, optional `NoCoast`).
 - **P1 — site hard gate:** `EvaluateCandidatePlot` → **`meetsMin`** with **`regionTypes[r]`**, with **`distanceData[plotIndex]` cleared** for that probe (mask-own-impact for search, not live ripples from earlier tuple depth).
-- **P2 — §1 annulus:** map-centre hex distance **`d ∈ [9, 18]`** (same as **`OK` §1**).
+- **P2 — §1 annulus:** map-centre hex distance **`d ∈ [LEK_G6_S1_D_MIN, LEK_G6_S1_D_MAX]`** (same as **`OK` §1**; values may be tuned in `4a_HBAssignStartingPlots.lua`).
 
 **Failure class seen in the wild:** **`meetsMin`** true on >=1 raw plot, **`count(P1 ∧ P2) = 0`** — “good tiles exist in the region but **none** sit in the allowed ring” (e.g. whole fertile pocket **`d ∈ [1, 4]`** under map centre).
 
-This document proposes **diagnostic logs** (5–7 **families**, each implementable as one structured line or a tiny block) to classify **why** region **`r`** ends with an **empty tuple pool**, without changing **`OK`**. **No code in repo for this yet** — collect ~5–7 real rolls and extend children if new buckets appear.
+**Implementation status:** **`tupleProbeLayer`**, **`tuplePoolDiag`**, **`tupleHeadCells` / `tupleHeadPairwise` / `tupleHeadSecondNearest`**, **`tupleSearch` `failHist`**, etc. live in **`4a_HBAssignStartingPlots.lua`**, gated by **`start_plot_database._lek_tuple_pool_diag`** (default on in Lekmap when set). Proposed-only rows below (D2–D4 sampling, D8b–d detail) may still be future work.
 
 **Convention:** one line prefix e.g. `### LekGlobalSix tuplePoolDiag runId=… region=r…` so grepping is easy.
 
@@ -126,6 +126,69 @@ Rough **taxonomy** from supplied **`###`** blocks (no new code). Map/regen **off
 | 798096 | Exhaust **s2** | Legacy **d=22** on one start (**§1** rim); **s6** fail on diag. |
 
 **Takeaway for subspec work:** failure modes split into (1) **§2 saturation** with full leaf budget, (2) **`no_candidates`** = **inner-only** or **outer-only** meetsMin vs **§1** band, (3) ripple dry-run **fail at r=6** while tuple still runs (pool non-empty) — **D5/D8** targeted.
+
+---
+
+## Child D9 — List-head geometry vs §2 (**implemented**)
+
+**Intent:** Check whether **§1 list ordering** (prefer **`|d(map centre) − TARGET_D|`**) yields six **first** candidates whose **pairwise** graph distances are even **in the ballpark** of **`LEK_G6_S2_SECOND_NEAREST_MAX`** *before* ripples and deeper DFS.
+
+**Log lines (after `byRegion` built, before DFS):**
+
+| Prefix | Content |
+|--------|---------|
+| **`### LekGlobalSix tupleHeadCells`** | Per **`r=1..6`**: head tile **`x,y`**, **`plotIndex`**, **`dMapC`** (`dMapCenter`), **`ringDev`**, **`score`**. |
+| **`### LekGlobalSix tupleHeadPairwise`** | All **15** pairs **`d_i_j`** for **`1 ≤ i < j ≤ 6`** via **`LekGlobalSix_PlotDistance`** (same measure as §2). |
+| **`### LekGlobalSix tupleHeadSecondNearest`** | **`r1..r6`** = second-smallest distance among the other five head points; **`s2_cap`** = current **`LEK_G6_S2_SECOND_NEAREST_MAX`**. |
+
+**Interpretation:** If **every** `tupleHeadSecondNearest` is already **`> s2_cap`**, the six “best ring” heads are **incoherent** with §2 — search order / annulus / cap may be wrong before spending **`max_fail_complete`** leaves.
+
+---
+
+## Appendix B — Tuning inventory & search behaviour (do not lose)
+
+Single checklist of **everything** we have named while iterating on global-six. Not all need changing at once.
+
+### B.1 Spec / geometry coherence **(1)**
+
+| Item | Notes |
+|------|--------|
+| **`LEK_G6_S1_D_MIN` / `D_MAX` / `TARGET_D`** | Annulus + sort key **`ringDev = \|d − TARGET_D\|`**; widening **`D_MAX`** admits more plots; does not fix pairwise spacing. |
+| **`LEK_G6_S2_SECOND_NEAREST_MAX`** | Per civ: sort the **five** rival distances, take **2nd smallest**; must be **≤** cap. **Map-centre ring** does **not** imply this — validate on **`tupleHeadPairwise`**. |
+| **§3–§6** | Salt, coastal cycle, bias (`§5`), **`EvaluateCandidatePlot`** post-ripple (`§6`); **`failHist`** can show **`s5`** / **`s6`**. |
+
+### B.2 Search algorithm **(2)**
+
+| Item | Notes |
+|------|--------|
+| **DFS order** | **`depth` = region index **1→6**; **region 6’s** list index changes **fastest** in an **unbounded** full DFS. |
+| **Global `failComplete` / `leafEvals`** | At **each** `dfs` entry: if **`bestPack` nil** and **`failComplete ≥ maxFail`** (or leaf cap), **return immediately**. The first region‑1 list head can **burn the entire** failure budget while varying **`r2..r6`**; later region‑1 candidates may get **zero** further leaf evaluations after the cap trips. |
+| **`perRegionCap`** (`_lek_global_six_max_candidates_per_region`, default **36**) | Truncates tail of each region’s sorted list → **never** tried. |
+| **Candidate sort** | **`ringDev`** then **`score`** then **`plotIndex`** inside §1 band. |
+| **`PlaceImpactAndRipples`** during DFS | Changes effective spacing / §3 / §6 vs **cleared-`distanceData`** pool probe. |
+
+### B.3 Alternative search directions **(2.1–2.3)**
+
+| Id | Idea |
+|----|------|
+| **2.1** | Random / shuffled tuples over a **small** capped set (e.g. **7^6**) — uniform coverage; avoids **r1** order lock-in but loses structured ring sort. |
+| **2.2** | **Coastal-first** or **ascending `searchOrderedN`** (thin pool regions first) when assigning **DFS variable order** or **partial** passes. |
+| **2.3** | Look-ahead / geometric projection from one fixed region — **heaviest**; defer until **2.1/2.2** data. |
+
+### B.4 Other threads
+
+| Item | Notes |
+|------|--------|
+| **`no_candidates`** | **`meetsMin ∧ §1` empty** for some **`r`** — **search reorder irrelevant**; fix band / region land / **`meetsMin`**. |
+| **Ripple dry-run vs tuple** | Same seed: **`no_eligible_plot_r=k`** vs non-empty **`searchOrderedN`** — **different** rules/path; debug alignment separately. |
+| **Budgets** | **`_lek_global_six_max_fail_complete`**, **`_lek_global_six_max_leaf_evals`** in **`LekmapPangaeaFractalv5.3.lua`**; **`leafEvals`** must stay **≥** useful leaf count or cap stops search first. |
+| **Regen** | **`_lek_global_six_regen_max_layouts`**, **`tuple_solver_no_accepted_tuple`**. |
+
+### B.5 Recommended sequencing
+
+1. **Relaxed constants + D9 head logs** on test rolls → see if bottleneck is **tight §2/§1** vs **search**.  
+2. If heads look **§2-viable** but solver still fails → **`perRegionCap`**, **DFS order**, **global-cap semantics**, **2.1/2.2**.  
+3. If heads are **already §2-dead** → **spec / annulus / TARGET_D** before deep search work.
 
 ---
 
