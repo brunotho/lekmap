@@ -2432,8 +2432,9 @@ function StartPlotSystem()
 	     -- Lane A: global-six hook + OK diag logs. false = quiet maps; true = probe (set true when testing).
 	     start_plot_database._lek_global_six_solver = true;
 	     start_plot_database._lek_global_six_ripple_dry_run = true;
+	     -- max_fail_complete: stop after this many full 6-tuples that fail OK(). max_leaf_evals: cap on OK_RunAll() runs (each "leaf" is one complete assignment); must be >= fail cap if both bind while still searching.
 	     start_plot_database._lek_global_six_max_fail_complete = 1000;
-	     start_plot_database._lek_global_six_max_leaf_evals = 1000;
+	     start_plot_database._lek_global_six_max_leaf_evals = 8000;
 	     start_plot_database._lek_global_six_regen_max_layouts = 4;
 	     start_plot_database._lek_enable_virtual_six_retries = false;
 	     start_plot_database._lek_disable_virtual_six = true;
