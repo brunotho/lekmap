@@ -8,7 +8,7 @@ import collections
 import os.path
 import re
 import sys
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 
 def default_log_path() -> str:
@@ -62,6 +62,10 @@ RE_LAST_FAIL = re.compile(r"last_fail=(\S+)")
 RE_OK_DIAG = re.compile(r"### LekGlobalSix_OK diag runId=\S+ .*?first_fail=(\S+)")
 RE_REGEN = re.compile(r"### LekGlobalSix mapRegen request runId=\S+ .*?reason=(\S+)")
 RE_MIN_ELIG = re.compile(r"minEligRegionsAmongPlayers=(\d+)")
+RE_LAYOUT_RESULT = re.compile(r"### LekGlobalSix mapRegen layout_result .*?outcome=(\S+)")
+RE_REGEN_SUMMARY = re.compile(
+    r"### LekGlobalSix mapRegen summary total_layouts_tried=(\d+) final_outcome=(\S+)"
+)
 
 
 def digest_block(block: List[str]) -> dict:
@@ -148,7 +152,19 @@ def main() -> int:
         print(e, file=sys.stderr)
         return 1
 
-    rolls = split_rolls([ln.rstrip("\n") for ln in lines])
+    raw_lines = [ln.rstrip("\n") for ln in lines]
+    layout_outcome_hist: Dict[str, int] = {}
+    for ln in raw_lines:
+        mlr = RE_LAYOUT_RESULT.search(ln)
+        if mlr:
+            inc(layout_outcome_hist, mlr.group(1))
+    summary_lines: List[Tuple[str, str]] = []
+    for ln in raw_lines:
+        ms = RE_REGEN_SUMMARY.search(ln)
+        if ms:
+            summary_lines.append((ms.group(1), ms.group(2)))
+
+    rolls = split_rolls(raw_lines)
     tuple_status: Dict[str, int] = {}
     solver_status: Dict[str, int] = {}
     bias_decision: Dict[str, int] = {}
@@ -195,6 +211,11 @@ def main() -> int:
             print(f"  {k}: {v}")
 
     print(f"file: {path}")
+    dump("mapRegen layout_result outcome (all lines)", layout_outcome_hist)
+    if summary_lines:
+        print("mapRegen summary (last lines in file win if multiple map gens appended)")
+        for nt, fo in summary_lines[-5:]:
+            print(f"  total_layouts_tried={nt} final_outcome={fo}")
     print(f"rolls (blocks with ChooseLocations): {rolls_with_tuple}")
     if roll_summaries:
         print("per-roll:")

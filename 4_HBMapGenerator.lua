@@ -939,15 +939,24 @@ function GenerateMap()
 		local rq0 = (_lek_global_six_request_map_regen == true);
 		markGenerateMap("### LekGlobalSix mapRegen MARKER before_postCore layout=1 requestRegen=" .. (rq0 and "1" or "0"));
 		logPostCore(1, 1, rq0, false);
+		local oc0 = rq0 and "need_regen_but_loop_off" or "accepted";
+		markGenerateMap("### LekGlobalSix mapRegen layout_result layout=1/1 runId=" .. tostring(_lek_run_id or "na")
+			.. " outcome=" .. oc0 .. " requestRegen=" .. (rq0 and "1" or "0") .. " regenLoop=0");
 		return;
 	end
 	local layoutAttempt = 0;
+	local lastOutcome = "na";
 	while true do
 		layoutAttempt = layoutAttempt + 1;
 		_lek_map_layout_attempt = layoutAttempt;
 		_lek_global_six_request_map_regen = false;
-		LekHB_GenerateMap_Core();
 		local maxL = _lek_global_six_regen_max_layouts;
+		if type(maxL) ~= "number" or maxL < 1 then
+			maxL = 4;
+		end
+		markGenerateMap("### LekGlobalSix mapRegen attempt_begin layout=" .. tostring(layoutAttempt) .. "/" .. tostring(maxL));
+		LekHB_GenerateMap_Core();
+		maxL = _lek_global_six_regen_max_layouts;
 		if type(maxL) ~= "number" or maxL < 1 then
 			maxL = 4;
 		end
@@ -955,6 +964,20 @@ function GenerateMap()
 		markGenerateMap("### LekGlobalSix mapRegen MARKER before_postCore layout=" .. tostring(layoutAttempt)
 			.. " requestRegen=" .. (req and "1" or "0"));
 		logPostCore(layoutAttempt, maxL, req, true);
+		local outcome;
+		if not req then
+			outcome = "accepted";
+		elseif layoutAttempt >= maxL then
+			outcome = "exhausted_still_failed";
+		else
+			outcome = "retry";
+		end
+		lastOutcome = outcome;
+		markGenerateMap("### LekGlobalSix mapRegen layout_result layout=" .. tostring(layoutAttempt) .. "/" .. tostring(maxL)
+			.. " runId=" .. tostring(_lek_run_id or "na")
+			.. " outcome=" .. outcome
+			.. " requestRegen=" .. (req and "1" or "0")
+			.. " regenLoop=1");
 		if not req then
 			break;
 		end
@@ -980,5 +1003,8 @@ function GenerateMap()
 			end
 		end
 	end
+	markGenerateMap("### LekGlobalSix mapRegen summary total_layouts_tried=" .. tostring(layoutAttempt)
+		.. " final_outcome=" .. tostring(lastOutcome)
+		.. " last_runId=" .. tostring(_lek_run_id or "na"));
 	_lek_map_layout_attempt = nil;
 end

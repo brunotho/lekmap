@@ -6629,7 +6629,13 @@ function AssignStartingPlots:LekGlobalSixChooseLocations(args)
 		relaxExtra = " relax_phase=" .. tostring(self._lek_tuple_search_success_phase_name) ..
 			" relax_phaseIndex=" .. tostring(self._lek_tuple_search_success_phase_index or "?");
 	end
+	local attL = _lek_map_layout_attempt or 1;
+	local maxLL = _lek_global_six_regen_max_layouts;
+	if type(maxLL) ~= "number" or maxLL < 1 then
+		maxLL = 4;
+	end
 	LekPlacementProbeLog("### LekGlobalSixChooseLocations runId=" .. rid ..
+		" layout=" .. tostring(attL) .. "/" .. tostring(maxLL) ..
 		" solver_return=" .. (okSolve and "true" or "false") ..
 		" failComplete=" .. tostring(fComplete) ..
 		" leafEvals=" .. tostring(leafE) ..
@@ -6731,7 +6737,13 @@ function AssignStartingPlots:ChooseLocations(args)
 	if self._lek_global_six_solver == true and not lekSixBiasSkipsGlobalSolver then
 		local rid = tostring(_lek_run_id or "na");
 		if self:LekGlobalSixChooseLocations(args) == true then
-			LekPlacementProbeLog("### LekGlobalSix runId=" .. rid .. " path=solver_finished ChooseLocations_early_return=1");
+			local att0 = _lek_map_layout_attempt or 1;
+			local maxL0 = _lek_global_six_regen_max_layouts;
+			if type(maxL0) ~= "number" or maxL0 < 1 then
+				maxL0 = 4;
+			end
+			LekPlacementProbeLog("### LekGlobalSix runId=" .. rid .. " path=solver_finished ChooseLocations_early_return=1"
+				.. " layout=" .. tostring(att0) .. "/" .. tostring(maxL0));
 			return;
 		else
 			local maxRegenL = _lek_global_six_regen_max_layouts;
