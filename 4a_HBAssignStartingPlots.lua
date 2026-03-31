@@ -15853,6 +15853,12 @@ function AssignStartingPlots:FixResourceGraphics()
 end
 ------------------------------------------------------------------------------
 function AssignStartingPlots:PrintFinalResourceTotalsToLog()
+	local function resRow(id, label)
+		if id == nil then
+			return;
+		end
+		print(id, label, self.amounts_of_resources_placed[id + 1]);
+	end
 	print("-");
 	print("--- Table of Results, New Start Finder ---");
 	for loop, startData in ipairs(self.startingPlots) do
@@ -15909,18 +15915,18 @@ function AssignStartingPlots:PrintFinalResourceTotalsToLog()
 
 	if self.bModLuxes == true then
 		print("- Mod LUXURY Resources -")
-		print(self.coffee_ID,   "Coffee..: ", self.amounts_of_resources_placed[self.coffee_ID + 1])
-		print(self.tea_ID,      "Tea.....: ", self.amounts_of_resources_placed[self.tea_ID + 1])
-		print(self.tobacco_ID,  "Tobacco.: ", self.amounts_of_resources_placed[self.tobacco_ID + 1])
-		print(self.amber_ID,    "Amber...: ", self.amounts_of_resources_placed[self.amber_ID + 1])
-		print(self.jade_ID,     "Jade....: ", self.amounts_of_resources_placed[self.jade_ID + 1])
-		print(self.olives_ID,   "Olives..: ", self.amounts_of_resources_placed[self.olives_ID + 1])
-		print(self.perfume_ID,  "Perfume.: ", self.amounts_of_resources_placed[self.perfume_ID + 1])
-		print(self.coral_ID,  	"Coral...: ", self.amounts_of_resources_placed[self.coral_ID + 1])
-		print(self.lapis_ID,  	"Lapis...: ", self.amounts_of_resources_placed[self.lapis_ID + 1])
-		print(self.obsidian_ID,  "Obsidian: ", self.amounts_of_resources_placed[self.obsidian_ID + 1])
-		print(self.rubber_ID,    "Rubber...: ", self.amounts_of_resources_placed[self.rubber_ID + 1])
-		print(self.coconut_ID,    "Rubber...: ", self.amounts_of_resources_placed[self.coconut_ID + 1])
+		resRow(self.coffee_ID, "Coffee..: ");
+		resRow(self.tea_ID, "Tea.....: ");
+		resRow(self.tobacco_ID, "Tobacco.: ");
+		resRow(self.amber_ID, "Amber...: ");
+		resRow(self.jade_ID, "Jade....: ");
+		resRow(self.olives_ID, "Olives..: ");
+		resRow(self.perfume_ID, "Perfume.: ");
+		resRow(self.coral_ID, "Coral...: ");
+		resRow(self.lapis_ID, "Lapis...: ");
+		resRow(self.obsidian_ID, "Obsidian: ");
+		resRow(self.rubber_ID, "Rubber...: ");
+		resRow(self.coconut_ID, "Coconut.: ");
 	end
 
 	print("-")
@@ -15944,10 +15950,10 @@ function AssignStartingPlots:PrintFinalResourceTotalsToLog()
 	print(self.banana_ID,   "Banana..: ", self.amounts_of_resources_placed[self.banana_ID + 1])
 	print(self.fish_ID,     "Fish....: ", self.amounts_of_resources_placed[self.fish_ID + 1])
 	print(self.stone_ID,    "Stone...: ", self.amounts_of_resources_placed[self.stone_ID + 1])
-	print(self.bison_ID,    "Bison...: ", self.amounts_of_resources_placed[self.bison_ID + 1])
-	print(self.hardwood_ID, "Hardwood: ", self.amounts_of_resources_placed[self.hardwood_ID + 1])
-	print(self.maize_ID,    "Maize...: ", self.amounts_of_resources_placed[self.maize_ID + 1])
-	print(self.lead_ID_ID,    "Maize...: ", self.amounts_of_resources_placed[self.maize_ID + 1])
+	resRow(self.bison_ID, "Bison...: ");
+	resRow(self.hardwood_ID, "Hardwood: ");
+	resRow(self.maize_ID, "Maize...: ");
+	resRow(self.lead_ID, "Lead....: ");
 	print("-");
 	print("-----------------------------------------------------");
 end
@@ -16428,9 +16434,14 @@ function AssignStartingPlots:PlaceResourcesAndCityStates()
 	Map.RecalculateAreas();
 	LekMapgenDiagLogAppend("### LekBuildPing PlaceResources_end runId=" .. tostring(_lek_run_id or "na"));
 
-	-- Activate for debug only
-	self:PrintFinalResourceTotalsToLog()
-	--
+	do
+		local ok, err = pcall(function() self:PrintFinalResourceTotalsToLog(); end);
+		if not ok then
+			local msg = "### PrintFinalResourceTotalsToLog_err runId=" .. tostring(_lek_run_id or "na") .. " err=" .. tostring(err);
+			print(msg);
+			LekMapgenDiagLogAppend(msg);
+		end
+	end
 end
 ------------------------------------------------------------------------------
 ------------------------------------------------------------------------------

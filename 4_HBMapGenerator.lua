@@ -799,6 +799,18 @@ function StartPlotSystem()
 end
 
 function LekHB_GenerateMap_Core()
+	local function stage(s)
+		local la = _lek_map_layout_attempt or 0;
+		local t = (os and os.clock) and os.clock() or 0;
+		local m = "### LekMapGen stage=" .. tostring(s) .. " layoutAttempt=" .. tostring(la) .. " t=" .. tostring(t);
+		print(m);
+		pcall(function()
+			if LekMapgenDiagLogAppend then
+				LekMapgenDiagLogAppend({ m });
+			end
+		end);
+	end
+	stage("core_begin");
 	print("Generating Map");
 	-- This is the core map generation function.
 	-- Every step in this process carries dependencies upon earlier steps.
@@ -807,24 +819,31 @@ function LekHB_GenerateMap_Core()
 	
 	-- Plot types are the core layer of the map, determining land or sea, determining flatland, hills or mountains.
 	GeneratePlotTypes();
+	stage("after_GeneratePlotTypes");
 	
 	-- Terrain covers climate: grassland, plains, desert, tundra, snow.
 	GenerateTerrain();
+	stage("after_GenerateTerrain");
 	
 	-- Each body of water, area of mountains, or area of hills+flatlands is independently grouped and tagged.
 	Map.RecalculateAreas();
+	stage("after_RecalculateAreas_1");
 	
 	-- River generation is affected by plot types, originating from highlands and preferring to traverse lowlands.
 	AddRivers();
+	stage("after_AddRivers");
 	
 	-- Lakes would interfere with rivers, causing them to stop and not reach the ocean, if placed any sooner.
 	AddLakes();
+	stage("after_AddLakes");
 	
 	-- Features depend on plot types, terrain types, rivers and lakes to help determine their placement.
 	AddFeatures();
+	stage("after_AddFeatures");
 
 	-- Feature Ice is impassable and therefore requires another area recalculation.
 	Map.RecalculateAreas();
+	stage("after_RecalculateAreas_2");
 
 	-- Assign Starting Plots, Place Natural Wonders, and Distribute Resources.
 	-- This system was designed and programmed for Civ5 by Bob Thomas.
@@ -834,21 +853,35 @@ function LekHB_GenerateMap_Core()
 	--
 	-- This system relies on Area-based data and cannot tolerate an AreaID recalculation during its operations.
 	-- Due to plot changes from Natural Wonders and possibly other source, another recalculation is done as the final action of the system.
+	stage("before_StartPlotSystem");
 	StartPlotSystem();
+	stage("after_StartPlotSystem");
 
 	-- Goodies depend on not colliding with resources or Natural Wonders, or being placed too near to start plots.
 	AddGoodies();
+	stage("after_AddGoodies");
 
 	-- Continental artwork selection must wait until Areas are finalized, so it gets handled last.
 	DetermineContinents();
+	stage("after_DetermineContinents");
 	if LekMapgenDiagLogAppend then
 		LekMapgenDiagLogAppend({
 			"### LekBuildPing end_LekHB_GenerateMap_Core runId=" .. tostring(_lek_run_id or "na"),
 		});
 	end
+	print("### LekGlobalSix mapRegen MARKER core_full_return runId=" .. tostring(_lek_run_id or "na")
+		.. " requestRegen=" .. ((_lek_global_six_request_map_regen == true) and "1" or "0"));
+	stage("core_end");
 end
 
 function GenerateMap()
+	print("### LekMapGen GenerateMap_lua_entry t=" .. tostring((os and os.clock) and os.clock() or 0));
+	pcall(function()
+		if LekMapgenDiagLogAppend then
+			LekMapgenDiagLogAppend({ "### LekMapGen GenerateMap_lua_entry" });
+		end
+	end);
+
 	local function logPostCore(layoutAttempt, maxL, req, regenLoopActive)
 		local pc = "### LekGlobalSix mapRegen postCoreGenerateMap layout=" .. tostring(layoutAttempt) .. "/" .. tostring(maxL) ..
 			" requestRegen=" .. (req and "1" or "0") .. " runId=" .. tostring(_lek_run_id or "na") ..
@@ -859,42 +892,63 @@ function GenerateMap()
 		print(pc);
 	end
 
+	local function markGenerateMap(msg)
+		if LekPlacementProbeLog then
+			LekPlacementProbeLog(msg);
+		else
+			print(msg);
+			if LekMapgenDiagLogAppend then
+				LekMapgenDiagLogAppend({ msg });
+			end
+		end
+	end
+	markGenerateMap("### LekGlobalSix mapRegen MARKER GenerateMap_entry regenLoop="
+		.. tostring(_lek_enable_hb_generatemap_regen_loop == true));
+
 	if not _lek_enable_hb_generatemap_regen_loop then
 		LekHB_GenerateMap_Core();
-		logPostCore(1, 1, _lek_global_six_request_map_regen == true, false);
+		local rq0 = (_lek_global_six_request_map_regen == true);
+		markGenerateMap("### LekGlobalSix mapRegen MARKER before_postCore layout=1 requestRegen=" .. (rq0 and "1" or "0"));
+		logPostCore(1, 1, rq0, false);
 		return;
 	end
-	local maxL = _lek_global_six_regen_max_layouts;
-	if type(maxL) ~= "number" or maxL < 1 then
-		maxL = 4;
-	end
-	for layoutAttempt = 1, maxL do
+	local layoutAttempt = 0;
+	while true do
+		layoutAttempt = layoutAttempt + 1;
 		_lek_map_layout_attempt = layoutAttempt;
 		_lek_global_six_request_map_regen = false;
 		LekHB_GenerateMap_Core();
+		local maxL = _lek_global_six_regen_max_layouts;
+		if type(maxL) ~= "number" or maxL < 1 then
+			maxL = 4;
+		end
 		local req = (_lek_global_six_request_map_regen == true);
+		markGenerateMap("### LekGlobalSix mapRegen MARKER before_postCore layout=" .. tostring(layoutAttempt)
+			.. " requestRegen=" .. (req and "1" or "0"));
 		logPostCore(layoutAttempt, maxL, req, true);
 		if not req then
 			break;
 		end
 		if layoutAttempt >= maxL then
 			local msg = "### LekGlobalSix mapRegen exhausted layouts=" .. tostring(maxL) .. " runId=" .. tostring(_lek_run_id or "na");
-			print(msg);
-			if LekMapgenDiagLogAppend then
-				LekMapgenDiagLogAppend({ msg });
-			end
 			if LekPlacementProbeLog then
 				LekPlacementProbeLog(msg);
+			else
+				print(msg);
+				if LekMapgenDiagLogAppend then
+					LekMapgenDiagLogAppend({ msg });
+				end
 			end
 			break;
 		end
 		local msg = "### LekGlobalSix mapRegen retry nextLayout=" .. tostring(layoutAttempt + 1) .. "/" .. tostring(maxL) .. " runId=" .. tostring(_lek_run_id or "na");
-		print(msg);
-		if LekMapgenDiagLogAppend then
-			LekMapgenDiagLogAppend({ msg });
-		end
 		if LekPlacementProbeLog then
 			LekPlacementProbeLog(msg);
+		else
+			print(msg);
+			if LekMapgenDiagLogAppend then
+				LekMapgenDiagLogAppend({ msg });
+			end
 		end
 	end
 	_lek_map_layout_attempt = nil;

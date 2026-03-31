@@ -24,7 +24,8 @@ print("### LekmapPangaeaFractal: includes done ###");
 -- Lane A: max full-map regens when global-six tuple solver rejects (spec target: 4 layouts = 1 + 3 retries).
 -- Overridden per roll from start_plot_database._lek_global_six_regen_max_layouts inside StartPlotSystem.
 _lek_global_six_regen_max_layouts = 4;
-_lek_enable_hb_generatemap_regen_loop = true;
+-- Regen loop runs up to N full map gens per start; leave false until solver + machine can bear it (bisect baseline).
+_lek_enable_hb_generatemap_regen_loop = false;
 _lek_map_layout_attempt = nil;
 _lek_global_six_request_map_regen = false;
 
@@ -2483,6 +2484,30 @@ function StartPlotSystem()
 		if not ok then
 			local msg = "### ChooseLocations CRASH runId=" .. tostring(_lek_run_id or "na") .. " err=" .. tostring(err);
 			print(msg); appendLekLog({ msg });
+			local maxRegenL = _lek_global_six_regen_max_layouts;
+			if type(maxRegenL) ~= "number" or maxRegenL < 1 then
+				maxRegenL = 4;
+			end
+			local att = _lek_map_layout_attempt or 1;
+			local dsbOk, dsbV = pcall(function()
+				return Game.GetCustomOption("GAMEOPTION_DISABLE_START_BIAS");
+			end);
+			local biasSkipsSix = (dsbOk and dsbV == 1);
+			if _lek_enable_hb_generatemap_regen_loop == true
+				and start_plot_database._lek_global_six_solver == true
+				and not biasSkipsSix
+				and start_plot_database.iNumCivs == 6
+				and att < maxRegenL then
+				_lek_global_six_request_map_regen = true;
+				local rq = "### LekGlobalSix mapRegen request runId=" .. tostring(_lek_run_id or "na")
+					.. " layout=" .. tostring(att) .. "/" .. tostring(maxRegenL)
+					.. " reason=ChooseLocations_pcall_err";
+				print(rq);
+				appendLekLog({ rq });
+				if LekPlacementProbeLog then
+					LekPlacementProbeLog(rq);
+				end
+			end
 		end
 	end
 	
