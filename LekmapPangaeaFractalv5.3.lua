@@ -2433,6 +2433,8 @@ function StartPlotSystem()
 	     start_plot_database._lek_global_six_solver = true;
 	     start_plot_database._lek_global_six_ripple_dry_run = true;
 	     start_plot_database._lek_tuple_pool_diag = true;
+	     -- Tuple DFS: thin_first (default) sorts regions by ascending search pool size before backtracking. false = legacy fixed r1..r6 depth order.
+	     -- start_plot_database._lek_global_six_dfs_thin_first = false;
 	     -- max_fail_complete / max_leaf_evals: each leaf = full 6 placements + ripples + OK_RunAll (expensive). Progress every 2k fails when maxFail>=5000 (_lek_global_six_tuple_progress_every).
 	     start_plot_database._lek_global_six_max_fail_complete = 1000;
 	     start_plot_database._lek_global_six_max_leaf_evals = 8000;

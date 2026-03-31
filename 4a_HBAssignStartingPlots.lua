@@ -5675,6 +5675,26 @@ function AssignStartingPlots:LekGlobalSix_RunTupleSearch()
 	if doTupleDiag then
 		AssignStartingPlots.LekGlobalSix_LogTupleHeadGeometry(self, byRegion);
 	end
+	local depthOrder = { 1, 2, 3, 4, 5, 6 };
+	local thinFirst = (self._lek_global_six_dfs_thin_first ~= false);
+	if thinFirst then
+		table.sort(depthOrder, function(a, b)
+			local na, nb = #byRegion[a], #byRegion[b];
+			if na ~= nb then
+				return na < nb;
+			end
+			return a < b;
+		end);
+	end
+	if doTupleDiag then
+		local parts = {};
+		for d = 1, 6 do
+			local rg = depthOrder[d];
+			parts[#parts + 1] = string.format("d%d=r%d(n=%d)", d, rg, #byRegion[rg]);
+		end
+		LekPlacementProbeLog("### LekGlobalSix tupleDfsOrder runId=" .. rid ..
+			" thin_first=" .. (thinFirst and "1" or "0") .. " " .. table.concat(parts, "; "));
+	end
 	local baseline = AssignStartingPlots.LekGlobalSix_SnapshotPlaceImpactState(self);
 	local failComplete = 0;
 	local leafEvals = 0;
@@ -5734,8 +5754,9 @@ function AssignStartingPlots:LekGlobalSix_RunTupleSearch()
 			end
 			return;
 		end
+		local reg = depthOrder[depth];
 		local snap = AssignStartingPlots.LekGlobalSix_SnapshotPlaceImpactState(self);
-		local cands = byRegion[depth];
+		local cands = byRegion[reg];
 		for ci = 1, #cands do
 			if leafEvals >= maxLeaf then
 				break;
@@ -5745,12 +5766,12 @@ function AssignStartingPlots:LekGlobalSix_RunTupleSearch()
 			end
 			AssignStartingPlots.LekGlobalSix_RestorePlaceImpactState(self, snap);
 			local c = cands[ci];
-			self.startingPlots[depth] = { c.x, c.y, c.score };
+			self.startingPlots[reg] = { c.x, c.y, c.score };
 			self:PlaceImpactAndRipples(c.x, c.y);
 			dfs(depth + 1);
 		end
 		AssignStartingPlots.LekGlobalSix_RestorePlaceImpactState(self, snap);
-		self.startingPlots[depth] = nil;
+		self.startingPlots[reg] = nil;
 	end
 
 	dfs(1);

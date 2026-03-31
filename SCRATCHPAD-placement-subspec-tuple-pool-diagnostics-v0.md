@@ -161,7 +161,7 @@ Single checklist of **everything** we have named while iterating on global-six. 
 
 | Item | Notes |
 |------|--------|
-| **DFS order** | **`depth` = region index **1→6**; **region 6’s** list index changes **fastest** in an **unbounded** full DFS. |
+| **DFS order** | **Default (implemented): `thin_first`** — `depthOrder` = regions sorted by **`#byRegion[r]`** ascending (tie **lower `r`**); DFS depth **`d`** fixes region **`depthOrder[d]`**, still writes **`startingPlots[region]`** by true HB index. Log: **`### LekGlobalSix tupleDfsOrder`**. **Legacy:** set **`_lek_global_six_dfs_thin_first = false`** for fixed **1→6**. **Region 6** (or whatever is **last** in `depthOrder`) still has the **innermost** loop in an unbounded DFS. |
 | **Global `failComplete` / `leafEvals`** | At **each** `dfs` entry: if **`bestPack` nil** and **`failComplete ≥ maxFail`** (or leaf cap), **return immediately**. The first region‑1 list head can **burn the entire** failure budget while varying **`r2..r6`**; later region‑1 candidates may get **zero** further leaf evaluations after the cap trips. |
 | **`perRegionCap`** (`_lek_global_six_max_candidates_per_region`, default **36**) | Truncates tail of each region’s sorted list → **never** tried. |
 | **Candidate sort** | **`ringDev`** then **`score`** then **`plotIndex`** inside §1 band. |
