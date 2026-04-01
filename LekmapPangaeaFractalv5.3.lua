@@ -11,6 +11,8 @@
 -- :2863 using Hax function if coastal
 -- :9291 call to expand coastal plots
 
+-- _lek_mapgen_log_verbosity: 1=min | 2=tuple phases/bias/dfs/ripple/probe (use while tuning e.g. coastal disk %) | 3=pool/head/spacing + per-runOnce islands
+_lek_mapgen_log_verbosity = 3;
 include("4_HBMapGenerator");
 include("2_HBFractalWorld");
 include("6_HBFeatureGenerator");
@@ -21,9 +23,12 @@ include("3_PangaeaIslands");
 include("X_IslandHelpers");
 print("### LekmapPangaeaFractal: includes done ###");
 
--- Lane A: max full-map regens when global-six tuple solver rejects (spec target: 4 layouts = 1 + 3 retries).
+-- Lane A: full-map regens when global-six tuple solver rejects (layouts = distinct terrain/plot rolls).
+-- Tuple policy (default in 4a): layouts 1–3 = strict tuple phase only; 4–6 = staged relaxation; layout 6 still fails → legacy placement (no more regen).
 -- Overridden per roll from start_plot_database._lek_global_six_regen_max_layouts inside StartPlotSystem.
-_lek_global_six_regen_max_layouts = 4;
+_lek_global_six_regen_max_layouts = 6;
+-- Pangaea inner loop: redraw fractal+Pangaea until land/islands pass (per single GeneratePlotTypes call). Tuple regen does NOT bump this counter.
+_lek_pangaea_max_outer_failed = false;
 -- Regen loop: GenerateMap() re-runs LekHB_GenerateMap_Core until tuple solver succeeds or layouts exhausted. On tuple failure with retries left, ChooseLocations returns early (skip legacy) and StartPlotSystem skips BalanceAndAssign/NW/resources (see ### LekMapGen StartPlotSystem short_circuit).
 _lek_enable_hb_generatemap_regen_loop = true;
 _lek_map_layout_attempt = nil;
@@ -741,20 +746,43 @@ function RoundInlandSeas(self)
 end
 
 ------------------------------------------------------------------------------
+local function LekPangaeaProbeLog(msg, minVerb)
+	minVerb = minVerb or 2;
+	if LekMapgenLogAtLeast and not LekMapgenLogAtLeast(minVerb) then
+		return;
+	end
+	print(msg);
+	pcall(function()
+		if LekMapgenDiagLogAppend then
+			LekMapgenDiagLogAppend({ msg });
+		end
+	end);
+end
+
 function PangaeaFractalWorld:GeneratePlotTypes(args)
 	if(args == nil) then args = {}; end
-	
+	_lek_pangaea_max_outer_failed = false;
+
 	local allcomplete = false;
 	local outerAttempts = 0;
 	local MAX_OUTER = 25;
 
 	while allcomplete == false do
 		outerAttempts = outerAttempts + 1;
+		_lek_pangaea_outer_attempt = outerAttempts;
 		print("### Pangaea attempt " .. outerAttempts .. "/" .. MAX_OUTER .. " ###");
 		if outerAttempts > MAX_OUTER then
-			print("[Pangaea] MAX_OUTER reached, accepting map");
+			_lek_pangaea_max_outer_failed = true;
+			print("########################################################################");
+			print("[Lekmap] Pangaea failed: " .. tostring(MAX_OUTER) .. " redraws, land/islands check never passed.");
+			print("Game will load with NO major starting plots — everyone dead on spawn (intentional fail).");
+			print("########################################################################");
+			LekPangaeaProbeLog("### LekPangaeaPlotTypesProbe outcome=max_outer_no_starts outerAttempts=" .. tostring(outerAttempts), 1);
 			break;
 		end
+
+		local tPass0 = (os and os.clock) and os.clock() or 0;
+		local laProbe = _lek_map_layout_attempt or 0;
 
 		local sea_level_low = 64;
 		local sea_level_normal = 67;
@@ -1842,7 +1870,15 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		end
 
 		-- Round thin inland seas (elongated from BuildRidges) so center can fit islands.
+		local tBeforeRoundInland = (os and os.clock) and os.clock() or 0;
+		LekPangaeaProbeLog("### LekPangaeaPlotTypesProbe outer=" .. tostring(outerAttempts)
+			.. " layoutAttempt=" .. tostring(laProbe)
+			.. " preRoundInlandSeas_dt=" .. tostring(tBeforeRoundInland - tPass0), 2);
 		RoundInlandSeas(self);
+		local tAfterRoundInland = (os and os.clock) and os.clock() or 0;
+		LekPangaeaProbeLog("### LekPangaeaPlotTypesProbe outer=" .. tostring(outerAttempts)
+			.. " layoutAttempt=" .. tostring(laProbe)
+			.. " roundInlandSeas_dt=" .. tostring(tAfterRoundInland - tBeforeRoundInland), 2);
 
 		local islandsOpt = Map.GetCustomOption(15);
 		local minIslands = (islandsOpt and islandsOpt > 1) and (islandsOpt - 1) or 0;
@@ -1853,7 +1889,13 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 
 		local islandsPlaced = 0;
 		local islandsBudgetOk = true;
+		local tIs0 = (os and os.clock) and os.clock() or 0;
 		local ok, retPlaced, retBudgetOk = pcall(GeneratePangaeaIslands, self, islandGenOpts);
+		local tIs1 = (os and os.clock) and os.clock() or 0;
+		LekPangaeaProbeLog("### LekPangaeaPlotTypesProbe outer=" .. tostring(outerAttempts)
+			.. " layoutAttempt=" .. tostring(laProbe)
+			.. " generatePangaeaIslands_dt=" .. tostring(tIs1 - tIs0)
+			.. " islandsOk=" .. (ok and "1" or "0"), 1);
 		if not ok then
 			print("### GeneratePangaeaIslands ERROR (islands skipped): " .. tostring(retPlaced) .. " ###");
 			islandsPlaced = 0;
@@ -1883,12 +1925,26 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		print("Map Land Tiles: ", iNumLandTilesInUse);
 		print("Islands Placed: ", islandsPlaced, "(min ", minIslands, " required)", " budgetOk=", tostring(islandsBudgetOk));
 
+		local tPass1 = (os and os.clock) and os.clock() or 0;
 		if iNumLandTilesInUse >= iPercent and islandsPlaced >= minIslands and islandsBudgetOk then
 			allcomplete = true;
 			print("######### Map Pass #########");
 		else
 			print("######### Map Failure #########");
 		end
+		LekPangaeaProbeLog("### LekPangaeaPlotTypesProbe outer=" .. tostring(outerAttempts)
+			.. " layoutAttempt=" .. tostring(laProbe)
+			.. " outerPassTotal_dt=" .. tostring(tPass1 - tPass0)
+			.. " mapPass=" .. ((iNumLandTilesInUse >= iPercent and islandsPlaced >= minIslands and islandsBudgetOk) and "1" or "0"), 2);
+	end
+
+	if allcomplete then
+		LekPangaeaProbeLog("### LekPangaeaPlotTypesProbe islandOuterRegen_summary layoutAttempt=" .. tostring(laProbe)
+			.. " outcome=pass outerAttemptsToPass=" .. tostring(outerAttempts)
+			.. " outerRedrawsBeforePass=" .. tostring(math.max(0, outerAttempts - 1)), 2);
+	elseif outerAttempts > MAX_OUTER then
+		LekPangaeaProbeLog("### LekPangaeaPlotTypesProbe islandOuterRegen_summary layoutAttempt=" .. tostring(laProbe)
+			.. " outcome=max_outer_no_pass outerAttempts=" .. tostring(outerAttempts), 1);
 	end
 
 	return self.plotTypes;
@@ -1905,15 +1961,28 @@ local function dbg(msg) print(msg); end
 function GeneratePlotTypes()
 	print("### STAGE: GeneratePlotTypes ENTRY ###");
 	dbg("### STAGE: GeneratePlotTypes start ###");
+	local laTop = _lek_map_layout_attempt or 0;
+	local t0 = (os and os.clock) and os.clock() or 0;
 	local fractal_world = PangaeaFractalWorld.Create();
 	dbg("### STAGE: fractal created ###");
 	print("### STAGE: calling fractal_world:GeneratePlotTypes (may take 1-2 min) ###");
+	local tF0 = (os and os.clock) and os.clock() or 0;
 	local plotTypes = fractal_world:GeneratePlotTypes();
+	local tF1 = (os and os.clock) and os.clock() or 0;
 	dbg("### STAGE: plotTypes generated ###");
+	local tS0 = (os and os.clock) and os.clock() or 0;
 	SetPlotTypes(plotTypes);
+	local tS1 = (os and os.clock) and os.clock() or 0;
 	dbg("### STAGE: SetPlotTypes done ###");
+	local tC0 = (os and os.clock) and os.clock() or 0;
 	GenerateCoasts();
+	local tC1 = (os and os.clock) and os.clock() or 0;
 	dbg("### STAGE: GenerateCoasts done ###");
+	LekPangaeaProbeLog("### LekPangaeaPlotTypesProbe layoutAttempt=" .. tostring(laTop)
+		.. " fractalWorldGeneratePlotTypes_dt=" .. tostring(tF1 - tF0)
+		.. " setPlotTypes_dt=" .. tostring(tS1 - tS0)
+		.. " generateCoasts_dt=" .. tostring(tC1 - tC0)
+		.. " generatePlotTypes_lua_total_dt=" .. tostring(tC1 - t0), 1);
 end
 ------------------------------------------------------------------------------
 function GenerateTerrain()
@@ -2439,6 +2508,9 @@ function StartPlotSystem()
 	     -- start_plot_database._lek_global_six_s5_prim_hard = false; -- optional: soften multi-region priority only
 	     -- Coastal start bias: true = only salt-water adjacency (plotDataIsCoastal / alongOcean), not lake coast — vanillaHB tuple gate used alongOcean|nextToLake.
 	     start_plot_database._lek_global_six_coastal_bias_requires_salt = true;
+	     start_plot_database._lek_global_six_coastal_disk3_max_salt_water_pct = 40;
+	     start_plot_database._lek_global_six_coastal_salt_water_disk_radius = 3;
+	     -- tuple pool salt-disk counterfactual (verbosity≥2): ### LekGlobalSix coastalSaltDiskPoolDiag. Silence: _lek_global_six_coastal_disk3_pool_diag = false;
 	     -- tupleBiasFeasibility: necessary check — §5-style injective matching on “region r can satisfy coastal/river if some pool plot matches MeasureBiasConditionsAtXY”. skip_impossible skips DFS for that phase (log decision=). Disable: _lek_global_six_tuple_bias_feasibility_gate = false.
 	     -- tupleSpacingReorder: at depth≥2, try candidates with larger min hex distance to already-placed starts first. Logs: ### LekGlobalSix tupleSpacingReorder sample (when _lek_tuple_pool_diag) + spacingDepthCalls / spacingNontrivialPerm on phase end. Disable: _lek_global_six_tuple_spacing_reorder = false.
 	     -- Tuple DFS: thin_first (default) = ascending pool size; constraint_weighted (default) = tie-break by fewer coastal plots in capped pool first (§4/§5 slack). Logs: dfsOrderMode + sortKeys on ### LekGlobalSix tupleDfsOrder.
@@ -2447,7 +2519,12 @@ function StartPlotSystem()
 	     -- Tuple relaxation: default in 4a = 4×1000 fail budgets (base s1/s2 → s2+1 → s2+2 → s2+2 & s1max+1). Logs: ### LekGlobalSix tuplePhase begin/end/success.
 	     -- Optional: skip DFS when rank-1 head cells alone already break s2 (may skip valid tuples that need non-head picks — default off in 4a).
 	     -- start_plot_database._lek_global_six_tuple_skip_dfs_rank1_head_s2 = true;
+	     -- §2 policy: prev phase failCombo s5-weight > pure s2 → skip s2-only relax phases (until s1 band changes). Disable: _lek_global_six_tuple_skip_s2_relax_when_s5_heavy_failcombo = false;
+	     -- §2 policy: if dominant fail is pure s2 (not s5-heavy combo), repeat same phase once at 2× max_fail & max_leaf before advancing relax ladder. Disable: _lek_global_six_tuple_s2_pure_budget_extension = false;
+	     -- Layouts 1..N: if all phases fail, accept remembered §2 “minimal +1” tuple (max second-nearest = s2cap+1, ≤2 regions over cap, §1§3–6 OK). nil = use 3; false = off: _lek_global_six_tuple_minimal_s2_fallback_max_layout
 	     -- start_plot_database._lek_global_six_tuple_relaxation_phases = false; -- single phase only: uses max_fail / max_leaf below, no staged S2/S1 loosening
+	     -- Tuple relax vs map layout (GenerateMap regen index): default relax_min_layout=4 = layouts 1–3 strict only, 4+ full staged ladder. Matches regen_max_layouts=6 (3+3+legacy). Disable gating: _lek_global_six_tuple_relax_min_layout = false.
+	     -- start_plot_database._lek_global_six_tuple_relax_min_layout = 4;
 	     -- max_fail_complete / max_leaf_evals: per-phase overrides optional; each phase default 1000/8000 from table in 4a if field omitted.
 	     start_plot_database._lek_global_six_max_fail_complete = 1000;
 	     start_plot_database._lek_global_six_max_leaf_evals = 8000;
@@ -2455,7 +2532,7 @@ function StartPlotSystem()
 	     -- start_plot_database._lek_global_six_max_leaf_evals = 40000;
 	     -- start_plot_database._lek_global_six_max_fail_complete = 100000;
 	     -- start_plot_database._lek_global_six_max_leaf_evals = 300000;
-	     start_plot_database._lek_global_six_regen_max_layouts = 4;
+	     start_plot_database._lek_global_six_regen_max_layouts = 6;
 	     start_plot_database._lek_enable_virtual_six_retries = false;
 	     start_plot_database._lek_disable_virtual_six = true;
 	     -- start_plot_database._lek_enable_virtual_six_retries = true
@@ -2525,10 +2602,13 @@ function StartPlotSystem()
 				local rq = "### LekGlobalSix mapRegen request runId=" .. tostring(_lek_run_id or "na")
 					.. " layout=" .. tostring(att) .. "/" .. tostring(maxRegenL)
 					.. " reason=ChooseLocations_pcall_err";
-				print(rq);
 				appendLekLog({ rq });
-				if LekPlacementProbeLog then
+				if LekPlacementProbeAt then
+					LekPlacementProbeAt(1, rq);
+				elseif LekPlacementProbeLog then
 					LekPlacementProbeLog(rq);
+				else
+					print(rq);
 				end
 			end
 		end
@@ -2543,7 +2623,9 @@ function StartPlotSystem()
 		local msg = "### LekMapGen StartPlotSystem short_circuit runId=" .. tostring(_lek_run_id or "na")
 			.. " layout=" .. tostring(att) .. "/" .. tostring(maxL)
 			.. " skip=BalanceAndAssign_rescue_spacing_NW_resources";
-		if LekPlacementProbeLog then
+		if LekPlacementProbeAt then
+			LekPlacementProbeAt(1, msg);
+		elseif LekPlacementProbeLog then
 			LekPlacementProbeLog(msg);
 		else
 			print(msg);
@@ -2667,7 +2749,14 @@ function StartPlotSystem()
 					local sp = pl:GetStartingPlot();
 					if sp then
 						local x, y = sp:GetX(), sp:GetY();
-						local coast = sp:IsCoastalLand() or false;
+						local m = AssignStartingPlots.LekGlobalSix_MeasureBiasConditionsAtXY(start_plot_database, x, y);
+						local saltOnly = (start_plot_database._lek_global_six_coastal_bias_requires_salt == true);
+						local coast;
+						if saltOnly then
+							coast = (m.alongOcean == true);
+						else
+							coast = ((m.alongOcean or m.nextToLake) == true);
+						end
 						starts[#starts + 1] = { pid = pid, x = x, y = y, coastal = coast };
 					end
 				end

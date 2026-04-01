@@ -796,12 +796,11 @@ function StartPlotSystem()
 		local msg = "### LekMapGen StartPlotSystem short_circuit runId=" .. tostring(_lek_run_id or "na")
 			.. " layout=" .. tostring(att) .. "/" .. tostring(maxL)
 			.. " skip=BalanceAndAssign_NW_resources mapScript=HB_default";
-		print(msg);
-		pcall(function()
-			if LekMapgenDiagLogAppend then
-				LekMapgenDiagLogAppend({ msg });
-			end
-		end);
+		if LekPlacementProbeAt then
+			LekPlacementProbeAt(1, msg);
+		else
+			print(msg);
+		end
 		return;
 	end
 
@@ -817,6 +816,9 @@ end
 
 function LekHB_GenerateMap_Core()
 	local function stage(s)
+		if LekMapgenLogAtLeast and not LekMapgenLogAtLeast(2) then
+			return;
+		end
 		local la = _lek_map_layout_attempt or 0;
 		local t = (os and os.clock) and os.clock() or 0;
 		local m = "### LekMapGen stage=" .. tostring(s) .. " layoutAttempt=" .. tostring(la) .. " t=" .. tostring(t);
@@ -842,12 +844,16 @@ function LekHB_GenerateMap_Core()
 	local laPt = _lek_map_layout_attempt or 0;
 	local ptLine = "### LekMapGen GeneratePlotTypes_returned layoutAttempt=" .. tostring(laPt)
 		.. " dt_os_clock=" .. tostring(dtPlotTypes);
-	print(ptLine);
-	pcall(function()
-		if LekMapgenDiagLogAppend then
-			LekMapgenDiagLogAppend({ ptLine });
-		end
-	end);
+	if LekPlacementProbeAt then
+		LekPlacementProbeAt(1, ptLine);
+	else
+		print(ptLine);
+		pcall(function()
+			if LekMapgenDiagLogAppend then
+				LekMapgenDiagLogAppend({ ptLine });
+			end
+		end);
+	end
 	stage("after_GeneratePlotTypes");
 	
 	-- Terrain covers climate: grassland, plains, desert, tundra, snow.
@@ -890,12 +896,16 @@ function LekHB_GenerateMap_Core()
 		stage("core_skip_goodies_continents_regen_pending");
 		local sk = "### LekGlobalSix mapRegen core_skip_goodies_continents runId=" .. tostring(_lek_run_id or "na")
 			.. " layoutAttempt=" .. tostring(_lek_map_layout_attempt or 0);
-		print(sk);
-		pcall(function()
-			if LekMapgenDiagLogAppend then
-				LekMapgenDiagLogAppend({ sk });
-			end
-		end);
+		if LekPlacementProbeAt then
+			LekPlacementProbeAt(1, sk);
+		else
+			print(sk);
+			pcall(function()
+				if LekMapgenDiagLogAppend then
+					LekMapgenDiagLogAppend({ sk });
+				end
+			end);
+		end
 	else
 		-- Goodies depend on not colliding with resources or Natural Wonders, or being placed too near to start plots.
 		AddGoodies();
@@ -905,36 +915,56 @@ function LekHB_GenerateMap_Core()
 		DetermineContinents();
 		stage("after_DetermineContinents");
 	end
-	if LekMapgenDiagLogAppend then
+	if LekMapgenDiagAt then
+		LekMapgenDiagAt(1, {
+			"### LekBuildPing end_LekHB_GenerateMap_Core runId=" .. tostring(_lek_run_id or "na"),
+		});
+	elseif LekMapgenDiagLogAppend then
 		LekMapgenDiagLogAppend({
 			"### LekBuildPing end_LekHB_GenerateMap_Core runId=" .. tostring(_lek_run_id or "na"),
 		});
 	end
-	print("### LekGlobalSix mapRegen MARKER core_full_return runId=" .. tostring(_lek_run_id or "na")
-		.. " requestRegen=" .. ((_lek_global_six_request_map_regen == true) and "1" or "0"));
+	if LekPlacementProbeAt then
+		LekPlacementProbeAt(2, "### LekGlobalSix mapRegen MARKER core_full_return runId=" .. tostring(_lek_run_id or "na")
+			.. " requestRegen=" .. ((_lek_global_six_request_map_regen == true) and "1" or "0"));
+	else
+		print("### LekGlobalSix mapRegen MARKER core_full_return runId=" .. tostring(_lek_run_id or "na")
+			.. " requestRegen=" .. ((_lek_global_six_request_map_regen == true) and "1" or "0"));
+	end
 	stage("core_end");
 end
 
 function GenerateMap()
-	print("### LekMapGen GenerateMap_lua_entry t=" .. tostring((os and os.clock) and os.clock() or 0));
-	pcall(function()
-		if LekMapgenDiagLogAppend then
-			LekMapgenDiagLogAppend({ "### LekMapGen GenerateMap_lua_entry" });
-		end
-	end);
+	local genEntry = "### LekMapGen GenerateMap_lua_entry t=" .. tostring((os and os.clock) and os.clock() or 0);
+	if LekPlacementProbeAt then
+		LekPlacementProbeAt(1, genEntry);
+	else
+		print(genEntry);
+		pcall(function()
+			if LekMapgenDiagLogAppend then
+				LekMapgenDiagLogAppend({ "### LekMapGen GenerateMap_lua_entry" });
+			end
+		end);
+	end
 
 	local function logPostCore(layoutAttempt, maxL, req, regenLoopActive)
 		local pc = "### LekGlobalSix mapRegen postCoreGenerateMap layout=" .. tostring(layoutAttempt) .. "/" .. tostring(maxL) ..
 			" requestRegen=" .. (req and "1" or "0") .. " runId=" .. tostring(_lek_run_id or "na") ..
 			" regenLoopActive=" .. (regenLoopActive and "1" or "0");
-		if LekMapgenDiagLogAppend then
-			LekMapgenDiagLogAppend({ pc });
+		if LekPlacementProbeAt then
+			LekPlacementProbeAt(1, pc);
+		else
+			if LekMapgenDiagLogAppend then
+				LekMapgenDiagLogAppend({ pc });
+			end
+			print(pc);
 		end
-		print(pc);
 	end
 
 	local function markGenerateMap(msg)
-		if LekPlacementProbeLog then
+		if LekPlacementProbeAt then
+			LekPlacementProbeAt(1, msg);
+		elseif LekPlacementProbeLog then
 			LekPlacementProbeLog(msg);
 		else
 			print(msg);
@@ -995,7 +1025,9 @@ function GenerateMap()
 		end
 		if layoutAttempt >= maxL then
 			local msg = "### LekGlobalSix mapRegen exhausted layouts=" .. tostring(maxL) .. " runId=" .. tostring(_lek_run_id or "na");
-			if LekPlacementProbeLog then
+			if LekPlacementProbeAt then
+				LekPlacementProbeAt(1, msg);
+			elseif LekPlacementProbeLog then
 				LekPlacementProbeLog(msg);
 			else
 				print(msg);
@@ -1006,7 +1038,9 @@ function GenerateMap()
 			break;
 		end
 		local msg = "### LekGlobalSix mapRegen retry nextLayout=" .. tostring(layoutAttempt + 1) .. "/" .. tostring(maxL) .. " runId=" .. tostring(_lek_run_id or "na");
-		if LekPlacementProbeLog then
+		if LekPlacementProbeAt then
+			LekPlacementProbeAt(1, msg);
+		elseif LekPlacementProbeLog then
 			LekPlacementProbeLog(msg);
 		else
 			print(msg);

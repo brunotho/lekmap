@@ -50,7 +50,9 @@ def first_match(pat: re.Pattern, block: List[str]) -> re.Match | None:
 
 
 RE_TUPLE_SEARCH = re.compile(r"### LekGlobalSix tupleSearch runId=\S+ status=(\S+)")
-RE_SOLVER = re.compile(r"### LekGlobalSixChooseLocations runId=\S+ solver_return=(\w+)")
+RE_SOLVER = re.compile(
+    r"### LekGlobalSixChooseLocations runId=\S+.*?solver_return=(\w+)"
+)
 RE_BIAS = re.compile(
     r"### LekGlobalSix tupleBiasFeasibility runId=\S+ .*?decision=(\S+) reason=(\S+)"
 )
@@ -66,6 +68,44 @@ RE_LAYOUT_RESULT = re.compile(r"### LekGlobalSix mapRegen layout_result .*?outco
 RE_REGEN_SUMMARY = re.compile(
     r"### LekGlobalSix mapRegen summary total_layouts_tried=(\d+) final_outcome=(\S+)"
 )
+RE_ISLAND_RUNONCE_TOTAL = re.compile(r"runOnce_total_dt=([0-9.+-eE]+)")
+RE_ISLAND_GEN_TOTAL = re.compile(r"generatePangaeaIslands_total_dt=([0-9.+-eE]+)")
+RE_PANGAEA_ISLANDS_SEG = re.compile(r"generatePangaeaIslands_dt=([0-9.+-eE]+)")
+RE_ISLANDS_OK0 = re.compile(r"islandsOk=0")
+RE_TUPLE_FAIL_COMBO = re.compile(
+    r"### LekGlobalSix tupleFailCombo runId=\S+ phaseIndex=(\d+) name=(\S+) "
+    r"failComplete=(\d+) leafEvals=(\d+) comboHist_top=(.*?)\s+anyHist=(.+)"
+)
+RE_COASTAL_SALT_DISK = re.compile(
+    r"### LekGlobalSix coastalSaltDiskPoolDiag runId=\S+ phase=(\S+) .*?"
+    r"rejected_from_pool_by_disk=(\d+) .*?poolCells_total=(\d+)"
+)
+RE_TUPLE_RELAX_GATE = re.compile(
+    r"### LekGlobalSix tupleRelaxGate hard_only runId=\S+ map_layout_attempt=(\d+) "
+    r"relax_min_layout=(\d+)"
+)
+
+
+def _parse_kv_counts(blob: str) -> Dict[str, int]:
+    """Parse 'k:n,k2:n2' from fmtAnyHist / fmtComboHistTop (keys have no commas)."""
+    out: Dict[str, int] = {}
+    if not blob or blob == "na":
+        return out
+    blob = blob.strip()
+    trunc = blob.find(",…(+")
+    if trunc != -1:
+        blob = blob[:trunc]
+    for part in blob.split(","):
+        part = part.strip()
+        if not part or ":" not in part:
+            continue
+        k, _, rs = part.rpartition(":")
+        k = k.strip()
+        try:
+            out[k] = out.get(k, 0) + int(rs)
+        except ValueError:
+            continue
+    return out
 
 
 def digest_block(block: List[str]) -> dict:
@@ -78,6 +118,9 @@ def digest_block(block: List[str]) -> dict:
         "ok_first_fail": None,
         "regen_reasons": [],
         "min_elig_min": None,
+        "tuple_fail_combo": [],
+        "coastal_salt_lines": [],
+        "tuple_relax_gate_hard_only": False,
     }
     m = first_match(RE_TUPLE_SEARCH, block)
     if m:
@@ -104,6 +147,30 @@ def digest_block(block: List[str]) -> dict:
             v = int(me.group(1))
             if r["min_elig_min"] is None or v < r["min_elig_min"]:
                 r["min_elig_min"] = v
+    for line in block:
+        mc = RE_TUPLE_FAIL_COMBO.search(line)
+        if mc:
+            r["tuple_fail_combo"].append(
+                {
+                    "phase_index": int(mc.group(1)),
+                    "phase_name": mc.group(2),
+                    "fail_complete": int(mc.group(3)),
+                    "leaf_evals": int(mc.group(4)),
+                    "combo_top": _parse_kv_counts(mc.group(5)),
+                    "any_hist": _parse_kv_counts(mc.group(6)),
+                }
+            )
+        msalt = RE_COASTAL_SALT_DISK.search(line)
+        if msalt:
+            r["coastal_salt_lines"].append(
+                {
+                    "phase": msalt.group(1),
+                    "rejected": int(msalt.group(2)),
+                    "pool_total": int(msalt.group(3)),
+                }
+            )
+        if RE_TUPLE_RELAX_GATE.search(line):
+            r["tuple_relax_gate_hard_only"] = True
     for line in block:
         if "### LekGlobalSix tuplePhase end" in line:
             mp = RE_PHASE_END.search(line)
@@ -135,6 +202,52 @@ def roll_summary(block: List[str], d: dict) -> str:
     return f"tuple={ts} solver={sr} {bg}"
 
 
+def scan_mapgen_timing(lines: List[str]) -> dict:
+    """Island / Pangaea probe lines (whole file; not tied to ChooseLocations filter)."""
+    r: dict = {
+        "island_runOnce_lines": 0,
+        "island_runOnce_dt_max": None,
+        "island_full_dt_max": None,
+        "island_exit_budget_exhaust": 0,
+        "island_exit_budget_met": 0,
+        "island_exit_no_retry": 0,
+        "pangaea_gen_islands_dt_max": None,
+        "pangaea_islands_ok0": 0,
+    }
+    for ln in lines:
+        if "### LekIslandProbe" in ln:
+            if "runOnce_total_dt=" in ln:
+                r["island_runOnce_lines"] += 1
+                m = RE_ISLAND_RUNONCE_TOTAL.search(ln)
+                if m:
+                    v = float(m.group(1))
+                    if r["island_runOnce_dt_max"] is None or v > r["island_runOnce_dt_max"]:
+                        r["island_runOnce_dt_max"] = v
+            if "exit=budget_retry_exhausted" in ln:
+                r["island_exit_budget_exhaust"] += 1
+            if "exit=budget_met" in ln:
+                r["island_exit_budget_met"] += 1
+            if "exit=no_budget_retry" in ln:
+                r["island_exit_no_retry"] += 1
+            mtot = RE_ISLAND_GEN_TOTAL.search(ln)
+            if mtot:
+                v = float(mtot.group(1))
+                if r["island_full_dt_max"] is None or v > r["island_full_dt_max"]:
+                    r["island_full_dt_max"] = v
+        if "### LekPangaeaPlotTypesProbe" in ln and "generatePangaeaIslands_dt=" in ln:
+            m = RE_PANGAEA_ISLANDS_SEG.search(ln)
+            if m:
+                v = float(m.group(1))
+                if (
+                    r["pangaea_gen_islands_dt_max"] is None
+                    or v > r["pangaea_gen_islands_dt_max"]
+                ):
+                    r["pangaea_gen_islands_dt_max"] = v
+            if RE_ISLANDS_OK0.search(ln):
+                r["pangaea_islands_ok0"] += 1
+    return r
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Digest Lekmap placement logs across map gens.")
     ap.add_argument("logfile", nargs="?", default=None, help="Path to LekmapStartSpacing6P.log")
@@ -142,6 +255,12 @@ def main() -> int:
         "--per-roll",
         action="store_true",
         help="Print one summary line per roll (tupleSearch + solver + bias logging era).",
+    )
+    ap.add_argument(
+        "--full",
+        action="store_true",
+        help="Print extended histograms (ok_first_fail, phase last_fail, minElig, etc.). "
+        "Default is a focused digest for current tuple / salt-disk / regen tuning.",
     )
     args = ap.parse_args()
     path = args.logfile or default_log_path()
@@ -153,6 +272,7 @@ def main() -> int:
         return 1
 
     raw_lines = [ln.rstrip("\n") for ln in lines]
+    mg = scan_mapgen_timing(raw_lines)
     layout_outcome_hist: Dict[str, int] = {}
     for ln in raw_lines:
         mlr = RE_LAYOUT_RESULT.search(ln)
@@ -175,6 +295,12 @@ def main() -> int:
     regen_reason: Dict[str, int] = {}
     min_elig_hist: Dict[str, int] = collections.Counter()
     rolls_with_tuple = 0
+    tuple_relax_hard_only_rolls = 0
+    coastal_salt_file_lines = 0
+    coastal_reject_max = 0
+    coastal_reject_sum = 0
+    combo_fail_agg: Dict[str, int] = {}
+    any_fail_agg: Dict[str, int] = {}
 
     roll_summaries: List[str] = []
 
@@ -183,6 +309,18 @@ def main() -> int:
             continue
         rolls_with_tuple += 1
         d = digest_block(block)
+        if d["tuple_relax_gate_hard_only"]:
+            tuple_relax_hard_only_rolls += 1
+        for salt in d["coastal_salt_lines"]:
+            coastal_salt_file_lines += 1
+            coastal_reject_sum += salt["rejected"]
+            if salt["rejected"] > coastal_reject_max:
+                coastal_reject_max = salt["rejected"]
+        for tfc in d["tuple_fail_combo"]:
+            for k, v in tfc["combo_top"].items():
+                inc(combo_fail_agg, k, v)
+            for k, v in tfc["any_hist"].items():
+                inc(any_fail_agg, k, v)
         if args.per_roll:
             roll_summaries.append(roll_summary(block, d))
         if d["tuple_search"]:
@@ -210,32 +348,95 @@ def main() -> int:
         for k, v in sorted(d.items(), key=lambda kv: (-kv[1], kv[0])):
             print(f"  {k}: {v}")
 
+    def dump_top(title: str, d: Dict[str, int], limit: int = 12) -> None:
+        if not d:
+            return
+        print(title)
+        for k, v in sorted(d.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]:
+            print(f"  {k}: {v}")
+
     print(f"file: {path}")
-    dump("mapRegen layout_result outcome (all lines)", layout_outcome_hist)
+    print(
+        "scopes: tuple/solver/combo/salt/relax_gate = only lines inside mapgen blocks that contain "
+        '"ChooseLocations begin" (one block per ### LekMapGen GenerateMap_lua_entry … next entry); '
+        "island timing + mapRegen layout_result = entire file."
+    )
+    print(f"rolls (ChooseLocations blocks): {rolls_with_tuple}")
+    print(
+        f"tupleRelaxGate hard_only rolls: {tuple_relax_hard_only_rolls} "
+        f"(layout 1..relax_min-1 strict phases only)"
+    )
+    print("island / pangaea timing (whole file)")
+    print(
+        f"  LekIslandProbe runOnce lines={mg['island_runOnce_lines']} "
+        f"max_runOnce_total_dt={mg['island_runOnce_dt_max']}"
+    )
+    print(
+        f"  LekIslandProbe max_generatePangaeaIslands_total_dt={mg['island_full_dt_max']} "
+        f"exit: exhaust={mg['island_exit_budget_exhaust']} met={mg['island_exit_budget_met']} "
+        f"no_retry={mg['island_exit_no_retry']}"
+    )
+    print(
+        f"  LekPangaeaPlotTypesProbe max_generatePangaeaIslands_dt={mg['pangaea_gen_islands_dt_max']} "
+        f"lines_with_islandsOk=0={mg['pangaea_islands_ok0']}"
+    )
+    if coastal_salt_file_lines:
+        print(
+            "coastalSaltDiskPoolDiag (verbosity≥2, lines this file): "
+            f"n_lines={coastal_salt_file_lines} sum_rejected_disk={coastal_reject_sum} "
+            f"max_rejected_single_phase={coastal_reject_max}"
+        )
+    else:
+        print("coastalSaltDiskPoolDiag: no lines (need log level ≥2 or feature off)")
+
+    dump_top(
+        "tupleFailCombo comboHist_top (sum of leaf-fail counts; multiple phases per roll)",
+        combo_fail_agg,
+        16,
+    )
+    if args.full:
+        dump_top("tupleFailCombo anyHist (aggregated)", any_fail_agg, 16)
+
+    dump("tupleSearch status", tuple_status)
+    dump("solver_return", solver_status)
+    bias_skip = bias_decision.get("skip_impossible", 0)
+    bias_go = bias_decision.get("proceed_dfs", 0)
+    print(
+        f"tupleBiasFeasibility log lines (not rolls; up to ~4 phases × rolls): "
+        f"proceed_dfs={bias_go} skip_impossible={bias_skip} "
+        f"(histograms: --full)"
+    )
+    dump("mapRegen layout_result outcome (every layout attempt line in file)", layout_outcome_hist)
     if summary_lines:
-        print("mapRegen summary (last lines in file win if multiple map gens appended)")
+        print("mapRegen summary (last 5 in file)")
         for nt, fo in summary_lines[-5:]:
             print(f"  total_layouts_tried={nt} final_outcome={fo}")
-    print(f"rolls (blocks with ChooseLocations): {rolls_with_tuple}")
-    if roll_summaries:
-        print("per-roll:")
+
+    if args.full:
+        if roll_summaries:
+            print("per-roll:")
+            for i, s in enumerate(roll_summaries, 1):
+                print(f"  {i}: {s}")
+        dump("tupleBiasFeasibility decision", bias_decision)
+        dump("tupleBiasFeasibility reason", bias_reason)
+        dump("tuplePhase end status", phase_status)
+        dump("tuplePhase last_fail (when present)", last_fail)
+        dump("LekGlobalSix_OK first_fail", ok_first)
+        dump("mapRegen request reason", regen_reason)
+        if min_elig_hist:
+            print("minEligRegionsAmongPlayers (min over tupleBias lines per roll)")
+            for k, v in sorted(min_elig_hist.items(), key=lambda kv: int(kv[0])):
+                print(f"  {k}: {v}")
+    elif roll_summaries:
+        print("per-roll (tuple solver bias):")
         for i, s in enumerate(roll_summaries, 1):
             print(f"  {i}: {s}")
-    dump("tupleSearch status", tuple_status)
-    dump("LekGlobalSixChooseLocations solver_return", solver_status)
-    dump("tupleBiasFeasibility decision", bias_decision)
-    dump("tupleBiasFeasibility reason", bias_reason)
-    dump("tuplePhase end status", phase_status)
-    dump("tuplePhase last_fail (when present)", last_fail)
-    dump("LekGlobalSix_OK first_fail", ok_first)
-    dump("mapRegen request reason", regen_reason)
-    if min_elig_hist:
-        print("minEligRegionsAmongPlayers (min over tupleBias lines per roll)")
-        for k, v in sorted(min_elig_hist.items(), key=lambda kv: int(kv[0])):
-            print(f"  {k}: {v}")
-    print(
-        "\nNote: tupleBiasFeasibility was added recently; rolls with biasLog=absent still have tupleSearch/solver stats."
-    )
+
+    if not args.full:
+        print(
+            "\nTip: ~25–40 full mapgens for coarse mix (tuple ok vs fail, dominant combo keys); "
+            "~80–120 if you care about rare tails (<10% events). Use --full for bias reasons / phase_fail histograms."
+        )
 
     return 0
 

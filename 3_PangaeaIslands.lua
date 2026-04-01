@@ -125,12 +125,44 @@ local AllIslandTypeTables = {
 local PANGAEA_ISLAND_TOTAL_BUDGET = 9;
 local PANGAEA_COMMON_FILL_MAX_PASSES = 10000;
 local PANGAEA_ISLAND_BUDGET_RETRY = true;
+-- If false: only try nominal budget (e.g. 9), then fail so PangaeaFractalWorld outer regen runs (no lowering target).
+local PANGAEA_ISLAND_RELAX_BUDGET_TIER = false;
+-- Max full runOnce() attempts at nominal budget before outer fractal redraw. Logs show easy maps usually pass on
+-- cumulativeRunOnceCalls=1; this is ceil(1 * 1.5) with headroom (loop budget, not wall clock).
+local PANGAEA_ISLAND_MAX_RUNONCE_NOMINAL = 2;
 local PANGAEA_ISLAND_MAX_TRIES_PER_BUDGET = 80;
 local PANGAEA_ISLAND_BUDGET_FLOOR = 5;
 local PANGAEA_SHORE_SMALL_ISLAND_ATTEMPTS = 600;
 local PANGAEA_COMMON_SMALL_ISLAND_TRIES_TIGHT = 500;
 local PANGAEA_COMMON_SMALL_ISLAND_TRIES_LOOSE = 350;
 local PANGAEA_COMMON_FILL_IDLE_BREAK = 800;
+-- os.clock() limits; nil/<=0 disables. Safety rail inside one runOnce (common fill / shore).
+local PANGAEA_RUNONCE_MAX_CLOCK = 75;
+-- nil: rely on PANGAEA_ISLAND_MAX_RUNONCE_NOMINAL + outer regen (no tier time budget).
+local PANGAEA_BUDGET_TIER_MAX_CLOCK = nil;
+-- Optional: after N misses at one tier, if best spent+slack < b*frac, skip remaining tries (set N to enable).
+local PANGAEA_BUDGET_FAST_FAIL_TRIES = nil;
+local PANGAEA_BUDGET_FAST_FAIL_SPENT_FRAC = 0.68;
+
+local function LekIslandProbeLog(msg, minVerb)
+	minVerb = minVerb or 2;
+	if LekMapgenLogAtLeast and not LekMapgenLogAtLeast(minVerb) then
+		return;
+	end
+	print(msg);
+	pcall(function()
+		if LekMapgenDiagLogAppend then
+			LekMapgenDiagLogAppend({ msg });
+		end
+	end);
+end
+
+local function LekIslandBudgetFillPct(spent, target)
+	if not target or type(target) ~= "number" or target <= 0 then
+		return 0;
+	end
+	return 100 * spent / target;
+end
 
 local function GetOptEntry(islandType)
 	for _, t in ipairs(AllIslandTypeTables) do
@@ -218,6 +250,20 @@ function GeneratePangaeaIslands(self, genOpts)
 	if budgetRetry == nil then budgetRetry = PANGAEA_ISLAND_BUDGET_RETRY; end
 	local maxTriesPerBudget = genOpts.maxTriesPerBudget or PANGAEA_ISLAND_MAX_TRIES_PER_BUDGET;
 	local budgetFloor = genOpts.budgetFloor or PANGAEA_ISLAND_BUDGET_FLOOR;
+	local relaxBudgetTier = genOpts.relaxBudgetTier;
+	if relaxBudgetTier == nil then relaxBudgetTier = PANGAEA_ISLAND_RELAX_BUDGET_TIER; end
+	local maxRunOnceNominal = genOpts.maxRunOnceNominal;
+	if maxRunOnceNominal == nil then maxRunOnceNominal = PANGAEA_ISLAND_MAX_RUNONCE_NOMINAL; end
+	local laIsland = _lek_map_layout_attempt or 0;
+	local outerIsland = tonumber(_lek_pangaea_outer_attempt) or 0;
+	local tIslandGen0 = (os and os.clock) and os.clock() or 0;
+	local islandRunBudget = 0;
+	local islandRunTry = 0;
+	local tallyRunOnceAborts = 0;
+	local globalBestSpent = 0;
+	local tierClockStopCount = 0;
+	local fastFailStopCount = 0;
+	local nominalBudget = PANGAEA_ISLAND_TOTAL_BUDGET;
 
 	local function dbg2(msg) print(msg); end
 	dbg2("### GeneratePangaeaIslands: start [" .. os.date("%H:%M:%S") .. "] ###");
@@ -240,6 +286,11 @@ function GeneratePangaeaIslands(self, genOpts)
 	local wrapY = false;
 	local odd = firstRingYIsOdd;
 	local even = firstRingYIsEven;
+	do
+		local t1 = (os and os.clock) and os.clock() or 0;
+		LekIslandProbeLog("### LekIslandProbe layoutAttempt=" .. tostring(laIsland)
+			.. " phase=snapshot_pangeaMask dt=" .. tostring(t1 - tIslandGen0), 2);
+	end
 
 	local opts = {
 		iW = iW, iH = iH, wrapX = wrapX, wrapY = wrapY,
@@ -267,6 +318,24 @@ function GeneratePangaeaIslands(self, genOpts)
 	end
 
 	local function runOnce(TOTAL_BUDGET)
+		local tR0 = (os and os.clock) and os.clock() or 0;
+		local runOnceDeadline = nil;
+		if PANGAEA_RUNONCE_MAX_CLOCK and type(PANGAEA_RUNONCE_MAX_CLOCK) == "number" and PANGAEA_RUNONCE_MAX_CLOCK > 0 and os and os.clock then
+			runOnceDeadline = os.clock() + PANGAEA_RUNONCE_MAX_CLOCK;
+		end
+		local runOnceAbortReason = nil;
+		local function runOnceMarkAbort(reason)
+			if runOnceAbortReason == nil then
+				runOnceAbortReason = reason;
+			end
+		end
+		local function runOnceClockExpired()
+			if runOnceDeadline and os and os.clock and os.clock() > runOnceDeadline then
+				runOnceMarkAbort("runOnce_clock_cap");
+				return true;
+			end
+			return false;
+		end
 		restorePlotTypes();
 		resetIslandGlobals();
 
@@ -312,6 +381,7 @@ function GeneratePangaeaIslands(self, genOpts)
 	table.sort(drafted, function(a, b)
 		return GetDraftPriority(a) < GetDraftPriority(b);
 	end);
+	local tAfterDraft = (os and os.clock) and os.clock() or 0;
 
 	local islandsPlaced = 0;
 	local function tryOneSpot(forceType, attempt, overrideSpot)
@@ -456,6 +526,9 @@ function GeneratePangaeaIslands(self, genOpts)
 		local attempts = 0;
 		local cap = attemptsCap or 180;
 		while not placed and attempts < cap do
+			if runOnceClockExpired() then
+				break;
+			end
 			placed = tryOneSpot(islandType, attempts);
 			attempts = attempts + 1;
 		end
@@ -470,10 +543,14 @@ function GeneratePangaeaIslands(self, genOpts)
 	local shorePebbles = 1 + Map.Rand(4, "");
 	for _ = 1, shoreDots do placeAndCount("dot", PANGAEA_SHORE_SMALL_ISLAND_ATTEMPTS); end
 	for _ = 1, shorePebbles do placeAndCount("pebble", PANGAEA_SHORE_SMALL_ISLAND_ATTEMPTS); end
+	local tAfterShore = (os and os.clock) and os.clock() or 0;
 
 	dbg2("### GeneratePangaeaIslands: placing drafted islands ###");
 
 	for _, islandType in ipairs(drafted) do
+		if runOnceClockExpired() then
+			break;
+		end
 		dbg2("### placing: " .. tostring(islandType) .. " ###");
 		if islandType == "polarMerge" then
 			if TryPlacePolarMerge(self.plotTypes, opts) then
@@ -501,6 +578,9 @@ function GeneratePangaeaIslands(self, genOpts)
 		elseif islandType == "wrapSoftLandbridge" then
 			local placedBridge = false;
 			for _wb = 1, 28 do
+				if runOnceClockExpired() then
+					break;
+				end
 				if TryPlaceWrapSoftLandbridge(self.plotTypes, opts) then
 					placedBridge = true;
 					break;
@@ -528,11 +608,15 @@ function GeneratePangaeaIslands(self, genOpts)
 			placeAndCount(islandType, maxAttempts);
 		end
 	end
+	local tAfterDraftedPlaced = (os and os.clock) and os.clock() or 0;
 
 	dbg2("### GeneratePangaeaIslands: drafted done, filling commons (until spent >= " .. TOTAL_BUDGET .. ", est at draft was " .. draftEstimate .. ") ###");
 	local commonPass = 0;
 	local idleCommonPasses = 0;
 	while spentBudget + 0.004 < TOTAL_BUDGET and commonPass < PANGAEA_COMMON_FILL_MAX_PASSES do
+		if runOnceClockExpired() then
+			break;
+		end
 		commonPass = commonPass + 1;
 		if commonPass == 1 or commonPass % 200 == 0 then
 			dbg2("### common fill pass " .. commonPass .. ", spent " .. spentBudget .. "/" .. TOTAL_BUDGET .. " ###");
@@ -552,6 +636,9 @@ function GeneratePangaeaIslands(self, genOpts)
 			local placed = false;
 			local tries = (remaining <= 0.55) and PANGAEA_COMMON_SMALL_ISLAND_TRIES_TIGHT or PANGAEA_COMMON_SMALL_ISLAND_TRIES_LOOSE;
 			for i = 1, tries do
+				if (i % 40 == 0) and runOnceClockExpired() then
+					break;
+				end
 				placed = tryOneSpot(islandType, nil, nil);
 				if placed then break; end
 			end
@@ -568,32 +655,216 @@ function GeneratePangaeaIslands(self, genOpts)
 			end
 		end
 	end
+	local tAfterCommonFill = (os and os.clock) and os.clock() or 0;
+		local runTotal = tAfterCommonFill - tR0;
+		LekIslandProbeLog("### LekIslandProbe layoutAttempt=" .. tostring(laIsland)
+			.. " runOnce budgetTarget=" .. tostring(TOTAL_BUDGET)
+			.. " retryTry=" .. tostring(islandRunTry) .. "/" .. tostring(maxTriesPerBudget)
+			.. " draft_dt=" .. tostring(tAfterDraft - tR0)
+			.. " shore_dt=" .. tostring(tAfterShore - tAfterDraft)
+			.. " draftedPlace_dt=" .. tostring(tAfterDraftedPlaced - tAfterShore)
+			..(" commonFill_dt=" .. tostring(tAfterCommonFill - tAfterDraftedPlaced))
+			.. " commonPasses=" .. tostring(commonPass)
+			.. " islandsPlaced=" .. tostring(islandsPlaced)
+			.. " spentBudget=" .. string.format("%.3f", spentBudget)
+			.. " runOnce_total_dt=" .. tostring(runTotal)
+			.. " abort=" .. tostring(runOnceAbortReason or "none"), 3);
+		local fillPct = LekIslandBudgetFillPct(spentBudget, TOTAL_BUDGET);
+		local shortfall = math.max(0, TOTAL_BUDGET - spentBudget);
+		LekIslandProbeLog("### LekIslandProbe runOnce_summary layoutAttempt=" .. tostring(laIsland)
+			.. " target=" .. tostring(TOTAL_BUDGET)
+			.. " spent=" .. string.format("%.3f", spentBudget)
+			.. " fillPct=" .. string.format("%.1f", fillPct)
+			.. " shortfall=" .. string.format("%.3f", shortfall)
+			.. " islandsPlaced=" .. tostring(islandsPlaced)
+			.. " dt=" .. string.format("%.2f", runTotal)
+			.. " commonPasses=" .. tostring(commonPass)
+			.. " abort=" .. tostring(runOnceAbortReason or "none"), 2);
+		if runOnceAbortReason then
+			tallyRunOnceAborts = tallyRunOnceAborts + 1;
+		end
 
 		return islandsPlaced, spentBudget;
 	end
 
 	if not budgetRetry then
+		islandRunBudget = PANGAEA_ISLAND_TOTAL_BUDGET;
+		islandRunTry = 1;
 		local ip, sp = runOnce(PANGAEA_ISLAND_TOTAL_BUDGET);
 		dbg2("### GeneratePangaeaIslands: islands placed = " .. tostring(ip) .. " spent " .. string.format("%.2f", sp) .. "/" .. PANGAEA_ISLAND_TOTAL_BUDGET .. " ###");
+		do
+			local tEnd = (os and os.clock) and os.clock() or 0;
+			LekIslandProbeLog("### LekIslandProbe layoutAttempt=" .. tostring(laIsland)
+				.. " exit=no_budget_retry ok=1 generatePangaeaIslands_total_dt=" .. tostring(tEnd - tIslandGen0), 1);
+			LekIslandProbeLog("### LekIslandProbe budgetOutcome layoutAttempt=" .. tostring(laIsland)
+				.. " path=no_budget_retry islandsPlaced=" .. tostring(ip)
+				.. " spent=" .. string.format("%.3f", sp)
+				.. " nominalTarget=" .. tostring(nominalBudget)
+				.. " fillPctOfNominal=" .. string.format("%.1f", LekIslandBudgetFillPct(sp, nominalBudget))
+				.. " runOnceAbortsThisGen=" .. tostring(tallyRunOnceAborts), 2);
+			LekIslandProbeLog("### LekIslandProbe innerSuccessProfile layoutAttempt=" .. tostring(laIsland)
+				.. " outer=" .. tostring(outerIsland)
+				.. " acceptedTier=" .. tostring(nominalBudget)
+				.. " winningTry=1"
+				.. " cumulativeRunOnceCalls=1"
+				.. " tierDropsBeforeOk=0"
+				.. " relaxBudgetTier=n/a_path"
+				.. " note=single_runOnce_no_budget_retry", 2);
+		end
 		return ip, true;
 	end
 
 	local b = PANGAEA_ISLAND_TOTAL_BUDGET;
 	local budgetSlack = 0.06;
+	local cumulativeRunOnce = 0;
+	local nominalRunOnceCount = 0;
+	local island_nominal_tier_abort_no_relax = false;
 	while b >= budgetFloor do
+		islandRunBudget = b;
+		local tierClock0 = (os and os.clock) and os.clock() or 0;
+		local bestSpentTry = 0;
+		local nominalTierLoopExit = nil;
 		for _t = 1, maxTriesPerBudget do
+			islandRunTry = _t;
+			if b == nominalBudget and type(maxRunOnceNominal) == "number" and maxRunOnceNominal > 0
+				and nominalRunOnceCount >= maxRunOnceNominal then
+				nominalTierLoopExit = "nominal_runOnce_cap";
+				LekIslandProbeLog("### LekIslandProbe budgetTierCap budget=" .. tostring(b)
+					.. " reason=nominal_runOnce_cap triesUsed=" .. tostring(_t - 1)
+					.. " cap=" .. tostring(maxRunOnceNominal), 2);
+				break;
+			end
+			cumulativeRunOnce = cumulativeRunOnce + 1;
+			if b == nominalBudget then
+				nominalRunOnceCount = nominalRunOnceCount + 1;
+			end
+			local tTry0 = (os and os.clock) and os.clock() or 0;
 			local ip, sp = runOnce(b);
+			local tryDt = (os and os.clock) and (os.clock() - tTry0) or 0;
+			if sp > bestSpentTry then
+				bestSpentTry = sp;
+			end
 			if sp + budgetSlack >= b then
 				dbg2("### GeneratePangaeaIslands: islands placed = " .. tostring(ip) .. ", budget target " .. b .. " met ###");
+				do
+					local tEnd = (os and os.clock) and os.clock() or 0;
+					LekIslandProbeLog("### LekIslandProbe layoutAttempt=" .. tostring(laIsland)
+						.. " exit=budget_met budgetFinal=" .. tostring(b)
+						.. " spentFinal=" .. string.format("%.3f", sp)
+						.. " islandsPlaced=" .. tostring(ip)
+						.. " generatePangaeaIslands_total_dt=" .. tostring(tEnd - tIslandGen0), 1);
+					LekIslandProbeLog("### LekIslandProbe budgetOutcome layoutAttempt=" .. tostring(laIsland)
+						.. " path=budget_retry_success acceptedTier=" .. tostring(b)
+						.. " islandsPlaced=" .. tostring(ip)
+						.. " spent=" .. string.format("%.3f", sp)
+						.. " fillPctOfAcceptedTier=" .. string.format("%.1f", LekIslandBudgetFillPct(sp, b))
+						.. " nominalTarget=" .. tostring(nominalBudget)
+						.. " fillPctOfNominal=" .. string.format("%.1f", LekIslandBudgetFillPct(sp, nominalBudget))
+						.. " tiersBelowNominal=" .. tostring(math.max(0, nominalBudget - b))
+						.. " runOnceAbortsThisGen=" .. tostring(tallyRunOnceAborts)
+						.. " tierClockStops=" .. tostring(tierClockStopCount)
+						.. " fastFailStops=" .. tostring(fastFailStopCount), 2);
+					LekIslandProbeLog("### LekIslandProbe innerSuccessProfile layoutAttempt=" .. tostring(laIsland)
+						.. " outer=" .. tostring(outerIsland)
+						.. " acceptedTier=" .. tostring(b)
+						.. " winningTry=" .. tostring(_t)
+						.. " cumulativeRunOnceCalls=" .. tostring(cumulativeRunOnce)
+						.. " tierDropsBeforeOk=" .. tostring(math.max(0, nominalBudget - b))
+						.. " nominalRunOnceCallsSession=" .. tostring(nominalRunOnceCount)
+						.. " relaxBudgetTier=" .. (relaxBudgetTier and "1" or "0"), 2);
+				end
 				return ip, true;
 			end
+			if sp > globalBestSpent then
+				globalBestSpent = sp;
+			end
+			LekIslandProbeLog("### LekIslandProbe budgetMiss budget=" .. tostring(b)
+				.. " try=" .. tostring(_t) .. "/" .. tostring(maxTriesPerBudget)
+				.. " spent=" .. string.format("%.3f", sp)
+				.. " fillPctOfTier=" .. string.format("%.1f", LekIslandBudgetFillPct(sp, b))
+				.. " try_dt=" .. string.format("%.2f", tryDt)
+				.. " bestSoFar=" .. string.format("%.3f", bestSpentTry)
+				.. " gapToTier=" .. string.format("%.3f", math.max(0, b - budgetSlack - sp)), 2);
+			if PANGAEA_BUDGET_TIER_MAX_CLOCK and type(PANGAEA_BUDGET_TIER_MAX_CLOCK) == "number" and PANGAEA_BUDGET_TIER_MAX_CLOCK > 0 and os and os.clock then
+				if (os.clock() - tierClock0) > PANGAEA_BUDGET_TIER_MAX_CLOCK then
+					nominalTierLoopExit = "tier_clock_cap";
+					tierClockStopCount = tierClockStopCount + 1;
+					LekIslandProbeLog("### LekIslandProbe budgetTierCap budget=" .. tostring(b)
+						.. " reason=tier_clock_cap triesUsed=" .. tostring(_t)
+						.. " tier_dt=" .. string.format("%.2f", os.clock() - tierClock0)
+						.. " bestSpent=" .. string.format("%.3f", bestSpentTry)
+						.. " tierFillPct=" .. string.format("%.1f", LekIslandBudgetFillPct(bestSpentTry, b)), 2);
+					break;
+				end
+			end
+			if PANGAEA_BUDGET_FAST_FAIL_TRIES and type(PANGAEA_BUDGET_FAST_FAIL_TRIES) == "number" and PANGAEA_BUDGET_FAST_FAIL_TRIES > 0
+				and type(PANGAEA_BUDGET_FAST_FAIL_SPENT_FRAC) == "number" and PANGAEA_BUDGET_FAST_FAIL_SPENT_FRAC > 0
+				and _t >= PANGAEA_BUDGET_FAST_FAIL_TRIES then
+				if bestSpentTry + budgetSlack < b * PANGAEA_BUDGET_FAST_FAIL_SPENT_FRAC then
+					nominalTierLoopExit = "fast_fail_hopeless";
+					fastFailStopCount = fastFailStopCount + 1;
+					LekIslandProbeLog("### LekIslandProbe budgetTierCap budget=" .. tostring(b)
+						.. " reason=fast_fail_hopeless bestSpent=" .. string.format("%.3f", bestSpentTry)
+						.. " tierFillPct=" .. string.format("%.1f", LekIslandBudgetFillPct(bestSpentTry, b))
+						.. " gate=b*" .. tostring(PANGAEA_BUDGET_FAST_FAIL_SPENT_FRAC)
+						.. " triesUsed=" .. tostring(_t), 2);
+					break;
+				end
+			end
 		end
-		dbg2("### GeneratePangaeaIslands: budget " .. b .. " not met in " .. maxTriesPerBudget .. " attempts, lowering target ###");
+		if nominalTierLoopExit == nil and b == nominalBudget and islandRunTry >= maxTriesPerBudget then
+			nominalTierLoopExit = "max_tries_per_budget";
+		end
+		if relaxBudgetTier == false and b == nominalBudget then
+			island_nominal_tier_abort_no_relax = true;
+			LekIslandProbeLog("### LekIslandProbe innerFailProfile layoutAttempt=" .. tostring(laIsland)
+				.. " outer=" .. tostring(outerIsland)
+				.. " reason=" .. tostring(nominalTierLoopExit or "nominal_tier_exhausted_skip_relax")
+				.. " lastBudget=" .. tostring(b)
+				.. " cumulativeRunOnceCalls=" .. tostring(cumulativeRunOnce)
+				.. " nominalRunOnceCalls=" .. tostring(nominalRunOnceCount)
+				.. " tierClockStops=" .. tostring(tierClockStopCount)
+				.. " note=next_step_Pangaea_outer_regen", 2);
+			break;
+		end
+		LekIslandProbeLog("### LekIslandProbe tierDrop layoutAttempt=" .. tostring(laIsland)
+			.. " fromBudget=" .. tostring(b)
+			.. " tierBestSpent=" .. string.format("%.3f", bestSpentTry)
+			.. " tierFillPct=" .. string.format("%.1f", LekIslandBudgetFillPct(bestSpentTry, b))
+			.. " nominalTarget=" .. tostring(nominalBudget)
+			.. " globalBestSpentSoFar=" .. string.format("%.3f", globalBestSpent), 2);
+		dbg2("### GeneratePangaeaIslands: budget " .. b .. " incomplete after tier attempts/caps; lowering target ###");
 		b = b - 1;
 	end
 
 	restorePlotTypes();
 	resetIslandGlobals();
 	dbg2("### GeneratePangaeaIslands: budget retry exhausted, islands cleared ###");
+	do
+		local tEnd = (os and os.clock) and os.clock() or 0;
+		LekIslandProbeLog("### LekIslandProbe layoutAttempt=" .. tostring(laIsland)
+			.. " exit=budget_retry_exhausted ok=0 generatePangaeaIslands_total_dt=" .. tostring(tEnd - tIslandGen0)
+			.. " globalBestSpent=" .. string.format("%.3f", globalBestSpent)
+			.. " bestFillPctOfNominal=" .. string.format("%.1f", LekIslandBudgetFillPct(globalBestSpent, nominalBudget))
+			.. " runOnceAborts=" .. tostring(tallyRunOnceAborts)
+			.. " tierClockStops=" .. tostring(tierClockStopCount)
+			.. " fastFailStops=" .. tostring(fastFailStopCount), 1);
+		LekIslandProbeLog("### LekIslandProbe budgetOutcome layoutAttempt=" .. tostring(laIsland)
+			.. " path=budget_retry_exhausted islandsPlaced=0 spent=0.000"
+			.. " nominalTarget=" .. tostring(nominalBudget)
+			.. " globalBestSpentSeen=" .. string.format("%.3f", globalBestSpent)
+			.. " bestFillPctOfNominal=" .. string.format("%.1f", LekIslandBudgetFillPct(globalBestSpent, nominalBudget))
+			.. " runOnceAborts=" .. tostring(tallyRunOnceAborts)
+			.. " tierClockStops=" .. tostring(tierClockStopCount)
+			.. " fastFailStops=" .. tostring(fastFailStopCount), 2);
+		if not island_nominal_tier_abort_no_relax then
+			LekIslandProbeLog("### LekIslandProbe innerFailProfile layoutAttempt=" .. tostring(laIsland)
+				.. " outer=" .. tostring(outerIsland)
+				.. " reason=budget_retry_exhausted_all_tiers"
+				.. " cumulativeRunOnceCalls=" .. tostring(cumulativeRunOnce)
+				.. " globalBestSpent=" .. string.format("%.3f", globalBestSpent)
+				.. " relaxBudgetTier=" .. (relaxBudgetTier and "1" or "0"), 2);
+		end
+	end
 	return 0, false;
 end
