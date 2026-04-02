@@ -14986,6 +14986,16 @@ function AssignStartingPlots:FilterLuxuryPlotListsWithinPlotDistanceOfMajorStart
 		return luxury_plot_lists;
 	end
 	local sx, sy = sp[1], sp[2];
+	if type(sx) ~= "number" or type(sy) ~= "number" then
+		return luxury_plot_lists;
+	end
+	local origTotal = 0;
+	for i = 1, #luxury_plot_lists do
+		local lst = luxury_plot_lists[i];
+		if lst then
+			origTotal = origTotal + #lst;
+		end
+	end
 	local filtered = {};
 	for i = 1, #luxury_plot_lists do
 		local lst = luxury_plot_lists[i];
@@ -14993,13 +15003,25 @@ function AssignStartingPlots:FilterLuxuryPlotListsWithinPlotDistanceOfMajorStart
 		filtered[i] = out;
 		if lst then
 			for _, plotIndex in ipairs(lst) do
-				local x = (plotIndex - 1) % iW;
-				local y = (plotIndex - x - 1) / iW;
+				local x = math.floor((plotIndex - 1) % iW);
+				local y = math.floor((plotIndex - x - 1) / iW);
 				local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, sx, sy, x, y);
 				if type(d) == "number" and d <= max_plot_distance then
 					table.insert(out, plotIndex);
 				end
 			end
+		end
+	end
+	if origTotal > 0 then
+		local filtTotal = 0;
+		for i = 1, #filtered do
+			local o = filtered[i];
+			if o then
+				filtTotal = filtTotal + #o;
+			end
+		end
+		if filtTotal == 0 then
+			return luxury_plot_lists;
 		end
 	end
 	return filtered;
