@@ -15203,8 +15203,6 @@ function AssignStartingPlots:PlaceLuxuries()
 	local iW, iH = Map.GetGridSize();
 	-- Place Luxuries at civ start locations.
 	local used_randoms_as_secondaries =	table.fill(false, 99);
-	local lek_cap_near_regional_is_b = Map.Rand(100, "Lek capital lux variance B80") < 80;
-	local lek_n_nonregional_at_cap = (self.resource_setting ~= 1) and (lek_cap_near_regional_is_b and 1 or 2) or 0;
 
 	for loop, reg_data in ipairs(self.regions_sorted_by_type) do
 		local region_number = reg_data[1];
@@ -15216,9 +15214,6 @@ function AssignStartingPlots:PlaceLuxuries()
 		local iNumToPlace = 2;	-- MOD.Barathor: Updated -- original = 1 -- Most times, 2 of the initial type are placed at the start anyway, because of the old fertility checks below.  This will make it consistent.
 		if self.start_locations == 1 or self.start_locations == 2 then -- Legendary Start
 			iNumToPlace = 3;	-- MOD.Barathor: Updated -- original = 2
-		end
-		if not lek_cap_near_regional_is_b then
-			iNumToPlace = 1;
 		end
 		-- MOD.Barathor: Disabled -- These aren't very useful and almost always trigger.  Plus, there's better ways to increase habitability than to assign more luxuries (which is just more gold, in most cases).
 		--[[
@@ -15462,10 +15457,23 @@ function AssignStartingPlots:PlaceLuxuries()
 		-- Calibrate number of luxuries per region to world size and number of civs
 		-- present. The amount of lux per region should be at its highest when the 
 		-- number of civs in the game is closest to "default" for that map size.
-		local lek_near_base = lek_cap_near_regional_is_b and (2 + Map.Rand(3, "Lek near-cap reg B")) or (3 + Map.Rand(2, "Lek near-cap reg A"));
-		local iNumThisLuxToPlace = math.max(1, lek_near_base - self.region_low_fert_compensation[region_number]);
+		local target_list = self:GetRegionLuxuryTargetNumbers()
+		local targetNum = target_list[self.iNumCivs] 		-- MOD.Barathor: Updated -- Keep it simple and consistent.  Plus, fertility compensation above is disabled anyway.
+		-- local targetNum = math.floor((target_list[self.iNumCivs] + (0.5 * self.luxury_low_fert_compensation[res_ID])) / assignment_split);	-- MOD.Barathor: Disabled
+		targetNum = targetNum - self.region_low_fert_compensation[region_number];
+		-- Adjust target number according to Resource Setting.
+		if self.resource_setting == 1 or self.resource_setting == 2 then --sparse
+			targetNum = targetNum - 2;
+		elseif self.resource_setting == 3 or self.resource_setting == 4 or self.resource_setting == 5 or self.resource_setting == 6 then --mediocre
+			targetNum = targetNum - 1;
+		elseif self.resource_setting == 7 then --plenty
+			targetNum = targetNum + 1;
+		elseif self.resource_setting == 8 or self.resource_setting == 9 or self.resource_setting == 10 then --abundant
+			targetNum = targetNum + 2;
+		end
+		local iNumThisLuxToPlace = math.max(1, targetNum); -- Always place at least one.
 
-		print("-"); print("Target number for Luxury#", res_ID, "with assignment split of", assignment_split, "is", iNumThisLuxToPlace, "lekVar", lek_cap_near_regional_is_b and "B" or "A");
+		print("-"); print("Target number for Luxury#", res_ID, "with assignment split of", assignment_split, "is", targetNum);
 		
 		-- Place luxuries.
 		shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[primary])
@@ -15623,11 +15631,9 @@ function AssignStartingPlots:PlaceLuxuries()
 		print("|||||||||||||||||||||||||||||||||||| Secondary Lux Check ||||||||||||||||||||||||||||||||||||");
 
 		local coastal_rotation = 1;
-		for lek_sec_pass = 1, lek_n_nonregional_at_cap do
 		for region_number = 1, self.iNumCivs do
 			local x = self.startingPlots[region_number][1];
 			local y = self.startingPlots[region_number][2];
-			local region_lux_ID = self.region_luxury_assignment[region_number];
 
 			local cplot = Map.GetPlot(x, y)
 
@@ -15637,7 +15643,7 @@ function AssignStartingPlots:PlaceLuxuries()
 			print("-"); print("--- Eligible Types List for Second Luxury in Region#", region_number, "---");
 			-- See if any Random types are eligible.
 			for loop, res_ID in ipairs(self.resourceIDs_assigned_to_random) do
-				if allowed_luxuries[res_ID] == true and used_randoms_as_secondaries[res_ID] == false and res_ID ~= region_lux_ID then
+				if allowed_luxuries[res_ID] == true and used_randoms_as_secondaries[res_ID] == false then
 					print("- Found eligible luxury type:", res_ID);
 					iNumTypesAllowed = iNumTypesAllowed + 1;
 					table.insert(candidate_types, res_ID);
@@ -15646,7 +15652,7 @@ function AssignStartingPlots:PlaceLuxuries()
 			-- Check to see if any Special Case luxuries are eligible. Disallow if Strategic Balance resource setting.
 			if (self.start_locations ~= 1) and (self.start_locations ~= 2) and (self.start_locations ~= 3) then
 				for loop, res_ID in ipairs(self.resourceIDs_assigned_to_special_case) do
-					if allowed_luxuries[res_ID] == true and used_randoms_as_secondaries[res_ID] == false and res_ID ~= region_lux_ID then
+					if allowed_luxuries[res_ID] == true and used_randoms_as_secondaries[res_ID] == false then
 						print("- Found eligible luxury type:", res_ID);
 						iNumTypesAllowed = iNumTypesAllowed + 1;
 						table.insert(candidate_types, res_ID);
@@ -15680,7 +15686,7 @@ function AssignStartingPlots:PlaceLuxuries()
 			else
 				-- See if any City State types are eligible.
 				for loop, res_ID in ipairs(self.resourceIDs_assigned_to_cs) do
-					if allowed_luxuries[res_ID] == true and used_randoms_as_secondaries[res_ID] == false and res_ID ~= region_lux_ID then
+					if allowed_luxuries[res_ID] == true and used_randoms_as_secondaries[res_ID] == false then
 						print("- Found eligible luxury type:", res_ID);
 						iNumTypesAllowed = iNumTypesAllowed + 1;
 						table.insert(candidate_types, res_ID);
@@ -15691,6 +15697,7 @@ function AssignStartingPlots:PlaceLuxuries()
 					use_this_ID = candidate_types[diceroll];
 				else
 					-- See if anybody else's regional type is eligible.
+					local region_lux_ID = self.region_luxury_assignment[region_number];
 					for loop, res_ID in ipairs(self.resourceIDs_assigned_to_regions) do
 						if res_ID ~= region_lux_ID then
 							if allowed_luxuries[res_ID] == true and used_randoms_as_secondaries[res_ID] == false then
@@ -15745,7 +15752,6 @@ function AssignStartingPlots:PlaceLuxuries()
 				end
 			end
 		end
-		end
 	end
 
 	-- if we failed to place a 2nd lux within the first 2 rings extend the possible locations to the 3rd ring
@@ -15756,14 +15762,13 @@ function AssignStartingPlots:PlaceLuxuries()
 		for region_number = 1, self.iNumCivs do
 			local x = self.startingPlots[region_number][1];
 			local y = self.startingPlots[region_number][2];
-			local region_lux_ID = self.region_luxury_assignment[region_number];
 			local use_this_ID;
 			local candidate_types, iNumTypesAllowed = {}, 0;
 			local allowed_luxuries = self:GetListOfAllowableLuxuriesAtCitySite(x, y, 3)
 			print("-"); print("--- Eligible Types List for Second Luxury in Region#", region_number, "---");
 			-- See if any Random types are eligible.
 			for loop, res_ID in ipairs(self.resourceIDs_assigned_to_random) do
-				if allowed_luxuries[res_ID] == true and used_randoms_as_secondaries[res_ID] == false and res_ID ~= region_lux_ID then
+				if allowed_luxuries[res_ID] == true and used_randoms_as_secondaries[res_ID] == false then
 					print("- Found eligible luxury type:", res_ID);
 					iNumTypesAllowed = iNumTypesAllowed + 1;
 					table.insert(candidate_types, res_ID);
@@ -15772,7 +15777,7 @@ function AssignStartingPlots:PlaceLuxuries()
 			-- Check to see if any Special Case luxuries are eligible. Disallow if Strategic Balance resource setting.
 			if (self.start_locations ~= 1) and (self.start_locations ~= 2) and (self.start_locations ~= 3) then
 				for loop, res_ID in ipairs(self.resourceIDs_assigned_to_special_case) do
-					if allowed_luxuries[res_ID] == true and used_randoms_as_secondaries[res_ID] == false and res_ID ~= region_lux_ID then
+					if allowed_luxuries[res_ID] == true and used_randoms_as_secondaries[res_ID] == false then
 						print("- Found eligible luxury type:", res_ID);
 						iNumTypesAllowed = iNumTypesAllowed + 1;
 						table.insert(candidate_types, res_ID);
@@ -15800,7 +15805,7 @@ function AssignStartingPlots:PlaceLuxuries()
 			else
 				-- See if any City State types are eligible.
 				for loop, res_ID in ipairs(self.resourceIDs_assigned_to_cs) do
-					if allowed_luxuries[res_ID] == true and used_randoms_as_secondaries[res_ID] == false and res_ID ~= region_lux_ID then
+					if allowed_luxuries[res_ID] == true and used_randoms_as_secondaries[res_ID] == false then
 						print("- Found eligible luxury type:", res_ID);
 						iNumTypesAllowed = iNumTypesAllowed + 1;
 						table.insert(candidate_types, res_ID);
@@ -15811,6 +15816,7 @@ function AssignStartingPlots:PlaceLuxuries()
 					use_this_ID = candidate_types[diceroll];
 				else
 					-- See if anybody else's regional type is eligible.
+					local region_lux_ID = self.region_luxury_assignment[region_number];
 					for loop, res_ID in ipairs(self.resourceIDs_assigned_to_regions) do
 						if res_ID ~= region_lux_ID then
 							if allowed_luxuries[res_ID] == true and used_randoms_as_secondaries[res_ID] == false then
