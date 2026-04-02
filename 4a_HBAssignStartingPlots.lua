@@ -15232,6 +15232,95 @@ function AssignStartingPlots:GetWorldLuxuryTargetNumbers()
 end
 
 ------------------------------------------------------------------------------
+function AssignStartingPlots:LekIsSeaLuxuryResourceId(res_id)
+	if res_id == nil then
+		return false;
+	end
+	if res_id == self.whale_ID or res_id == self.pearls_ID or res_id == self.crab_ID then
+		return true;
+	end
+	if self.bModLuxes and res_id == self.coral_ID then
+		return true;
+	end
+	return false;
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekApplySecondLuxSeaBiasForInlandRegional(coastal_cap, inland_reg_lux, allowed_luxuries, used_randoms_as_secondaries, candidate_types, iNumTypesAllowed)
+	if not coastal_cap or not inland_reg_lux or self._lek_coastal_refish then
+		return candidate_types, iNumTypesAllowed;
+	end
+	if Map.Rand(100, "Lek second lux sea bias 90") >= 90 then
+		return candidate_types, iNumTypesAllowed;
+	end
+	local sea_only = {};
+	for _, rid in ipairs(candidate_types) do
+		if self:LekIsSeaLuxuryResourceId(rid) then
+			table.insert(sea_only, rid);
+		end
+	end
+	if #sea_only == 0 then
+		local sea_ids = { self.whale_ID, self.pearls_ID, self.crab_ID };
+		if self.bModLuxes then
+			table.insert(sea_ids, self.coral_ID);
+		end
+		for _, rid in ipairs(sea_ids) do
+			if rid and allowed_luxuries[rid] == true and used_randoms_as_secondaries[rid] == false then
+				table.insert(sea_only, rid);
+			end
+		end
+	end
+	if #sea_only > 0 then
+		return sea_only, #sea_only;
+	end
+	return candidate_types, iNumTypesAllowed;
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekPlaceCoastalFishInRingBand(cx, cy, dLo, dHi, want)
+	if want <= 0 then
+		return 0;
+	end
+	local iW, iH = Map.GetGridSize();
+	local candidates = {};
+	for yy = 0, iH - 1 do
+		for xx = 0, iW - 1 do
+			local plot = Map.GetPlot(xx, yy);
+			if plot and plot:GetResourceType(-1) == -1 then
+				local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, cx, cy, xx, yy);
+				if type(d) == "number" and d >= dLo and d <= dHi then
+					if plot:GetPlotType() == PlotTypes.PLOT_OCEAN and plot:GetTerrainType() == TerrainTypes.TERRAIN_COAST
+						and plot:GetFeatureType() == FeatureTypes.NO_FEATURE and plot:IsLake() == false then
+						table.insert(candidates, { xx, yy });
+					end
+				end
+			end
+		end
+	end
+	local shuf = GetShuffledCopyOfTable(candidates);
+	local placed = 0;
+	for _, c in ipairs(shuf) do
+		if placed >= want then
+			break;
+		end
+		local plot = Map.GetPlot(c[1], c[2]);
+		if plot and plot:GetResourceType(-1) == -1 then
+			plot:SetResourceType(self.fish_ID, 1);
+			self.amounts_of_resources_placed[self.fish_ID + 1] = self.amounts_of_resources_placed[self.fish_ID + 1] + 1;
+			placed = placed + 1;
+		end
+	end
+	return placed;
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekPlaceCoastalFishBandsNearCapital(cx, cy, want)
+	local got = 0;
+	got = got + self:LekPlaceCoastalFishInRingBand(cx, cy, 1, 3, want - got);
+	if got < want then
+		got = got + self:LekPlaceCoastalFishInRingBand(cx, cy, 4, 5, want - got);
+	end
+	return got;
+end
+
+------------------------------------------------------------------------------
 function AssignStartingPlots:PlaceLuxuries()
 	-- This function is dependent upon AssignLuxuryRoles() and PlaceCityStates() having been executed first.
 	local iW, iH = Map.GetGridSize();
@@ -15664,6 +15753,7 @@ function AssignStartingPlots:PlaceLuxuries()
 
 		print("|||||||||||||||||||||||||||||||||||| Secondary Lux Check ||||||||||||||||||||||||||||||||||||");
 
+		local lek_inland_reg_fish_n = {};
 		local coastal_rotation = 1;
 		for region_number = 1, self.iNumCivs do
 			local x = self.startingPlots[region_number][1];
@@ -15693,6 +15783,11 @@ function AssignStartingPlots:PlaceLuxuries()
 					end
 				end
 			end
+
+			local region_lux_ID0 = self.region_luxury_assignment[region_number];
+			local coastal_cap = self.startLocationConditions[region_number] and self.startLocationConditions[region_number][1] == true;
+			local inland_reg_lux = coastal_cap and region_lux_ID0 ~= nil and not self:LekIsSeaLuxuryResourceId(region_lux_ID0);
+			candidate_types, iNumTypesAllowed = self:LekApplySecondLuxSeaBiasForInlandRegional(coastal_cap, inland_reg_lux, allowed_luxuries, used_randoms_as_secondaries, candidate_types, iNumTypesAllowed);
 
 			-- MOD sapht, force coastals to have 1 fishy lux
 			if self._lek_coastal_refish and Map.GetPlot(x, y):IsCoastalLand() then
@@ -15750,6 +15845,9 @@ function AssignStartingPlots:PlaceLuxuries()
 					end
 				end
 			end
+			if inland_reg_lux and use_this_ID ~= nil then
+				lek_inland_reg_fish_n[region_number] = self:LekIsSeaLuxuryResourceId(use_this_ID) and 1 or 2;
+			end
 			print("--- End of Eligible Types list for Second Luxury in Region#", region_number, "---");
 			print("Random Res 2 Rings: " .. tostring(use_this_ID));
 
@@ -15786,7 +15884,6 @@ function AssignStartingPlots:PlaceLuxuries()
 				end
 			end
 		end
-	end
 
 	-- if we failed to place a 2nd lux within the first 2 rings extend the possible locations to the 3rd ring
 	if placed2ndLux == false then
@@ -15818,6 +15915,11 @@ function AssignStartingPlots:PlaceLuxuries()
 					end
 				end
 			end
+
+			local region_lux_ID1 = self.region_luxury_assignment[region_number];
+			local coastal_cap1 = self.startLocationConditions[region_number] and self.startLocationConditions[region_number][1] == true;
+			local inland_reg_lux1 = coastal_cap1 and region_lux_ID1 ~= nil and not self:LekIsSeaLuxuryResourceId(region_lux_ID1);
+			candidate_types, iNumTypesAllowed = self:LekApplySecondLuxSeaBiasForInlandRegional(coastal_cap1, inland_reg_lux1, allowed_luxuries, used_randoms_as_secondaries, candidate_types, iNumTypesAllowed);
 
 			-- MOD sapht, force coastals to have 1 fishy lux
 			if self._lek_coastal_refish and Map.GetPlot(x, y):IsCoastalLand() then
@@ -15869,6 +15971,9 @@ function AssignStartingPlots:PlaceLuxuries()
 					end
 				end
 			end
+			if inland_reg_lux1 and use_this_ID ~= nil then
+				lek_inland_reg_fish_n[region_number] = self:LekIsSeaLuxuryResourceId(use_this_ID) and 1 or 2;
+			end
 			print("--- End of Eligible Types list for Second Luxury in Region#", region_number, "---");
 
 			print("Random Res 3 Rings: " .. tostring(use_this_ID));
@@ -15903,6 +16008,18 @@ function AssignStartingPlots:PlaceLuxuries()
 					print("-"); print("Placed Second Luxury type of ID#", use_this_ID, "for start located at Plot", x, y, " in Region#", region_number);
 					used_randoms_as_secondaries[use_this_ID] = true;
 					print("Random Res State: " .. tostring(used_randoms_as_secondaries[use_this_ID]));
+				end
+			end
+		end
+	end
+
+		for region_number = 1, self.iNumCivs do
+			local nw = lek_inland_reg_fish_n[region_number];
+			if nw and nw > 0 then
+				local sp = self.startingPlots[region_number];
+				if sp then
+					local got = self:LekPlaceCoastalFishBandsNearCapital(sp[1], sp[2], nw);
+					print("Lek inland-regional coastal fish top-up region=" .. tostring(region_number) .. " want=" .. tostring(nw) .. " placed=" .. tostring(got));
 				end
 			end
 		end
