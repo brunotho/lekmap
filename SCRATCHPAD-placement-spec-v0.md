@@ -160,6 +160,19 @@ The six **`startingPlots[r]`** must be compatible with **`BalanceAndAssign`**’
 5. **Bias:** **some** **civ↔`r`** assignment satisfies XML coast / river / region priority / avoid vs **actual** plots and **`regionTypes`**, tested with **shared** logic (**§ Pinned — OK §5**).  
 6. **Site quality:** **`EvaluateCandidatePlot`** → **`meets_minimums == true`** per **`r`**, after simulating **six** **`PlaceImpactAndRipples`** in order **1→6**.
 
+### Log / code quick ref (`s1`…`s6`)
+
+Authority: **`4a_HBAssignStartingPlots.lua`** (`LekGlobalSix_OK_RunAll`); logs tag **`s1`…`s6`** = same order. *(Spec table below once said **`d₂ ≤ 15`**; current code constant is often **`16`** — trust **`tuplePhase … s2max=`** and **`s2_secondNearest_leNN`** in the live log.)*
+
+| Tag | One line |
+|-----|----------|
+| **s1** | Each start’s **map-centre ring**: distance from capital to **(iW/2, iH/2)** must lie in **`[s1_min, s1_max]`** (see **`tuplePhase s1=…`**). |
+| **s2** | **`d₂` spacing:** for each start, sort distances to the **other five**; **2nd smallest** must be **`≤ s2max`** ( **`tupleHeadSecondNearest` / `s2_cap`** ). |
+| **s3** | **Inland salt:** non-coastal starts: at most **4** salt-ocean tiles within **`PlotDistance ≤ 3`**. |
+| **s4** | **Two-coastal cycle:** six regions around the map → **no two adjacent coastals** in that order ( **`IsCoastalLand`-style** coastal ). |
+| **s5** | **Civ↔region feasibility:** some **injective** matching of players to **`r`** satisfies XML **coast / river / priority / avoid** vs **`startingPlots`** + **`regionTypes`**. |
+| **s6** | **Site mins:** **`EvaluateCandidatePlot`** **`meets_minimums`** for every **`r`** after full **ripple** simulation. |
+
 ---
 
 ## Search + regen + fallback

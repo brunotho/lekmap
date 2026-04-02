@@ -50,6 +50,7 @@ def first_match(pat: re.Pattern, block: List[str]) -> re.Match | None:
 
 
 RE_TUPLE_SEARCH = re.compile(r"### LekGlobalSix tupleSearch runId=\S+ status=(\S+)")
+RE_MAP_LAYOUT_ATTEMPT = re.compile(r"map_layout_attempt=(\d+)")
 RE_SOLVER = re.compile(
     r"### LekGlobalSixChooseLocations runId=\S+.*?solver_return=(\w+)"
 )
@@ -83,6 +84,10 @@ RE_COASTAL_SALT_DISK = re.compile(
 RE_TUPLE_RELAX_GATE = re.compile(
     r"### LekGlobalSix tupleRelaxGate hard_only runId=\S+ map_layout_attempt=(\d+) "
     r"relax_min_layout=(\d+)"
+)
+RE_TUPLE_PHASES_FOR_LAYOUT = re.compile(
+    r"### LekGlobalSix tuplePhasesForLayout runId=\S+ map_layout_attempt=(\d+) "
+    r"slice=(\S+) phaseNames=(.+?)\s+nPhases=(\d+)"
 )
 
 
@@ -121,10 +126,18 @@ def digest_block(block: List[str]) -> dict:
         "tuple_fail_combo": [],
         "coastal_salt_lines": [],
         "tuple_relax_gate_hard_only": False,
+        "tuple_phases_for_layout": None,
+        "tuple_search_layout": None,
     }
-    m = first_match(RE_TUPLE_SEARCH, block)
-    if m:
-        r["tuple_search"] = m.group(1)
+    for line in block:
+        if "### LekGlobalSix tupleSearch" not in line:
+            continue
+        mt = RE_TUPLE_SEARCH.search(line)
+        if mt:
+            r["tuple_search"] = mt.group(1)
+        ml = RE_MAP_LAYOUT_ATTEMPT.search(line)
+        if ml:
+            r["tuple_search_layout"] = int(ml.group(1))
     m = first_match(RE_SOLVER, block)
     if m:
         r["solver_return"] = m.group(1)
@@ -171,6 +184,14 @@ def digest_block(block: List[str]) -> dict:
             )
         if RE_TUPLE_RELAX_GATE.search(line):
             r["tuple_relax_gate_hard_only"] = True
+        mpl = RE_TUPLE_PHASES_FOR_LAYOUT.search(line)
+        if mpl:
+            r["tuple_phases_for_layout"] = {
+                "map_layout_attempt": int(mpl.group(1)),
+                "slice": mpl.group(2),
+                "phase_names": mpl.group(3).strip(),
+                "n_phases": int(mpl.group(4)),
+            }
     for line in block:
         if "### LekGlobalSix tuplePhase end" in line:
             mp = RE_PHASE_END.search(line)
@@ -199,7 +220,11 @@ def roll_summary(block: List[str], d: dict) -> str:
         bg = "bias=mixed"
     ts = d["tuple_search"] or "no_tupleSearch_line"
     sr = d["solver_return"] or "?"
-    return f"tuple={ts} solver={sr} {bg}"
+    tpf = d.get("tuple_phases_for_layout")
+    lay = ""
+    if tpf:
+        lay = f" laySlice={tpf['slice']} nPh={tpf['n_phases']}"
+    return f"tuple={ts} solver={sr} {bg}{lay}"
 
 
 def scan_mapgen_timing(lines: List[str]) -> dict:
@@ -296,6 +321,8 @@ def main() -> int:
     min_elig_hist: Dict[str, int] = collections.Counter()
     rolls_with_tuple = 0
     tuple_relax_hard_only_rolls = 0
+    tuple_ok_with_layout = 0
+    tuple_ok_layout_le3 = 0
     coastal_salt_file_lines = 0
     coastal_reject_max = 0
     coastal_reject_sum = 0
@@ -325,6 +352,12 @@ def main() -> int:
             roll_summaries.append(roll_summary(block, d))
         if d["tuple_search"]:
             inc(tuple_status, d["tuple_search"])
+        ts = d.get("tuple_search")
+        lay = d.get("tuple_search_layout")
+        if ts in ("ok", "ok_minimal_s2_plus1") and lay is not None:
+            tuple_ok_with_layout += 1
+            if lay <= 3:
+                tuple_ok_layout_le3 += 1
         if d["solver_return"]:
             inc(solver_status, d["solver_return"])
         for b in d["bias_decisions"]:
@@ -365,6 +398,12 @@ def main() -> int:
     print(
         f"tupleRelaxGate hard_only rolls: {tuple_relax_hard_only_rolls} "
         f"(layout 1..relax_min-1 strict phases only)"
+    )
+    print(
+        "tupleSearch ok / ok_minimal with map_layout_attempt field: "
+        f"ok_on_layout<=3={tuple_ok_layout_le3} "
+        f"ok_with_any_layout_tagged={tuple_ok_with_layout} "
+        "(needs map_layout_attempt on tupleSearch lines in this log)"
     )
     print("island / pangaea timing (whole file)")
     print(

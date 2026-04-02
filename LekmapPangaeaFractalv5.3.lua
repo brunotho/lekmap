@@ -24,7 +24,7 @@ include("X_IslandHelpers");
 print("### LekmapPangaeaFractal: includes done ###");
 
 -- Lane A: full-map regens when global-six tuple solver rejects (layouts = distinct terrain/plot rolls).
--- Tuple policy: Map option 13 "Start placement pace" (paired [[PACE SPECS]] in 4a). Fjord menu rows removed — use _lek_fjord_*_fixed if you need non-default fjord math.
+-- Tuple policy: Map option 13 "Capital Precision" (paired [[PACE SPECS]] in 4a). Fjord menu rows removed — use _lek_fjord_*_fixed if you need non-default fjord math.
 -- SLOW (1): layouts 1–5 base phase only; layout 6+ staged relax + per-layout §1/§2 boost. FAST (2): layouts 1–2 base only; layout 3 full ladder + last-layout slack, then legacy if needed.
 -- _lek_global_six_regen_max_layouts updated from start_plot_database in StartPlotSystem.
 _lek_global_six_regen_max_layouts = 11;
@@ -240,10 +240,10 @@ function GetMapScriptInfo()
 
 			-- 13 (Fjord Distance/Length menu slots reclaimed; see _lek_fjord_*_fixed.)
 			{
-				Name = "Start placement pace",
+				Name = "Capital Precision",
 				Values = {
-					"Slow (11 layouts; 1–5 base-only; 6+ staged relax; errors if exhausted)",
-					"Fast (3 layouts; 1–2 base; 3 loose + legacy last resort)",
+					"Slow - (fallback: death)",
+					"Fast - (fallback: legacy)",
 				},
 				DefaultValue = 1,
 				SortPriority = -100,
@@ -2534,7 +2534,7 @@ function StartPlotSystem()
 	     -- §2 policy: if dominant fail is pure s2 (not s5-heavy combo), repeat same phase once at 2× max_fail & max_leaf before advancing relax ladder. Disable: _lek_global_six_tuple_s2_pure_budget_extension = false;
 	     -- Layouts 1..N: if all phases fail, accept remembered §2 “minimal +1” tuple (max second-nearest = s2cap+1, ≤2 regions over cap, §1§3–6 OK). nil = use 3; false = off: _lek_global_six_tuple_minimal_s2_fallback_max_layout
 	     -- start_plot_database._lek_global_six_tuple_relaxation_phases = false; -- single phase only: uses max_fail / max_leaf below, no staged S2/S1 loosening
-	     -- Tuple relax vs map layout: Map option 13 — SLOW relax_min_layout=6 (layouts 1–5 base-only); FAST =3 (1–2 base-only, last layout full ladder + slack).
+	     -- Tuple relax vs map layout: option 13 Capital Precision — SLOW relax_min_layout=6 (layouts 1–5 base-only); FAST =3 (1–2 base-only, last layout full ladder + slack).
 	     -- max_fail_complete / max_leaf_evals: per-phase overrides optional; each phase default 1000/8000 from table in 4a if field omitted.
 	     start_plot_database._lek_global_six_max_fail_complete = 1000;
 	     start_plot_database._lek_global_six_max_leaf_evals = 8000;

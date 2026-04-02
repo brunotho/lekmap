@@ -48,4 +48,20 @@
 
 ---
 
+## Sample C — single-tile row, no noise, **row 19** (roll ~3 in operator session)
+
+**Reporter:** horizontal **one-row** water slice, **clean** (no in-band noise), **`y = 19`** on **`44×52`** grid context (same multi-regen session family; map regen roll ~3).
+
+**Contrast:** unlike **Sample B** (`y=41`); aligns with older suspicion of **fixed-row** artefacts near **`y∈{17,18,19}`** in § Repeatable detail.
+
+**Capture:** same checklist; explicitly **`y=19`**, **`iW, iH`**, two **`X`** column traces.
+
+---
+
+## Side note — coastal start on “inland sea” vs **300**-tile rule
+
+Legacy **HB** coastal picks use **`plot:IsCoastalLand(300)`** when **`AllowInlandSea ~= 1`** (see `FindStart` coastal path ~4355). **Tuple** pools originally used only **`plotDataIsCoastal`** (next-to-salt-water table) and **omitted** the **300** check, so the **solver could accept** starts that legacy would reject as small/inland-sea adjacent. **Fix (repo):** same predicate applied in **`LekGlobalSix_GatherTupleStyleCandidateIndices`** and **`LekGlobalSix_GatherRawFindStartStyleCandidateIndices`**.
+
+---
+
 *Related earlier note: “destructive horizontal strip-ocean fill after Y shift” was **disabled** in Lekmap (comments in `LekmapPangaeaFractalv5.3.lua` ~1352)—keep in mind when diffing legacy behaviour.*
