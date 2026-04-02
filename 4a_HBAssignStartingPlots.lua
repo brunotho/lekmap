@@ -13972,7 +13972,6 @@ function AssignStartingPlots:AssignLuxuryToRegion(region_number)
 		return nil;
 	end
 
-	local coast_lux = false;
 	local accumulatedWeight = 0;
 	print("----------------------------------- Regional Luxury Assignment Readout For Region #" .. tostring(region_number) .. "-----------------------------------");
 	for index = 1, iNumAvailableTypes do
@@ -13981,7 +13980,6 @@ function AssignStartingPlots:AssignLuxuryToRegion(region_number)
 		accumulatedWeight = accumulatedWeight + resource_weights[index];
 		
 		if resource_IDs[index] == 13 or resource_IDs[index] == 14 or resource_IDs[index] == 32 or resource_IDs[index] == 49 then
-			coast_lux = true;
 			num_coast_lux = num_coast_lux + 1;
 			coastal_luxes[resource_IDs[index]] = true;
 			table.insert(coastal_luxes, resource_IDs[index]);
@@ -13995,18 +13993,22 @@ function AssignStartingPlots:AssignLuxuryToRegion(region_number)
 
 	print("");
 	print("");
-	print("Coast Start: " .. tostring(self.startLocationConditions[region_number][1]));
-	print("Coast Lux: " .. tostring(coast_lux));
+	local is_coastal_start = (self.startLocationConditions[region_number][1] == true);
+	print("Coast Start: " .. tostring(is_coastal_start));
+	print("Coast Lux option (true=Guaranteed sea when eligible): " .. tostring(CoastLux));
 
-	local sea_lux_cahnce = Map.Rand(100, "Chance for sea lux as coastal");
-
-	if sea_lux_cahnce > 0 and CoastLux == false then
-		coast_lux = false;
+	local pick_coastal_uniform = false;
+	if is_coastal_start and num_coast_lux > 0 then
+		if CoastLux == true then
+			pick_coastal_uniform = true;
+		elseif Map.Rand(100, "Lek regional lux coast vs land bucket 50/50") < 50 then
+			pick_coastal_uniform = true;
+		end
 	end
 
-	if self.startLocationConditions[region_number][1] == true and coast_lux == true then
+	if pick_coastal_uniform then
 		local diceroll = 1 + Map.Rand(num_coast_lux, "Choose resource type - Assign Luxury To Region - Lua");
-		print("----------------------- Coastal Lux Chosen -----------------------");
+		print("----------------------- Sea-lux bucket (uniform among eligible sea types) -----------------------");
 		print("Num Coastal Luxes: " .. tostring(num_coast_lux));
 		print("Diceroll: " .. tostring(diceroll));
 		use_this_ID = coastal_luxes[diceroll];
@@ -14014,10 +14016,42 @@ function AssignStartingPlots:AssignLuxuryToRegion(region_number)
 	else
 		local diceroll = Map.Rand(10000, "Choose resource type - Assign Luxury To Region - Lua");
 		print("Res Diceroll: " .. diceroll);
-		for index, threshold in ipairs(res_threshold) do
-			if diceroll <= threshold then -- Choose this resource type.
-				use_this_ID = resource_IDs[index];
-				break
+		local use_land_only_weights = (is_coastal_start and num_coast_lux > 0 and CoastLux ~= true);
+		local land_indices = {};
+		if use_land_only_weights then
+			for index = 1, iNumAvailableTypes do
+				local id = resource_IDs[index];
+				if not (id == 13 or id == 14 or id == 32 or id == 49) then
+					table.insert(land_indices, index);
+				end
+			end
+		end
+		if use_land_only_weights and #land_indices > 0 then
+			local twLand = 0;
+			for _, idx in ipairs(land_indices) do
+				twLand = twLand + resource_weights[idx];
+			end
+			if twLand > 0 then
+				local acc = 0;
+				local land_thr = {};
+				for _, idx in ipairs(land_indices) do
+					acc = acc + resource_weights[idx];
+					table.insert(land_thr, acc * 10000 / twLand);
+				end
+				for i = 1, #land_indices do
+					if diceroll <= land_thr[i] then
+						use_this_ID = resource_IDs[land_indices[i]];
+						break
+					end
+				end
+			end
+		end
+		if use_this_ID == nil then
+			for index, threshold in ipairs(res_threshold) do
+				if diceroll <= threshold then
+					use_this_ID = resource_IDs[index];
+					break
+				end
 			end
 		end
 	end

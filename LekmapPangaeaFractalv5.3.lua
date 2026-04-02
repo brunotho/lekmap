@@ -336,11 +336,11 @@ function GetMapScriptInfo()
 			{
 				Name = "Coastal Luxes",	-- Can coast spawns have non-coastal luxes (18)
 				Values = {
-					"Guaranteed",
-					"Random",
+					"Guaranteed (coastal start → sea lux if eligible)",
+					"Mixed: 50/50 sea vs land-weighted regional",
 				},
 
-				DefaultValue = 1,
+				DefaultValue = 2,
 				SortPriority = -83,
 			},
 
