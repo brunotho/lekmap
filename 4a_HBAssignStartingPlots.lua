@@ -4941,9 +4941,10 @@ end
 
 -- SCRATCHPAD-placement-spec-v0.11 global-six geometry (§1 annulus, §2 spacing).
 local LEK_G6_S1_D_MIN = 9;
-local LEK_G6_S1_D_MAX = 19;
+local LEK_G6_S1_D_MAX = 18;
+local LEK_G6_S1_RELAX_MAX = 19;
 local LEK_G6_S1_TARGET_D = 13;
-local LEK_G6_S2_SECOND_NEAREST_MAX = 16;
+local LEK_G6_S2_SECOND_NEAREST_MAX = 15;
 
 function AssignStartingPlots:LekGlobalSix_NoCoastInlandEnforced()
 	if self.NoCoastInland ~= true then
@@ -5349,13 +5350,7 @@ function AssignStartingPlots:LekGlobalSix_OK_Section4_TwoCoastalGeoCycle()
 		local def = coastalSaltOnly and "saltOcean" or "oceanOrLake";
 		return true, "n/a_coastalCount=" .. tostring(nC) .. "_def=" .. def;
 	end
-	local i1, i2 = coastalPos[1], coastalPos[2];
-	local step = math.abs(i1 - i2);
-	local cycSep = math.min(step, 6 - step);
-	if cycSep == 1 then
-		return false, string.format("adjacent_cycle slots=%d,%d r=%d,%d", i1, i2, slots[i1].r, slots[i2].r);
-	end
-	return true, "geoAngleOrder_twoC_nonAdjacent";
+	return true, "geoAngleOrder_twoC";
 end
 
 function AssignStartingPlots.LekGlobalSix_OK_EvaluateCandidateEarlyRejectReason(plotIndex)
@@ -6424,14 +6419,63 @@ function AssignStartingPlots:LekGlobalSix_CoastalCountInSearchPool(byRegion, reg
 	return c;
 end
 
+function AssignStartingPlots:LekGlobalSix_RegionMinCoastalBandDeviationForTuple(byRegion, region_r)
+	local list = byRegion[region_r];
+	if not list or #list == 0 then
+		return 999999;
+	end
+	local iW, iH = Map.GetGridSize();
+	local cx = math.floor(iW / 2);
+	local cy = math.floor(iH / 2);
+	local dLo = self._lek_g6_runtime_s1_min or LEK_G6_S1_D_MIN;
+	local dHi = self._lek_g6_runtime_s1_max or LEK_G6_S1_D_MAX;
+	local saltOnly = (self._lek_global_six_coastal_bias_requires_salt == true);
+	local best = nil;
+	for i = 1, #list do
+		local c = list[i];
+		local m = AssignStartingPlots.LekGlobalSix_MeasureBiasConditionsAtXY(self, c.x, c.y);
+		local isCoast;
+		if saltOnly then
+			isCoast = (m.alongOcean == true);
+		else
+			isCoast = ((m.alongOcean or m.nextToLake) == true);
+		end
+		if isCoast then
+			local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, c.x, c.y, cx, cy);
+			if d and d >= dLo and d <= dHi then
+				local dev = math.abs(d - LEK_G6_S1_TARGET_D);
+				if best == nil or dev < best then
+					best = dev;
+				end
+			end
+		end
+	end
+	if best == nil then
+		return 999999;
+	end
+	return best;
+end
+
 function AssignStartingPlots:LekGlobalSix_BuildTupleDepthOrder(byRegion)
 	local depthOrder = { 1, 2, 3, 4, 5, 6 };
 	local thinFirst = (self._lek_global_six_dfs_thin_first ~= false);
 	local constraintWeighted = (self._lek_global_six_dfs_constraint_weighted ~= false);
+	local layoutN = tonumber(_lek_map_layout_attempt);
+	if type(layoutN) ~= "number" or layoutN < 1 then
+		layoutN = 1;
+	end
+	local coastalRingFirst = (layoutN <= 5) and (self._lek_global_six_tuple_coastal_ring_first_dfs ~= false);
 	local mode;
 	if thinFirst and constraintWeighted then
-		mode = "thin_then_coastal_tight";
+		mode = coastalRingFirst and "coastal_ring_then_thin_then_coastal_tight" or "thin_then_coastal_tight";
 		table.sort(depthOrder, function(a, b)
+			if coastalRingFirst then
+				local qa = AssignStartingPlots.LekGlobalSix_RegionMinCoastalBandDeviationForTuple(self, byRegion, a);
+				local qb = AssignStartingPlots.LekGlobalSix_RegionMinCoastalBandDeviationForTuple(self, byRegion, b);
+				if qa ~= qb then
+					return qa < qb;
+				end
+			end
 			local na, nb = #byRegion[a], #byRegion[b];
 			if na ~= nb then
 				return na < nb;
@@ -6444,8 +6488,15 @@ function AssignStartingPlots:LekGlobalSix_BuildTupleDepthOrder(byRegion)
 			return a < b;
 		end);
 	elseif thinFirst then
-		mode = "thin_first_only";
+		mode = coastalRingFirst and "coastal_ring_then_thin_only" or "thin_first_only";
 		table.sort(depthOrder, function(a, b)
+			if coastalRingFirst then
+				local qa = AssignStartingPlots.LekGlobalSix_RegionMinCoastalBandDeviationForTuple(self, byRegion, a);
+				local qb = AssignStartingPlots.LekGlobalSix_RegionMinCoastalBandDeviationForTuple(self, byRegion, b);
+				if qa ~= qb then
+					return qa < qb;
+				end
+			end
 			local na, nb = #byRegion[a], #byRegion[b];
 			if na ~= nb then
 				return na < nb;
@@ -6453,7 +6504,19 @@ function AssignStartingPlots:LekGlobalSix_BuildTupleDepthOrder(byRegion)
 			return a < b;
 		end);
 	else
-		mode = "fixed_r1_r6";
+		if coastalRingFirst then
+			mode = "coastal_ring_then_fixed_r";
+			table.sort(depthOrder, function(a, b)
+				local qa = AssignStartingPlots.LekGlobalSix_RegionMinCoastalBandDeviationForTuple(self, byRegion, a);
+				local qb = AssignStartingPlots.LekGlobalSix_RegionMinCoastalBandDeviationForTuple(self, byRegion, b);
+				if qa ~= qb then
+					return qa < qb;
+				end
+				return a < b;
+			end);
+		else
+			mode = "fixed_r1_r6";
+		end
 	end
 	local keyParts = {};
 	for ri = 1, 6 do
@@ -6547,8 +6610,27 @@ function AssignStartingPlots.LekGlobalSix_DefaultTupleRelaxationPhases()
 		{ name = "base", max_fail_complete = 1000, max_leaf_evals = 8000, s1_min = LEK_G6_S1_D_MIN, s1_max = LEK_G6_S1_D_MAX, s2_max = LEK_G6_S2_SECOND_NEAREST_MAX },
 		{ name = "s2_plus_1", max_fail_complete = 1000, max_leaf_evals = 8000, s1_min = LEK_G6_S1_D_MIN, s1_max = LEK_G6_S1_D_MAX, s2_max = LEK_G6_S2_SECOND_NEAREST_MAX + 1 },
 		{ name = "s2_plus_2", max_fail_complete = 1000, max_leaf_evals = 8000, s1_min = LEK_G6_S1_D_MIN, s1_max = LEK_G6_S1_D_MAX, s2_max = LEK_G6_S2_SECOND_NEAREST_MAX + 2 },
-		{ name = "s2_plus_2_s1max_plus_1", max_fail_complete = 1000, max_leaf_evals = 8000, s1_min = LEK_G6_S1_D_MIN, s1_max = LEK_G6_S1_D_MAX + 1, s2_max = LEK_G6_S2_SECOND_NEAREST_MAX + 2 },
+		{ name = "s2_plus_2_s1_relax_max", max_fail_complete = 1000, max_leaf_evals = 8000, s1_min = LEK_G6_S1_D_MIN, s1_max = LEK_G6_S1_RELAX_MAX, s2_max = LEK_G6_S2_SECOND_NEAREST_MAX + 2 },
 	};
+end
+
+--[[
+	PACE SPECS — mirror LekmapPangaeaFractalv5.3.lua: Map.GetCustomOption(13) Start placement pace + StartPlotSystem pace block.
+	Update both sides together when changing regen counts, legacy policy, or geometry escalation.
+
+	SLOW (default, map option 13 value 1): _lek_global_six_regen_max_layouts = 11; _lek_global_six_fatal_on_exhausted = true;
+	relax_min_layout = 6: layouts 1–5 use base phase only; geometry boost only from layout 6+; DFS coastal-ring tie-break for layouts 1–5.
+	_lek_global_six_tuple_minimal_s2_fallback_max_layout = false; error() if all layouts fail (no legacy tuple).
+
+	FAST (map option 13 value 2): regen_max_layouts = 3; relax_min_layout = 3 (layouts 1–2 base-only; layout 3 full 4-phase ladder + extra §1/§2 slack);
+	fatal_on_exhausted = false; minimal_s2_fallback max layout 3; last layout still failing → legacy ChooseLocations (undesired but last resort).
+]]
+function AssignStartingPlots.LekGlobalSix_SlowPaceLayoutGeometryBoost(layoutN)
+	if type(layoutN) ~= "number" or layoutN < 6 then
+		return 0, 0;
+	end
+	local b = layoutN - 5;
+	return math.min(b, 10), math.min(math.floor(b / 2), 5);
 end
 
 function AssignStartingPlots:LekGlobalSix_FallbackSearchCandidateForRegion(region_r)
@@ -6778,6 +6860,26 @@ function AssignStartingPlots:LekGlobalSix_RunTupleSearch()
 		if type(s2m) ~= "number" then
 			s2m = LEK_G6_S2_SECOND_NEAREST_MAX;
 		end
+		local geomNote = "";
+		if self._lek_global_six_pace_fast ~= true and self._lek_global_six_fatal_on_exhausted == true then
+			local g2, g1 = AssignStartingPlots.LekGlobalSix_SlowPaceLayoutGeometryBoost(layoutN);
+			if g2 > 0 or g1 > 0 then
+				s2m = s2m + g2;
+				s1b = math.min(s1b + g1, LEK_G6_S1_RELAX_MAX + 6);
+				geomNote = " slowPace_geom=+" .. tostring(g1) .. "s1_+" .. tostring(g2) .. "s2";
+			end
+		end
+		if self._lek_global_six_pace_fast == true then
+			local maxL = self._lek_global_six_regen_max_layouts;
+			if type(maxL) ~= "number" or maxL < 1 then
+				maxL = 3;
+			end
+			if layoutN == maxL then
+				s2m = s2m + 3;
+				s1b = math.min(s1b + 4, LEK_G6_S1_RELAX_MAX + 8);
+				geomNote = geomNote .. " fastLastLayout=+4s1_+3s2";
+			end
+		end
 		self._lek_g6_runtime_s1_min = s1a;
 		self._lek_g6_runtime_s1_max = s1b;
 		self._lek_g6_runtime_s2_max = s2m;
@@ -6827,7 +6929,8 @@ function AssignStartingPlots:LekGlobalSix_RunTupleSearch()
 			" s1=" .. tostring(s1a) .. "-" .. tostring(s1b) ..
 			" s2max=" .. tostring(s2m) ..
 			" maxFail=" .. tostring(maxFail) ..
-			" maxLeaf=" .. tostring(maxLeaf));
+			" maxLeaf=" .. tostring(maxLeaf) ..
+			geomNote);
 
 		if LekMapgenLogAtLeast(2) and AssignStartingPlots.LekGlobalSix_CoastalSaltDiskPctFilterActive(self)
 			and self._lek_global_six_coastal_disk3_pool_diag ~= false then
@@ -7530,6 +7633,8 @@ function AssignStartingPlots:ChooseLocations(args)
 			" iNumCivs=" .. tostring(self.iNumCivs) ..
 			" mapLayout=" .. tostring(_lek_map_layout_attempt or 1) ..
 			" _lek_global_six_solver=true GAMEOPTION_DISABLE_START_BIAS=" .. dsb ..
+			" pace_fast=" .. tostring(self._lek_global_six_pace_fast == true) ..
+			" fatal_on_exhausted=" .. tostring(self._lek_global_six_fatal_on_exhausted == true) ..
 			" NoCoastInland=" .. tostring(self.NoCoastInland) ..
 			" noCoastInlandEnforcedSix=" .. (AssignStartingPlots.LekGlobalSix_NoCoastInlandEnforced(self) and "1" or "0") ..
 			" minPairwiseMapOpt6=" .. tostring(AssignStartingPlots.LekGlobalSix_MinPairwiseDistanceFromStartDistanceOption() or "nil"));
@@ -7618,6 +7723,14 @@ function AssignStartingPlots:ChooseLocations(args)
 					" layout=" .. tostring(att) .. "/" .. tostring(maxRegenL) ..
 					" reason=tuple_solver_no_accepted_tuple skip_legacy=1");
 				return;
+			end
+			if self._lek_global_six_fatal_on_exhausted == true then
+				local msg = "### LekGlobalSix FATAL runId=" .. rid ..
+					" slow_pace_exhausted_layouts=" .. tostring(att) .. "/" .. tostring(maxRegenL) ..
+					" tuple_solver_no_accepted_tuple_no_legacy";
+				LekPlacementProbeLog(msg);
+				error("LekGlobalSix [slow placement pace]: no valid six-tuple after " .. tostring(maxRegenL) ..
+					" map layouts. Set map option \"Start placement pace\" to Fast for legacy fallback, or relax islands/start rules.");
 			end
 			LekPlacementProbeAt(2, "### LekGlobalSix runId=" .. rid .. " path=fallthrough reason=solver_returned_false legacy_ChooseLocations_continues=1");
 		end
@@ -11533,10 +11646,10 @@ function AssignStartingPlots:AssignCityStatesToRegionsOrToUninhabited(args)
 				end
 			end
 		end
-		-- Determine the number of City States to assign to uninhabited areas.
-		-- Lekmap tuning: reserve a random 1-3 (when possible), capped at 20% of all CS.
+		-- Determine the number of City States to assign to uninhabited areas (islands / landmasses with no civ).
+		-- Lekmap: random 0–2 when there is at least one candidate plot, capped by remaining unassigned CS.
 		local iUninhabitedCandidatePlots = table.maxn(self.uninhabited_areas_coastal_plots) + table.maxn(self.uninhabited_areas_inland_plots);
-		local random_uninhabited_target = 1 + Map.Rand(3, "Lekmap CS uninhabited target (1-3) - LUA");
+		local random_uninhabited_target = Map.Rand(3, "Lekmap CS uninhabited target (0-2) - LUA");
 		if iUninhabitedCandidatePlots > 0 then
 			self.iNumCityStatesUninhabited = math.min(self.iNumCityStatesUnassigned, random_uninhabited_target);
 		else
@@ -11637,11 +11750,24 @@ end
 ------------------------------------------------------------------------------
 function AssignStartingPlots:CanPlaceCityStateAt(x, y, area_ID, force_it, ignore_collisions)
 	local iW, iH = Map.GetGridSize();
-	local cs_edge_rows = 3;
-	if iH > cs_edge_rows * 2 then
-		if y < cs_edge_rows or y >= iH - cs_edge_rows then
+	local edgeM = 4;
+	local wrapX = Map.IsWrapX and Map:IsWrapX() or false;
+	local wrapY = Map.IsWrapY and Map:IsWrapY() or false;
+	if not wrapY and iH > edgeM * 2 then
+		if y < edgeM or y > iH - 1 - edgeM then
 			return false;
 		end
+	end
+	if not wrapX and iW > edgeM * 2 then
+		if x < edgeM or x > iW - 1 - edgeM then
+			return false;
+		end
+	end
+	local cx = math.floor(iW / 2);
+	local cy = math.floor(iH / 2);
+	local dCtr = AssignStartingPlots.LekGlobalSix_PlotDistance(self, x, y, cx, cy);
+	if dCtr == nil or dCtr > 21 then
+		return false;
 	end
 	local plot = Map.GetPlot(x, y)
 	local area = plot:GetArea()
@@ -11835,44 +11961,82 @@ function AssignStartingPlots:PlaceCityState(coastal_plot_list, inland_plot_list,
 		return 0;
 	end
 
+	local function cs_plot_snap_score(x, y)
+		local p = Map.GetPlot(x, y);
+		if not p or p:IsWater() then
+			return 0;
+		end
+		if p:IsRiverSide() then
+			return 5;
+		end
+		if p:IsFreshWater() then
+			return 4;
+		end
+		for _, d in ipairs(hex_dirs) do
+			local np = Map.PlotDirection(x, y, d);
+			if np and np:IsWater() and np:IsLake() then
+				return 3;
+			end
+		end
+		if cs_plot_fresh_tier(x, y) >= 1 then
+			return 2;
+		end
+		return 0;
+	end
+
 	local function choose_preferred_nearby(selected_plot_index)
-		local sx = (selected_plot_index - 1) % iW;
-		local sy = (selected_plot_index - sx - 1) / iW;
-		local best_index = selected_plot_index;
-		local best_fresh = cs_plot_fresh_tier(sx, sy);
-		local best_land = adjacent_land_count(sx, sy);
 		local cand = {};
 		local function consider_index(idx)
-			if cand[idx] then
-				return;
-			end
 			local x = (idx - 1) % iW;
 			local y = (idx - x - 1) / iW;
 			if self:CanPlaceCityStateAt(x, y, refine_area_id, false, false) == true then
 				cand[idx] = true;
 			end
 		end
-		consider_index(selected_plot_index);
-		for _, d in ipairs(hex_dirs) do
-			local np = Map.PlotDirection(sx, sy, d);
-			if np then
-				local nx, ny = np:GetX(), np:GetY();
-				consider_index(ny * iW + nx + 1);
-				for _, d2 in ipairs(hex_dirs) do
-					local np2 = Map.PlotDirection(nx, ny, d2);
-					if np2 then
-						consider_index(np2:GetY() * iW + np2:GetX() + 1);
+		local seen = {};
+		local queue = {};
+		local qh = 1;
+		local function enqueue(idx, dist)
+			if seen[idx] then
+				return;
+			end
+			seen[idx] = true;
+			queue[#queue + 1] = { idx = idx, dist = dist };
+		end
+		enqueue(selected_plot_index, 0);
+		while qh <= #queue do
+			local item = queue[qh];
+			qh = qh + 1;
+			local idx = item.idx;
+			local dist = item.dist;
+			consider_index(idx);
+			if dist < 3 then
+				local x = (idx - 1) % iW;
+				local y = (idx - x - 1) / iW;
+				for _, d in ipairs(hex_dirs) do
+					local np = Map.PlotDirection(x, y, d);
+					if np then
+						local nx, ny = np:GetX(), np:GetY();
+						enqueue(ny * iW + nx + 1, dist + 1);
 					end
 				end
 			end
 		end
+		local best_index = selected_plot_index;
+		local best_snap = -1;
+		local best_fresh = -1;
+		local best_land = -1;
 		for idx, _ in pairs(cand) do
 			local x = (idx - 1) % iW;
 			local y = (idx - x - 1) / iW;
+			local snap = cs_plot_snap_score(x, y);
 			local fresh = cs_plot_fresh_tier(x, y);
 			local land = adjacent_land_count(x, y);
-			if fresh > best_fresh or (fresh == best_fresh and land > best_land) then
+			if snap > best_snap
+				or (snap == best_snap and fresh > best_fresh)
+				or (snap == best_snap and fresh == best_fresh and land > best_land) then
 				best_index = idx;
+				best_snap = snap;
 				best_fresh = fresh;
 				best_land = land;
 			end
@@ -13682,7 +13846,7 @@ function AssignStartingPlots:AssignLuxuryToRegion(region_number)
 	local region_type = self.regionTypes[region_number];
 	local luxury_candidates;
 	local CoastLux = self.CoastLux;
-	local BalancedRegionals = Map.GetCustomOption(14)
+	local BalancedRegionals = Map.GetCustomOption(15)
 
 	if region_type > 0 and region_type < 9 then -- Note: if number of Region Types is modified, this line and the table to which it refers need adjustment.
 		luxury_candidates = self.luxury_region_weights[region_type];

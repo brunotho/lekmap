@@ -24,9 +24,12 @@ include("X_IslandHelpers");
 print("### LekmapPangaeaFractal: includes done ###");
 
 -- Lane A: full-map regens when global-six tuple solver rejects (layouts = distinct terrain/plot rolls).
--- Tuple policy (default in 4a): layouts 1–3 = strict tuple phase only; 4–6 = staged relaxation; layout 6 still fails → legacy placement (no more regen).
--- Overridden per roll from start_plot_database._lek_global_six_regen_max_layouts inside StartPlotSystem.
-_lek_global_six_regen_max_layouts = 6;
+-- Tuple policy: Map option 13 "Start placement pace" (paired [[PACE SPECS]] in 4a). Fjord menu rows removed — use _lek_fjord_*_fixed if you need non-default fjord math.
+-- SLOW (1): layouts 1–5 base phase only; layout 6+ staged relax + per-layout §1/§2 boost. FAST (2): layouts 1–2 base only; layout 3 full ladder + last-layout slack, then legacy if needed.
+-- _lek_global_six_regen_max_layouts updated from start_plot_database in StartPlotSystem.
+_lek_global_six_regen_max_layouts = 11;
+_lek_fjord_distance_setting_fixed = 1;
+_lek_fjord_length_setting_fixed = 1;
 -- Pangaea inner loop: redraw fractal+Pangaea until land/islands pass (per single GeneratePlotTypes call). Tuple regen does NOT bump this counter.
 _lek_pangaea_max_outer_failed = false;
 -- Regen loop: GenerateMap() re-runs LekHB_GenerateMap_Core until tuple solver succeeds or layouts exhausted. On tuple failure with retries left, ChooseLocations returns early (skip legacy) and StartPlotSystem skips BalanceAndAssign/NW/resources (see ### LekMapGen StartPlotSystem short_circuit).
@@ -235,9 +238,20 @@ function GetMapScriptInfo()
 				SortPriority = -88,
 			},
 
-			-- 13
+			-- 13 (Fjord Distance/Length menu slots reclaimed; see _lek_fjord_*_fixed.)
 			{
-				Name = "TXT_KEY_MAP_OPTION_RESOURCES",	-- add setting for resources (13)
+				Name = "Start placement pace",
+				Values = {
+					"Slow (11 layouts; 1–5 base-only; 6+ staged relax; errors if exhausted)",
+					"Fast (3 layouts; 1–2 base; 3 loose + legacy last resort)",
+				},
+				DefaultValue = 1,
+				SortPriority = -100,
+			},
+
+			-- 14
+			{
+				Name = "TXT_KEY_MAP_OPTION_RESOURCES",	-- add setting for resources (14)
 				Values = {
 					"1 -- Nearly Nothing",
 					"2",
@@ -252,12 +266,12 @@ function GetMapScriptInfo()
 				},
 
 				DefaultValue = 5,
-				SortPriority = -87,
+				SortPriority = -86,
 			},
 
-			-- 14
+			-- 15
 			{
-				Name = "Balanced Regionals",	-- add setting for removing OP luxes from regional pool (14)
+				Name = "Balanced Regionals",	-- add setting for removing OP luxes from regional pool (15)
 				Values = {
 					"Yes",
 					"No",
@@ -267,9 +281,9 @@ function GetMapScriptInfo()
 				SortPriority = -90,
 			},
 
-			-- 15
+			-- 16
 			{
-				Name = "Islands",	-- add setting for islands (15)
+				Name = "Islands",	-- add setting for islands (16)
 				Values = {
 					"No Islands",
 					"1",
@@ -302,28 +316,16 @@ function GetMapScriptInfo()
 				},
 
 				DefaultValue = 9,
-				SortPriority = -86,
-			},
-
-			-- 16
-			{
-				Name = "Coastal Spawns",	-- Can inland civ spawn on the coast (16)
-				Values = {
-					"Coastal Civs Only",
-					"Random",
-					"Random+ (~2 coastals)",
-				},
-
-				DefaultValue = 1,
 				SortPriority = -85,
 			},
 
 			-- 17
 			{
-				Name = "Coastal Luxes",	-- Can coast spawns have non-coastal luxes (17)
+				Name = "Coastal Spawns",	-- Can inland civ spawn on the coast (17)
 				Values = {
-					"Guaranteed",
+					"Coastal Civs Only",
 					"Random",
+					"Random+ (~2 coastals)",
 				},
 
 				DefaultValue = 1,
@@ -332,47 +334,28 @@ function GetMapScriptInfo()
 
 			-- 18
 			{
-				Name = "Inland Sea Spawns",	-- Can coastal civ spawn on inland seas (18)
+				Name = "Coastal Luxes",	-- Can coast spawns have non-coastal luxes (18)
+				Values = {
+					"Guaranteed",
+					"Random",
+				},
+
+				DefaultValue = 1,
+				SortPriority = -83,
+			},
+
+			-- 19
+			{
+				Name = "Inland Sea Spawns",	-- Can coastal civ spawn on inland seas (19)
 				Values = {
 					"Allowed",
 					"Not allowed",
 				},
 
 				DefaultValue = 2,
-				SortPriority = -83,
-			},
-			
-			-- 19
-			{
-				Name = "Fjord Distance",	-- Distance between fjords (19)
-				Values = {
-					"No fjords",
-					"20 tiles",
-					"15 tiles",
-					"12 tiles",
-					"10 tiles -- Default",
-					"8 tiles",
-					"6 tiles",
-				},
-
-				DefaultValue = 1,
 				SortPriority = -82,
 			},
-			
-			--20
-			{
-				Name = "Fjord Length",	-- Length of fjords (20)
-				Values = {
-					"2 tiles -- Default",
-					"3 tiles",
-					"4 tiles",
-					"5 tiles",
-					"6 tiles",
-				},
 
-				DefaultValue = 1,
-				SortPriority = -81,
-			},
 		},
 	};
 end
@@ -825,8 +808,8 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 
 		-- Set Sea Level according to user selection.
 		local water_percent = sea_level_normal;
-		local fjorddistmodif = Map.GetCustomOption(19);		-- Small effect added based on fjord settings
-		local fjordlengthmodif = Map.GetCustomOption(20);
+		local fjorddistmodif = _lek_fjord_distance_setting_fixed;
+		local fjordlengthmodif = _lek_fjord_length_setting_fixed;
 		local fjordmodif = (fjorddistmodif - 1) * (fjordlengthmodif + 1);
 		if sea_level == 1 then -- Low Sea Level
 			water_percent = sea_level_low
@@ -1436,7 +1419,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		end
 
 		--Fjordgenerator by t0m:
-		fjord_distance_setting = Map.GetCustomOption(19);
+		fjord_distance_setting = _lek_fjord_distance_setting_fixed;
 		if fjord_distance_setting ~= 1 then
 			if fjord_distance_setting == 2 then
 				fjord_d = 20;
@@ -1452,7 +1435,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 				fjord_d = 6;
 			end
 		
-			fjord_length_setting = Map.GetCustomOption(20);
+			fjord_length_setting = _lek_fjord_length_setting_fixed;
 			if fjord_length_setting == 1 then
 				fjord_l = 2;
 			elseif fjord_length_setting == 2 then
@@ -1880,7 +1863,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 			.. " layoutAttempt=" .. tostring(laProbe)
 			.. " roundInlandSeas_dt=" .. tostring(tAfterRoundInland - tBeforeRoundInland), 2);
 
-		local islandsOpt = Map.GetCustomOption(15);
+		local islandsOpt = Map.GetCustomOption(16);
 		local minIslands = (islandsOpt and islandsOpt > 1) and (islandsOpt - 1) or 0;
 		local islandGenOpts = nil;
 		if minIslands == 0 then
@@ -2464,8 +2447,8 @@ function StartPlotSystem()
 	end
 
 	-- Get Resources setting input by user.
-	local AllowInlandSea = Map.GetCustomOption(18)
-	local res = Map.GetCustomOption(13)
+	local AllowInlandSea = Map.GetCustomOption(19)
+	local res = Map.GetCustomOption(14)
 	local starts = Map.GetCustomOption(5)
 	--if starts == 7 then
 		--starts = 1 + Map.Rand(8, "Random Resources Option - Lua");
@@ -2473,30 +2456,56 @@ function StartPlotSystem()
 
 	-- Handle coastal spawns and start bias
 	MixedBias = false;
-	if Map.GetCustomOption(16) == 1 then
+	if Map.GetCustomOption(17) == 1 then
 		OnlyCoastal = true;
 		BalancedCoastal = false;
 	end	
-	if Map.GetCustomOption(16) == 2 then
+	if Map.GetCustomOption(17) == 2 then
 		BalancedCoastal = false;
 		OnlyCoastal = false;
 	end
 	
-	if Map.GetCustomOption(16) == 3 then
+	if Map.GetCustomOption(17) == 3 then
 		OnlyCoastal = true;
 		BalancedCoastal = true;
 	end
 	
-	if Map.GetCustomOption(17) == 1 then
+	if Map.GetCustomOption(18) == 1 then
 	CoastLux = true
 	end
 
-	if Map.GetCustomOption(17) == 2 then
+	if Map.GetCustomOption(18) == 2 then
 	CoastLux = false
 	end
 
 	print("Creating start plot database.");
 	local start_plot_database = AssignStartingPlots.Create()
+
+	do
+		local paceSel = 1;
+		local okP, vP = pcall(function()
+			return Map.GetCustomOption(13);
+		end);
+		if okP and type(vP) == "number" and vP >= 1 then
+			paceSel = math.floor(vP + 0.5);
+		end
+		if paceSel ~= 2 then
+			paceSel = 1;
+		end
+		if paceSel == 2 then
+			start_plot_database._lek_global_six_pace_fast = true;
+			start_plot_database._lek_global_six_fatal_on_exhausted = false;
+			start_plot_database._lek_global_six_regen_max_layouts = 3;
+			start_plot_database._lek_global_six_tuple_relax_min_layout = 3;
+			start_plot_database._lek_global_six_tuple_minimal_s2_fallback_max_layout = 3;
+		else
+			start_plot_database._lek_global_six_pace_fast = false;
+			start_plot_database._lek_global_six_fatal_on_exhausted = true;
+			start_plot_database._lek_global_six_regen_max_layouts = 11;
+			start_plot_database._lek_global_six_tuple_relax_min_layout = 6;
+			start_plot_database._lek_global_six_tuple_minimal_s2_fallback_max_layout = false;
+		end
+	end
 
 	     -- Lane A: global-six hook + OK diag logs. false = quiet maps; true = probe (set true when testing).
 	     start_plot_database._lek_global_six_solver = true;
@@ -2514,17 +2523,18 @@ function StartPlotSystem()
 	     -- tupleBiasFeasibility: necessary check — §5-style injective matching on “region r can satisfy coastal/river if some pool plot matches MeasureBiasConditionsAtXY”. skip_impossible skips DFS for that phase (log decision=). Disable: _lek_global_six_tuple_bias_feasibility_gate = false.
 	     -- tupleSpacingReorder: at depth≥2, try candidates with larger min hex distance to already-placed starts first. Logs: ### LekGlobalSix tupleSpacingReorder sample (when _lek_tuple_pool_diag) + spacingDepthCalls / spacingNontrivialPerm on phase end. Disable: _lek_global_six_tuple_spacing_reorder = false.
 	     -- Tuple DFS: thin_first (default) = ascending pool size; constraint_weighted (default) = tie-break by fewer coastal plots in capped pool first (§4/§5 slack). Logs: dfsOrderMode + sortKeys on ### LekGlobalSix tupleDfsOrder.
+	     -- Layouts 1–3: DFS region order prefers regions that can place coastal/river in the §1 band nearest ideal ring (before thin/coastal-count). Disable: _lek_global_six_tuple_coastal_ring_first_dfs = false
 	     -- start_plot_database._lek_global_six_dfs_constraint_weighted = false; -- legacy: pool size only
 	     -- start_plot_database._lek_global_six_dfs_thin_first = false;
-	     -- Tuple relaxation: default in 4a = 4×1000 fail budgets (base s1/s2 → s2+1 → s2+2 → s2+2 & s1max+1). Logs: ### LekGlobalSix tuplePhase begin/end/success.
+	     -- Global-six §1/§2 (4a): default tuple annulus 9–18 and second-nearest 15; final relax phase raises §1 ceiling to 19 (LEK_G6_S1_RELAX_MAX). §4: two coastals in angle order — no longer requires non-adjacent cycle slots.
+	     -- Tuple relaxation: default in 4a = 4×1000 fail budgets (base s1/s2 → s2+1 → s2+2 → s2+2 & s1 relax max). Logs: ### LekGlobalSix tuplePhase begin/end/success.
 	     -- Optional: skip DFS when rank-1 head cells alone already break s2 (may skip valid tuples that need non-head picks — default off in 4a).
 	     -- start_plot_database._lek_global_six_tuple_skip_dfs_rank1_head_s2 = true;
 	     -- §2 policy: prev phase failCombo s5-weight > pure s2 → skip s2-only relax phases (until s1 band changes). Disable: _lek_global_six_tuple_skip_s2_relax_when_s5_heavy_failcombo = false;
 	     -- §2 policy: if dominant fail is pure s2 (not s5-heavy combo), repeat same phase once at 2× max_fail & max_leaf before advancing relax ladder. Disable: _lek_global_six_tuple_s2_pure_budget_extension = false;
 	     -- Layouts 1..N: if all phases fail, accept remembered §2 “minimal +1” tuple (max second-nearest = s2cap+1, ≤2 regions over cap, §1§3–6 OK). nil = use 3; false = off: _lek_global_six_tuple_minimal_s2_fallback_max_layout
 	     -- start_plot_database._lek_global_six_tuple_relaxation_phases = false; -- single phase only: uses max_fail / max_leaf below, no staged S2/S1 loosening
-	     -- Tuple relax vs map layout (GenerateMap regen index): default relax_min_layout=4 = layouts 1–3 strict only, 4+ full staged ladder. Matches regen_max_layouts=6 (3+3+legacy). Disable gating: _lek_global_six_tuple_relax_min_layout = false.
-	     -- start_plot_database._lek_global_six_tuple_relax_min_layout = 4;
+	     -- Tuple relax vs map layout: Map option 13 — SLOW relax_min_layout=6 (layouts 1–5 base-only); FAST =3 (1–2 base-only, last layout full ladder + slack).
 	     -- max_fail_complete / max_leaf_evals: per-phase overrides optional; each phase default 1000/8000 from table in 4a if field omitted.
 	     start_plot_database._lek_global_six_max_fail_complete = 1000;
 	     start_plot_database._lek_global_six_max_leaf_evals = 8000;
@@ -2532,7 +2542,6 @@ function StartPlotSystem()
 	     -- start_plot_database._lek_global_six_max_leaf_evals = 40000;
 	     -- start_plot_database._lek_global_six_max_fail_complete = 100000;
 	     -- start_plot_database._lek_global_six_max_leaf_evals = 300000;
-	     start_plot_database._lek_global_six_regen_max_layouts = 6;
 	     start_plot_database._lek_enable_virtual_six_retries = false;
 	     start_plot_database._lek_disable_virtual_six = true;
 	     -- start_plot_database._lek_enable_virtual_six_retries = true
