@@ -13931,7 +13931,7 @@ function AssignStartingPlots:LekFilterSecondLuxCandidatesForCoastalPackage(regio
 		local sea = self:LekIsSeaLuxuryResourceId(res_ID)
 		if (pkg == 'B' or pkg == 'C') and not sea then
 			table.insert(filtered, res_ID)
-		elseif pkg == 'A' and sea then
+		elseif (pkg == 'A' or pkg == 'D') and sea then
 			table.insert(filtered, res_ID)
 		end
 	end
@@ -14108,9 +14108,12 @@ function AssignStartingPlots:AssignLuxuryToRegion(region_number)
 			coastal_pkg = 'B';
 			pick_coastal_uniform = true;
 		elseif num_coast_lux > 0 and num_land_types > 0 then
-			local r = Map.Rand(100, "Lek coastal lux package 702010");
-			if r < 70 then
+			local r = Map.Rand(100, "Lek coastal lux package 6552010");
+			if r < 65 then
 				coastal_pkg = 'B';
+				pick_coastal_uniform = true;
+			elseif r < 70 then
+				coastal_pkg = 'D';
 				pick_coastal_uniform = true;
 			elseif r < 90 then
 				coastal_pkg = 'A';
@@ -14118,7 +14121,12 @@ function AssignStartingPlots:AssignLuxuryToRegion(region_number)
 				coastal_pkg = 'C';
 			end
 		elseif num_coast_lux > 0 and num_land_types == 0 then
-			coastal_pkg = 'B';
+			local rsd = Map.Rand(70, "Lek coastal lux seaonly BD");
+			if rsd < 65 then
+				coastal_pkg = 'B';
+			else
+				coastal_pkg = 'D';
+			end
 			pick_coastal_uniform = true;
 		elseif num_coast_lux == 0 and num_land_types > 0 then
 			local r = Map.Rand(30, "Lek coastal lux package landonly AC");
