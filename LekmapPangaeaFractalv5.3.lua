@@ -13,6 +13,43 @@
 
 -- _lek_mapgen_log_verbosity: 1=min | 2=tuple phases/bias/dfs/ripple/probe (use while tuning e.g. coastal disk %) | 3=pool/head/spacing + per-runOnce islands
 _lek_mapgen_log_verbosity = 3;
+
+-- TEST ONLY: copper on every ocean/lake plot (AssignStartingPlots:LekTestCopperOnAllWater). Vanilla may refuse some tiles.
+_lek_test_copper_on_all_water = false;
+
+-- Setup UI shows only two map script rows; code still uses legacy indices 1–19 via LekMapGetCustomOption.
+-- Engine Map.GetCustomOption(1..2) are those rows, mapped by _lek_map_visible_ui_order to old 13, 17.
+-- Start Quality (legacy index 5) is stubbed in _lek_map_hidden_option_defaults, not shown in Advanced Setup.
+-- All other legacy indices return fixed defaults matching the former full menu DefaultValues.
+_lek_map_visible_ui_order = { 13, 17 }
+_lek_map_hidden_option_defaults = {
+	[1] = 2, [2] = 2, [3] = 2, [4] = 2,
+	[5] = 2,
+	[6] = 2, [7] = 15, [8] = 2, [9] = 2, [10] = 2,
+	[11] = 6, [12] = 6, [14] = 5, [15] = 1, [16] = 9,
+	[18] = 2, [19] = 2,
+}
+_lek_map_visible_option_defaults = { [13] = 3, [17] = 1 }
+
+function LekMapGetCustomOption(oldindex)
+	for ui_slot = 1, #_lek_map_visible_ui_order do
+		if _lek_map_visible_ui_order[ui_slot] == oldindex then
+			if Map and Map.GetCustomOption then
+				local v = Map.GetCustomOption(ui_slot)
+				if type(v) == "number" and v >= 1 then
+					return v
+				end
+			end
+			return _lek_map_visible_option_defaults[oldindex]
+		end
+	end
+	local h = _lek_map_hidden_option_defaults[oldindex]
+	if h ~= nil then
+		return h
+	end
+	return 1
+end
+
 include("4_HBMapGenerator");
 include("2_HBFractalWorld");
 include("6_HBFeatureGenerator");
@@ -25,7 +62,7 @@ print("### LekmapPangaeaFractal: includes done ###");
 
 -- Lane A: full-map regens when global-six tuple solver rejects (layouts = distinct terrain/plot rolls).
 -- Tuple policy: Map option 13 "Capital Precision" (paired [[PACE SPECS]] in 4a). Fjord menu rows removed — use _lek_fjord_*_fixed if you need non-default fjord math.
--- SLOW (1): layouts 1–5 base phase only; layout 6+ staged relax + per-layout §1/§2 boost. FAST (2): layouts 1–2 base only; layout 3 full ladder + last-layout slack, then legacy if needed.
+-- (1) Fast (Legacy): skip tuple, legacy ChooseLocations only. (2) Slow: tuple + regen then legacy. (3) Very Slow: tuple + regen, fatal if exhausted (no legacy).
 -- _lek_global_six_regen_max_layouts updated from start_plot_database in StartPlotSystem.
 _lek_global_six_regen_max_layouts = 11;
 _lek_fjord_distance_setting_fixed = 1;
@@ -47,338 +84,51 @@ function GetMapScriptInfo()
 		IconIndex = 0,
 		SortIndex = 2,
 		SupportsMultiplayer = true,
+	-- Two rows in Advanced Setup; Start Quality (legacy 5) stubbed — see _lek_map_hidden_option_defaults.
 	CustomOptions = {
-			-- 1
 			{
-				Name = "TXT_KEY_MAP_OPTION_WORLD_AGE", -- 1
+				Name = "Balanced Starts",
 				Values = {
-					"TXT_KEY_MAP_OPTION_THREE_BILLION_YEARS",
-					"TXT_KEY_MAP_OPTION_FOUR_BILLION_YEARS",
-					"TXT_KEY_MAP_OPTION_FIVE_BILLION_YEARS",
-					"No Mountains",
-					"TXT_KEY_MAP_OPTION_RANDOM",
-					
+					"Fast (Legacy Placement Logic)",
+					"Balance (fallback: Legacy)",
+					"Careful Balance (fallback: Death)",
 				},
-				DefaultValue = 2,
-				SortPriority = -99,
-			},
-
-			-- 2
-			{
-				Name = "TXT_KEY_MAP_OPTION_TEMPERATURE",	-- 2 add temperature defaults to random
-				Values = {
-					"TXT_KEY_MAP_OPTION_COOL",
-					"TXT_KEY_MAP_OPTION_TEMPERATE",
-					"TXT_KEY_MAP_OPTION_HOT",
-					"TXT_KEY_MAP_OPTION_RANDOM",
-				},
-				DefaultValue = 2,
-				SortPriority = -98,
-			},
-
-			-- 3
-			{
-				Name = "TXT_KEY_MAP_OPTION_RAINFALL",	-- 3 add rainfall defaults to random
-				Values = {
-					"TXT_KEY_MAP_OPTION_ARID",
-					"TXT_KEY_MAP_OPTION_NORMAL",
-					"TXT_KEY_MAP_OPTION_WET",
-					"TXT_KEY_MAP_OPTION_RANDOM",
-				},
-				DefaultValue = 2,
-				SortPriority = -97,
-			},
-
-			-- 4
-			{
-				Name = "TXT_KEY_MAP_OPTION_SEA_LEVEL",	-- 4 add sea level defaults to random.
-				Values = {
-					"TXT_KEY_MAP_OPTION_LOW",
-					"TXT_KEY_MAP_OPTION_MEDIUM",
-					"TXT_KEY_MAP_OPTION_HIGH",
-					"TXT_KEY_MAP_OPTION_RANDOM",
-				},
-				DefaultValue = 2,
-				SortPriority = -96,
-			},
-
-			-- 5
-			{
-				Name = "Start Quality",	-- 5 start quality
-				Values = {
-					"Legendary Start - Strat Balance",
-					"Legendary - Strat Balance + Uranium",
-					"TXT_KEY_MAP_OPTION_STRATEGIC_BALANCE",
-					"Strategic Balance With Coal",
-					"Strategic Balance With Aluminum",
-					"Strategic Balance With Coal & Aluminum",
-					"TXT_KEY_MAP_OPTION_RANDOM",
-				},
-				DefaultValue = 2,
-				SortPriority = -95,
-			},
-
-			-- 6
-			{
-				Name = "Start Distance",	-- 6 start distance
-				Values = {
-					"Close",
-					"Normal",
-					"Far - Warning: May sometimes crash during map generation",
-				},
-				DefaultValue = 2,
-				SortPriority = -94,
-			},
-
-			-- 7
-			{
-				Name = "Natural Wonders", -- 7 number of natural wonders to spawn
-				Values = {
-					"0",
-					"1",
-					"2",
-					"3",
-					"4",
-					"5",
-					"6",
-					"7",
-					"8",
-					"9",
-					"10",
-					"11",
-					"12",
-					"Random",
-					"Default",
-					"Between 3-5",
-					"Between 2-6",
-				},
-				DefaultValue = 15,
-				SortPriority = -93,
-			},
-
-			-- 8
-			{
-				Name = "Grass Moisture",	-- add setting for grassland moisture (8)
-				Values = {
-					"Wet",
-					"Normal",
-					"Dry",
-				},
-
-				DefaultValue = 2,
-				SortPriority = -92,
-			},
-
-			-- 9
-			{
-				Name = "Rivers",	-- add setting for rivers (9)
-				Values = {
-					"Sparse",
-					"Average",
-					"Plentiful",
-				},
-
-				DefaultValue = 2,
-				SortPriority = -91,
-			},
-
-			-- 10
-			{
-				Name = "Tundra",	-- add setting for tundra (10)
-				Values = {
-					"Sparse",
-					"Average",
-					"Plentiful",
-				},
-
-				DefaultValue = 2,
-				SortPriority = -90,
-			},
-
-			-- 11
-			{
-				Name = "Land Size X",	-- add setting for land type (11)
-				Values = {
-					"Default -10 tiles",
-					"Default -8 tiles",
-					"Default -6 tiles",
-					"Default -4 tiles",
-					"Default -2 tiles",
-					"Default (58 on Small)",
-					"Default +2 tiles",
-					"Default +4 tiles",
-					"Default +6 tiles",
-					"Default +8 tiles",
-					"Default +10 tiles",
-				},
-
-				DefaultValue = 6,
-				SortPriority = -89,
-			},
-
-			-- 12
-			{
-				Name = "Land Size Y",	-- add setting for land type (12)
-				Values = {
-					"Default -10 tiles",
-					"Default -8 tiles",
-					"Default -6 tiles",
-					"Default -4 tiles",
-					"Default -2 tiles",
-					"Default (52 on Small)",
-					"Default +2 tiles",
-					"Default +4 tiles",
-					"Default +6 tiles",
-					"Default +8 tiles",
-					"Default +10 tiles",
-
-				},
-
-				DefaultValue = 6,
-				SortPriority = -88,
-			},
-
-			-- 13 (Fjord Distance/Length menu slots reclaimed; see _lek_fjord_*_fixed.)
-			{
-				Name = "Capital Precision",
-				Values = {
-					"Slow - (fallback: death)",
-					"Fast - (fallback: legacy)",
-				},
-				DefaultValue = 1,
+				DefaultValue = 3,
 				SortPriority = -100,
 			},
-
-			-- 14
 			{
-				Name = "TXT_KEY_MAP_OPTION_RESOURCES",	-- add setting for resources (14)
-				Values = {
-					"1 -- Nearly Nothing",
-					"2",
-					"3",
-					"4",
-					"5 -- Default",
-					"6",
-					"7",
-					"8",
-					"9",
-					"10 -- Almost no normal tiles left",
-				},
-
-				DefaultValue = 5,
-				SortPriority = -86,
-			},
-
-			-- 15
-			{
-				Name = "Balanced Regionals",	-- add setting for removing OP luxes from regional pool (15)
-				Values = {
-					"Yes",
-					"No",
-				},
-
-				DefaultValue = 1,
-				SortPriority = -90,
-			},
-
-			-- 16
-			{
-				Name = "Islands",	-- add setting for islands (16)
-				Values = {
-					"No Islands",
-					"1",
-					"2",
-					"3",
-					"4",
-					"5",
-					"6",
-					"7",
-					"8 - Default",
-					"9",
-					"10",
-					"11",
-					"12",
-					"13",
-					"14",
-					"15",
-					"16",
-					"17",
-					"18",
-					"19",
-					"20",
-					"21",
-					"22",
-					"23",
-					"24",
-					"Between 6-10",
-					"Between 8-12",
-					"Between 10-14",
-				},
-
-				DefaultValue = 9,
-				SortPriority = -85,
-			},
-
-			-- 17
-			{
-				Name = "Coastal Spawns",	-- Can inland civ spawn on the coast (17)
+				Name = "Coastal Spawns",
 				Values = {
 					"Coastal Civs Only",
 					"Random",
 					"Random+ (~2 coastals)",
 				},
-
 				DefaultValue = 1,
-				SortPriority = -84,
+				SortPriority = -98,
 			},
-
-			-- 18
-			{
-				Name = "Coastal Luxes",	-- Can coast spawns have non-coastal luxes (18)
-				Values = {
-					"Guaranteed (coastal start → sea lux if eligible)",
-					"Mixed: 50/50 sea vs land-weighted regional",
-				},
-
-				DefaultValue = 2,
-				SortPriority = -83,
-			},
-
-			-- 19
-			{
-				Name = "Inland Sea Spawns",	-- Can coastal civ spawn on inland seas (19)
-				Values = {
-					"Allowed",
-					"Not allowed",
-				},
-
-				DefaultValue = 2,
-				SortPriority = -82,
-			},
-
 		},
 	};
 end
 ------------------------------------------------------------------------------
 function GetMapInitData(worldSize)
 	
-	local LandSizeXDuel = 22 + (Map.GetCustomOption(11) * 2);
-	local LandSizeYDuel = 18 + (Map.GetCustomOption(12) * 2);
+	local LandSizeXDuel = 22 + (LekMapGetCustomOption(11) * 2);
+	local LandSizeYDuel = 18 + (LekMapGetCustomOption(12) * 2);
 
-	local LandSizeXTiny = 36 + (Map.GetCustomOption(11) * 2);
-	local LandSizeYTiny = 30 + (Map.GetCustomOption(12) * 2);
+	local LandSizeXTiny = 36 + (LekMapGetCustomOption(11) * 2);
+	local LandSizeYTiny = 30 + (LekMapGetCustomOption(12) * 2);
 
-	local LandSizeXSmall = 32 + (Map.GetCustomOption(11) * 2);
-	local LandSizeYSmall = 40 + (Map.GetCustomOption(12) * 2);
+	local LandSizeXSmall = 32 + (LekMapGetCustomOption(11) * 2);
+	local LandSizeYSmall = 40 + (LekMapGetCustomOption(12) * 2);
 
-	local LandSizeXStandard = 54 + (Map.GetCustomOption(11) * 2);
-	local LandSizeYStandard = 48 + (Map.GetCustomOption(12) * 2);
+	local LandSizeXStandard = 54 + (LekMapGetCustomOption(11) * 2);
+	local LandSizeYStandard = 48 + (LekMapGetCustomOption(12) * 2);
 
-	local LandSizeXLarge = 62 + (Map.GetCustomOption(11) * 2);
-	local LandSizeYLarge = 54 + (Map.GetCustomOption(12) * 2);
+	local LandSizeXLarge = 62 + (LekMapGetCustomOption(11) * 2);
+	local LandSizeYLarge = 54 + (LekMapGetCustomOption(12) * 2);
 
-	local LandSizeXHuge = 70 + (Map.GetCustomOption(11) * 2);
-	local LandSizeYHuge = 62 + (Map.GetCustomOption(12) * 2);
+	local LandSizeXHuge = 70 + (LekMapGetCustomOption(11) * 2);
+	local LandSizeYHuge = 62 + (LekMapGetCustomOption(12) * 2);
 
 	local worldsizes = {};
 
@@ -742,6 +492,36 @@ local function LekPangaeaProbeLog(msg, minVerb)
 	end);
 end
 
+-- Outer-loop reject: row land < thinMax with rows at y±2 both > thickMin (horizontal water sliver).
+local function LekPangaeaWaterSliceReject(plotTypes, iW, iH, thinMax, thickMin)
+	if not plotTypes or type(iW) ~= "number" or type(iH) ~= "number" or iH < 5 then
+		return false;
+	end
+	thinMax = thinMax or 10;
+	thickMin = thickMin or 18;
+	local rowN = {};
+	for y = 0, iH - 1 do
+		local n = 0;
+		for x = 0, iW - 1 do
+			if plotTypes[y * iW + x + 1] ~= PlotTypes.PLOT_OCEAN then
+				n = n + 1;
+			end
+		end
+		rowN[y] = n;
+	end
+	for y = 2, iH - 3 do
+		if rowN[y] < thinMax and rowN[y - 2] > thickMin and rowN[y + 2] > thickMin then
+			LekPangaeaProbeLog("### LekPangaea waterSliceReject row=" .. tostring(y)
+				.. " land=" .. tostring(rowN[y])
+				.. " rowN_y-2=" .. tostring(rowN[y - 2])
+				.. " rowN_y+2=" .. tostring(rowN[y + 2])
+				.. " thinMax=" .. tostring(thinMax) .. " thickMin=" .. tostring(thickMin), 1);
+			return true;
+		end
+	end
+	return false;
+end
+
 function PangaeaFractalWorld:GeneratePlotTypes(args)
 	if(args == nil) then args = {}; end
 	_lek_pangaea_max_outer_failed = false;
@@ -797,11 +577,11 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		local xstart, xend = 0,0;
 		local ystart, yend = 0,0;
 
-		local sea_level = Map.GetCustomOption(4)
+		local sea_level = LekMapGetCustomOption(4)
 		if sea_level == 4 then
 			sea_level = 1 + Map.Rand(3, "Random Sea Level - Lua");
 		end
-		local world_age = Map.GetCustomOption(1)
+		local world_age = LekMapGetCustomOption(1)
 		if world_age == 5 then
 			world_age = 1 + Map.Rand(3, "Random World Age - Lua");
 		end
@@ -1863,7 +1643,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 			.. " layoutAttempt=" .. tostring(laProbe)
 			.. " roundInlandSeas_dt=" .. tostring(tAfterRoundInland - tBeforeRoundInland), 2);
 
-		local islandsOpt = Map.GetCustomOption(16);
+		local islandsOpt = LekMapGetCustomOption(16);
 		local minIslands = (islandsOpt and islandsOpt > 1) and (islandsOpt - 1) or 0;
 		local islandGenOpts = nil;
 		if minIslands == 0 then
@@ -1909,7 +1689,12 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		print("Islands Placed: ", islandsPlaced, "(min ", minIslands, " required)", " budgetOk=", tostring(islandsBudgetOk));
 
 		local tPass1 = (os and os.clock) and os.clock() or 0;
-		if iNumLandTilesInUse >= iPercent and islandsPlaced >= minIslands and islandsBudgetOk then
+		local waterSliceBad = LekPangaeaWaterSliceReject(self.plotTypes, iW, iH, 10, 18);
+		local basePass = (iNumLandTilesInUse >= iPercent and islandsPlaced >= minIslands and islandsBudgetOk);
+		if waterSliceBad then
+			print("######### Map Failure (water-slice heuristic) #########");
+		end
+		if basePass and not waterSliceBad then
 			allcomplete = true;
 			print("######### Map Pass #########");
 		else
@@ -1918,7 +1703,8 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		LekPangaeaProbeLog("### LekPangaeaPlotTypesProbe outer=" .. tostring(outerAttempts)
 			.. " layoutAttempt=" .. tostring(laProbe)
 			.. " outerPassTotal_dt=" .. tostring(tPass1 - tPass0)
-			.. " mapPass=" .. ((iNumLandTilesInUse >= iPercent and islandsPlaced >= minIslands and islandsBudgetOk) and "1" or "0"), 2);
+			.. " waterSliceReject=" .. (waterSliceBad and "1" or "0")
+			.. " mapPass=" .. ((basePass and not waterSliceBad) and "1" or "0"), 2);
 	end
 
 	if allcomplete then
@@ -1973,12 +1759,12 @@ function GenerateTerrain()
 	local DesertPercent = 22;
 
 	-- Get Temperature setting input by user.
-	local temp = Map.GetCustomOption(2)
+	local temp = LekMapGetCustomOption(2)
 	if temp == 4 then
 		temp = 1 + Map.Rand(3, "Random Temperature - Lua");
 	end
 
-	local grassMoist = Map.GetCustomOption(8);
+	local grassMoist = LekMapGetCustomOption(8);
 
 	local args = {
 			temperature = temp,
@@ -2284,11 +2070,62 @@ function FixInlandPancakes()
 		end
 	end
 end
+
+function LekPurgeIceAdjacentMainlandNearPoles(edgeRows)
+	edgeRows = edgeRows or 5;
+	local iW, iH = Map.GetGridSize();
+	if iW < 1 or iH < 1 then
+		return;
+	end
+	local landmass = Map.FindBiggestArea(false);
+	if not landmass then
+		return;
+	end
+	local mainAid = landmass:GetID();
+	local wrapY = Map.IsWrapY and Map:IsWrapY();
+	local function nearMapEdgeRow(y)
+		if wrapY then
+			return false;
+		end
+		return y < edgeRows or y >= (iH - edgeRows);
+	end
+	local removed = 0;
+	for y = 0, iH - 1 do
+		for x = 0, iW - 1 do
+			local plot = Map.GetPlot(x, y);
+			if plot and plot:GetFeatureType() == FeatureTypes.FEATURE_ICE and plot:IsWater() then
+				if nearMapEdgeRow(y) then
+				else
+					local touchMain = false;
+					for d = 0, 5 do
+						local np = Map.PlotDirection(x, y, d);
+						if np then
+							local pt = np:GetPlotType();
+							if pt == PlotTypes.PLOT_LAND or pt == PlotTypes.PLOT_HILLS or pt == PlotTypes.PLOT_MOUNTAIN then
+								if np:GetArea() == mainAid then
+									touchMain = true;
+									break;
+								end
+							end
+						end
+					end
+					if touchMain then
+						plot:SetFeatureType(FeatureTypes.NO_FEATURE, -1);
+						removed = removed + 1;
+					end
+				end
+			end
+		end
+	end
+	if removed > 0 then
+		print("### LekPurgeIceAdjacentMainlandNearPoles removed=" .. tostring(removed) .. " edgeRows=" .. tostring(edgeRows));
+	end
+end
 ------------------------------------------------------------------------------
 function AddFeatures()
 
 	-- Get Rainfall setting input by user.
-	local rain = Map.GetCustomOption(3)
+	local rain = LekMapGetCustomOption(3)
 	if rain == 4 then
 		rain = 1 + Map.Rand(3, "Random Rainfall - Lua");
 	end
@@ -2315,6 +2152,8 @@ function AddFeatures()
 			end
 		end
 	end
+
+	LekPurgeIceAdjacentMainlandNearPoles(5);
 end
 ------------------------------------------------------------------------------
 
@@ -2447,34 +2286,34 @@ function StartPlotSystem()
 	end
 
 	-- Get Resources setting input by user.
-	local AllowInlandSea = Map.GetCustomOption(19)
-	local res = Map.GetCustomOption(14)
-	local starts = Map.GetCustomOption(5)
+	local AllowInlandSea = LekMapGetCustomOption(19)
+	local res = LekMapGetCustomOption(14)
+	local starts = LekMapGetCustomOption(5)
 	--if starts == 7 then
 		--starts = 1 + Map.Rand(8, "Random Resources Option - Lua");
 	--end
 
 	-- Handle coastal spawns and start bias
 	MixedBias = false;
-	if Map.GetCustomOption(17) == 1 then
+	if LekMapGetCustomOption(17) == 1 then
 		OnlyCoastal = true;
 		BalancedCoastal = false;
 	end	
-	if Map.GetCustomOption(17) == 2 then
+	if LekMapGetCustomOption(17) == 2 then
 		BalancedCoastal = false;
 		OnlyCoastal = false;
 	end
 	
-	if Map.GetCustomOption(17) == 3 then
+	if LekMapGetCustomOption(17) == 3 then
 		OnlyCoastal = true;
 		BalancedCoastal = true;
 	end
 	
-	if Map.GetCustomOption(18) == 1 then
+	if LekMapGetCustomOption(18) == 1 then
 	CoastLux = true
 	end
 
-	if Map.GetCustomOption(18) == 2 then
+	if LekMapGetCustomOption(18) == 2 then
 	CoastLux = false
 	end
 
@@ -2482,26 +2321,35 @@ function StartPlotSystem()
 	local start_plot_database = AssignStartingPlots.Create()
 
 	do
-		local paceSel = 1;
+		local paceSel = 3;
 		local okP, vP = pcall(function()
-			return Map.GetCustomOption(13);
+			return LekMapGetCustomOption(13);
 		end);
 		if okP and type(vP) == "number" and vP >= 1 then
 			paceSel = math.floor(vP + 0.5);
 		end
-		if paceSel ~= 2 then
-			paceSel = 1;
+		if paceSel < 1 then
+			paceSel = 3;
+		elseif paceSel > 3 then
+			paceSel = 3;
 		end
+		start_plot_database._lek_global_six_skip_tuple_use_legacy = (paceSel == 1);
 		if paceSel == 2 then
 			start_plot_database._lek_global_six_pace_fast = true;
 			start_plot_database._lek_global_six_fatal_on_exhausted = false;
 			start_plot_database._lek_global_six_regen_max_layouts = 3;
 			start_plot_database._lek_global_six_tuple_relax_min_layout = 3;
 			start_plot_database._lek_global_six_tuple_minimal_s2_fallback_max_layout = 3;
-		else
+		elseif paceSel == 3 then
 			start_plot_database._lek_global_six_pace_fast = false;
 			start_plot_database._lek_global_six_fatal_on_exhausted = true;
 			start_plot_database._lek_global_six_regen_max_layouts = 11;
+			start_plot_database._lek_global_six_tuple_relax_min_layout = 6;
+			start_plot_database._lek_global_six_tuple_minimal_s2_fallback_max_layout = false;
+		else
+			start_plot_database._lek_global_six_pace_fast = false;
+			start_plot_database._lek_global_six_fatal_on_exhausted = false;
+			start_plot_database._lek_global_six_regen_max_layouts = 1;
 			start_plot_database._lek_global_six_tuple_relax_min_layout = 6;
 			start_plot_database._lek_global_six_tuple_minimal_s2_fallback_max_layout = false;
 		end
@@ -2534,7 +2382,7 @@ function StartPlotSystem()
 	     -- §2 policy: if dominant fail is pure s2 (not s5-heavy combo), repeat same phase once at 2× max_fail & max_leaf before advancing relax ladder. Disable: _lek_global_six_tuple_s2_pure_budget_extension = false;
 	     -- Layouts 1..N: if all phases fail, accept remembered §2 “minimal +1” tuple (max second-nearest = s2cap+1, ≤2 regions over cap, §1§3–6 OK). nil = use 3; false = off: _lek_global_six_tuple_minimal_s2_fallback_max_layout
 	     -- start_plot_database._lek_global_six_tuple_relaxation_phases = false; -- single phase only: uses max_fail / max_leaf below, no staged S2/S1 loosening
-	     -- Tuple relax vs map layout: option 13 Capital Precision — SLOW relax_min_layout=6 (layouts 1–5 base-only); FAST =3 (1–2 base-only, last layout full ladder + slack).
+	     -- Tuple relax vs map layout: option 13 — Very Slow relax_min_layout=6; Slow (tuple) =3; Fast (Legacy) skips tuple.
 	     -- max_fail_complete / max_leaf_evals: per-phase overrides optional; each phase default 1000/8000 from table in 4a if field omitted.
 	     start_plot_database._lek_global_six_max_fail_complete = 1000;
 	     start_plot_database._lek_global_six_max_leaf_evals = 8000;
@@ -2845,11 +2693,11 @@ function StartPlotSystem()
 	end
 
 	print("Placing Natural Wonders.");
-	local wonders = Map.GetCustomOption(7)
+	local wonders = LekMapGetCustomOption(7)
 	if wonders == 14 then
 		wonders = Map.Rand(13, "Number of Wonders To Spawn - Lua");
 	elseif wonders == 15 then
-		wonders = Map.Rand(3, "") + 3
+		wonders = 3 + Map.Rand(4, "NW count hidden opt 15");
 	elseif wonders == 16 then
 		wonders = Map.Rand(5, "") + 2
 	else

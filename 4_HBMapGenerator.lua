@@ -503,7 +503,7 @@ function AddRivers()
 	local seaWaterRangeDefault = 0.75;
 	local plotsPerRiverEdge =  9;
 	local riverRnd = 210;
-	local rivers_level = Map.GetCustomOption(9)
+	local rivers_level = LekMapGetCustomOption(9)
 
 	if rivers_level == 1 then
 		riverSourceRangeDefault = 3;

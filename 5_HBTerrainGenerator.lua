@@ -43,7 +43,7 @@ function TerrainGenerator.Create(args)
 
 	local fSnowLatitude  = args.fSnowLatitude  or 0.90;
 	
-	local tundra_level = Map.GetCustomOption(10)
+	local tundra_level = LekMapGetCustomOption(10)
 
 	local fTundraLatitude = args.fTundraLatitude or 0.59;
 

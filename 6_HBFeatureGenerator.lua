@@ -21,7 +21,7 @@ function FeatureGenerator.Create(args)
 	-- Temperature map options affect only terrain generation.
 	-- Rainfall map options affect only feature generation.
 	--	
-	local grassMoist = Map.GetCustomOption(8);
+	local grassMoist = LekMapGetCustomOption(8);
 
 	local args = args or {};
 	local rainfall = args.rainfall or 2; -- Default is Normal rainfall.
