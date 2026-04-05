@@ -132,6 +132,23 @@ function TryPlaceCrescentIsland(plotTypes, centerX, centerY, islLandInRing, para
 		if pt ~= PlotTypes.PLOT_MOUNTAIN then plotTypes[pidx(t[1], t[2], params.iW)] = PlotTypes.PLOT_OCEAN; end
 	end
 
+	local degenerate = {};
+	for _, t in ipairs(footprint) do
+		local idx = pidx(t[1], t[2], params.iW);
+		local pt = plotTypes[idx];
+		if pt == PlotTypes.PLOT_LAND or pt == PlotTypes.PLOT_HILLS or pt == PlotTypes.PLOT_MOUNTAIN then
+			degenerate[#degenerate + 1] = idx;
+		end
+	end
+	local nFlip = math.min(3 + Map.Rand(3, ""), #degenerate);
+	for i = #degenerate, 2, -1 do
+		local j = 1 + Map.Rand(i, "");
+		degenerate[i], degenerate[j] = degenerate[j], degenerate[i];
+	end
+	for i = 1, nFlip do
+		plotTypes[degenerate[i]] = PlotTypes.PLOT_OCEAN;
+	end
+
 	if not _island_placed then _island_placed = {}; end
 	_island_placed.crescent = true;
 	return true;

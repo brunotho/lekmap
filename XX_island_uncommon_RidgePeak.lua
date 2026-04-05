@@ -3,17 +3,18 @@
 include("X_IslandHelpers");
 
 local CONFIG = {
-	RIDGE_LEN_MIN = 3, RIDGE_LEN_RANGE = 3,
-	RIDGE_TURN_PCT = 30,
+	RIDGE_LEN_MIN = 2, RIDGE_LEN_RANGE = 2,
+	RIDGE_TURN_PCT = 35,
 	RIDGE_STRAIGHT_FORCE_AT = 5,
-	RIDGE_BRANCH_LEN_MIN = 2, RIDGE_BRANCH_LEN_RANGE = 2,
-	RIDGE_RIFT_PCT = 70,
-	LAND_SIDE_PCT_MIN = 50, LAND_SIDE_PCT_MAX = 85,
+	RIDGE_BRANCH_LEN_MIN = 2, RIDGE_BRANCH_LEN_RANGE = 1,
+	RIDGE_RIFT_PCT = 82,
+	RIDGE_NOISE_OCEAN_PCT = 8, RIDGE_NOISE_LAND_PCT = 14,
+	LAND_SIDE_PCT_MIN = 52, LAND_SIDE_PCT_MAX = 88,
 	WATER_GAP = 1,
-	FAR_LAND_MIN = 3, FAR_LAND_MAX = 5,
-	SATELLITE_PCT = 35,
+	FAR_LAND_MIN = 2, FAR_LAND_MAX = 4,
+	SATELLITE_PCT = 30,
 	SATELLITE_MIN = 1, SATELLITE_MAX = 2,
-	HILLS_ADJ_PCT = 85, HILLS_2ND_PCT = 65, HILLS_3RD_PCT = 50,
+	HILLS_ADJ_PCT = 82, HILLS_2ND_PCT = 62, HILLS_3RD_PCT = 48,
 };
 
 function TryPlaceRidgePeak(plotTypes, centerX, centerY, islLandInRing, params)
@@ -101,7 +102,22 @@ function TryPlaceRidgePeak(plotTypes, centerX, centerY, islLandInRing, params)
 	for key in pairs(ridgeSet) do
 		local x, y = key:match("([^,]+),([^,]+)");
 		x, y = tonumber(x), tonumber(y);
-		plotTypes[y * iW + x] = riftSet[key] and PlotTypes.PLOT_OCEAN or PlotTypes.PLOT_MOUNTAIN;
+		local mt;
+		if riftSet[key] then
+			mt = PlotTypes.PLOT_OCEAN;
+		else
+			local r = Map.Rand(100, "");
+			if r < CONFIG.RIDGE_NOISE_OCEAN_PCT then
+				mt = PlotTypes.PLOT_OCEAN;
+			elseif r < CONFIG.RIDGE_NOISE_OCEAN_PCT + CONFIG.RIDGE_NOISE_LAND_PCT then
+				mt = PlotTypes.PLOT_LAND;
+			elseif r < CONFIG.RIDGE_NOISE_OCEAN_PCT + CONFIG.RIDGE_NOISE_LAND_PCT + 38 then
+				mt = PlotTypes.PLOT_HILLS;
+			else
+				mt = PlotTypes.PLOT_MOUNTAIN;
+			end
+		end
+		plotTypes[y * iW + x] = mt;
 	end
 
 	local landSidePct = CONFIG.LAND_SIDE_PCT_MIN + Map.Rand(CONFIG.LAND_SIDE_PCT_MAX - CONFIG.LAND_SIDE_PCT_MIN + 1, "");
@@ -218,8 +234,10 @@ function TryPlaceRidgePeak(plotTypes, centerX, centerY, islLandInRing, params)
 		if not riftSet[k] then
 			local x, y = k:match("([^,]+),([^,]+)");
 			x, y = tonumber(x), tonumber(y);
-			distToRidge[k] = 0;
-			queue[#queue + 1] = {x, y};
+			if plotTypes[y * iW + x] ~= PlotTypes.PLOT_OCEAN then
+				distToRidge[k] = 0;
+				queue[#queue + 1] = {x, y};
+			end
 		end
 	end
 	local q = 1;

@@ -108,14 +108,12 @@ function TryPlaceVolcanicRing(plotTypes, centerX, centerY, islLandInRing, params
 	if numIslands == 1 then
 		local ringPct = CONFIG.ONE_ISLAND_RING_PCT_MIN + Map.Rand(CONFIG.ONE_ISLAND_RING_PCT_MAX - CONFIG.ONE_ISLAND_RING_PCT_MIN + 1, "");
 		local islandTiles = math.max(1, math.floor(n * ringPct / 100));
-		local gapTiles = n - islandTiles;
+		local gapTiles = math.max(1, n - islandTiles);
+		islandTiles = n - gapTiles;
+		local gapStart = Map.Rand(n, "");
 		local gapIdxSet = {};
-		for _ = 1, gapTiles do
-			local idx;
-			repeat
-				idx = 1 + Map.Rand(n, "");
-			until not gapIdxSet[idx];
-			gapIdxSet[idx] = true;
+		for g = 0, gapTiles - 1 do
+			gapIdxSet[((gapStart + g) % n) + 1] = true;
 		end
 		for i = 1, n do
 			if not gapIdxSet[i] then
@@ -138,6 +136,19 @@ function TryPlaceVolcanicRing(plotTypes, centerX, centerY, islLandInRing, params
 			end
 			local gapLen = CONFIG.GAP_LEN_MIN + Map.Rand(CONFIG.GAP_LEN_MAX - CONFIG.GAP_LEN_MIN + 1, "");
 			idx = idx + gapLen;
+		end
+	end
+
+	do
+		local filled = 0;
+		for _, t in ipairs(ring23) do
+			if islandSet[t[1] .. "," .. t[2]] then
+				filled = filled + 1;
+			end
+		end
+		if filled >= n then
+			local t = ring23[1 + Map.Rand(n, "volc_ring_break")];
+			islandSet[t[1] .. "," .. t[2]] = nil;
 		end
 	end
 
@@ -253,6 +264,27 @@ function TryPlaceVolcanicRing(plotTypes, centerX, centerY, islLandInRing, params
 			local hillsPct = CONFIG.RIM_HILLS_PCT;
 			plotTypes[y * params.iW + x] = (Map.Rand(100, "") < hillsPct) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
 		end
+	end
+
+	local ringLandKeys = {};
+	for _, t in ipairs(ring23) do
+		local x, y, rn = t[1], t[2], t[3];
+		local key = x .. "," .. y;
+		if islandSet[key] and (rn == 2 or rn == 3) then
+			local pt = plotTypes[y * params.iW + x];
+			if pt == PlotTypes.PLOT_LAND or pt == PlotTypes.PLOT_HILLS or pt == PlotTypes.PLOT_MOUNTAIN then
+				ringLandKeys[#ringLandKeys + 1] = { x, y };
+			end
+		end
+	end
+	local nErase = math.min(2 + Map.Rand(2, ""), #ringLandKeys);
+	for i = #ringLandKeys, 2, -1 do
+		local j = 1 + Map.Rand(i, "");
+		ringLandKeys[i], ringLandKeys[j] = ringLandKeys[j], ringLandKeys[i];
+	end
+	for i = 1, nErase do
+		local t = ringLandKeys[i];
+		plotTypes[t[2] * params.iW + t[1]] = PlotTypes.PLOT_OCEAN;
 	end
 	return true;
 end

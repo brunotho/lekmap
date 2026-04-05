@@ -115,6 +115,19 @@ function LekAllowLuxuryIndex(allowed_luxuries, resId)
 	end
 end
 
+function LekSafeMajorPlayer(pid)
+	if type(pid) ~= "number" then
+		return nil;
+	end
+	local ok, pl = pcall(function()
+		return Players[pid];
+	end);
+	if ok then
+		return pl;
+	end
+	return nil;
+end
+
 local function LekSafeGetDisableStartBiasOption()
 	local ok, v = pcall(function()
 		return Game.GetCustomOption("GAMEOPTION_DISABLE_START_BIAS");
@@ -123,6 +136,17 @@ local function LekSafeGetDisableStartBiasOption()
 		return v;
 	end
 	return nil;
+end
+
+local function LekHBPlotListLen(plot_list)
+	if plot_list == nil then
+		return 0;
+	end
+	local n = #(plot_list);
+	if n > 0 then
+		return n;
+	end
+	return table.maxn(plot_list) or 0;
 end
 
 -- Lekmap: stubs for natural wonder custom eligibility/placement (called when XML method number != -1)
@@ -262,7 +286,10 @@ function AssignStartingPlots.Create()
 		FindFallbackForUnmatchedRegionPriority = AssignStartingPlots.FindFallbackForUnmatchedRegionPriority,
 		AddStrategicBalanceResources = AssignStartingPlots.AddStrategicBalanceResources,
 		AttemptToPlaceStoneAtGrassPlot = AssignStartingPlots.AttemptToPlaceStoneAtGrassPlot,
+		LekTryPlaceStoneOnRingPrefHills = AssignStartingPlots.LekTryPlaceStoneOnRingPrefHills,
+		LekTryStripOneStoneFromRing2NearStart = AssignStartingPlots.LekTryStripOneStoneFromRing2NearStart,
 		NormalizeStartLocation = AssignStartingPlots.NormalizeStartLocation,
+		LekApplyStartRingsHillMountainPolicy = AssignStartingPlots.LekApplyStartRingsHillMountainPolicy,
 		NormalizeTeamLocations = AssignStartingPlots.NormalizeTeamLocations,
 		
 		-- Natural Wonders member methods
@@ -294,10 +321,31 @@ function AssignStartingPlots.Create()
 		IdentifyRegionsOfThisType = AssignStartingPlots.IdentifyRegionsOfThisType,
 		SortRegionsByType = AssignStartingPlots.SortRegionsByType,
 		LekIsSeaLuxuryResourceId = AssignStartingPlots.LekIsSeaLuxuryResourceId,
+		LekResourceIsLuxury = AssignStartingPlots.LekResourceIsLuxury,
+		LekResourceIsBonus = AssignStartingPlots.LekResourceIsBonus,
 		LekCollectFishPlotIndicesNearStart = AssignStartingPlots.LekCollectFishPlotIndicesNearStart,
 		LekPlaceFishNearStart = AssignStartingPlots.LekPlaceFishNearStart,
-		LekFilterSecondLuxCandidatesForCoastalPackage = AssignStartingPlots.LekFilterSecondLuxCandidatesForCoastalPackage,
+		LekCountGranaryBudgetNearStart = AssignStartingPlots.LekCountGranaryBudgetNearStart,
+		LekSortPlotIndicesMainlandFirst = AssignStartingPlots.LekSortPlotIndicesMainlandFirst,
+		LekVisitPlotsHexRingsFromCenter = AssignStartingPlots.LekVisitPlotsHexRingsFromCenter,
+		LekCountLuxuriesNearCapital = AssignStartingPlots.LekCountLuxuriesNearCapital,
+		LekStripLuxuryResourcesNearStart = AssignStartingPlots.LekStripLuxuryResourcesNearStart,
+		LekCountLandLuxuriesNearCapital = AssignStartingPlots.LekCountLandLuxuriesNearCapital,
+		LekPlaceFishForCoastalLuxPackage = AssignStartingPlots.LekPlaceFishForCoastalLuxPackage,
+		LekSanitizeFishNearMajorLakeCells = AssignStartingPlots.LekSanitizeFishNearMajorLakeCells,
+		LekCascadePlaceSecondLuxAtStart = AssignStartingPlots.LekCascadePlaceSecondLuxAtStart,
+		LekEnsureCapitalLuxuryMinimumNearStart = AssignStartingPlots.LekEnsureCapitalLuxuryMinimumNearStart,
+		LekAssertCapitalLuxuryTilesMinimumOrRegen = AssignStartingPlots.LekAssertCapitalLuxuryTilesMinimumOrRegen,
+		LekAssertRegionalLuxuryNoShortfallAfterFallbackOrRegen = AssignStartingPlots.LekAssertRegionalLuxuryNoShortfallAfterFallbackOrRegen,
+		LekAssertBalancedCoastalExactTwoOrRegen = AssignStartingPlots.LekAssertBalancedCoastalExactTwoOrRegen,
+		LekAssertGlobalSixPlayerMinPairwiseOrRegen = AssignStartingPlots.LekAssertGlobalSixPlayerMinPairwiseOrRegen,
+		LekGlobalSix_MinPairwiseAmongMajorPlayers = AssignStartingPlots.LekGlobalSix_MinPairwiseAmongMajorPlayers,
+		LekCountMajorStartsAdjacentToSaltWater = AssignStartingPlots.LekCountMajorStartsAdjacentToSaltWater,
+		LekPlaceStartingRegionalLuxBundleForRegion = AssignStartingPlots.LekPlaceStartingRegionalLuxBundleForRegion,
+		LekRunSecondaryLuxuryForSingleRegion = AssignStartingPlots.LekRunSecondaryLuxuryForSingleRegion,
+		LekSecondLuxUnfilteredPool = AssignStartingPlots.LekSecondLuxUnfilteredPool,
 		LekFilterLakeFishIndicesAwayFromMajorStarts = AssignStartingPlots.LekFilterLakeFishIndicesAwayFromMajorStarts,
+		LekFilterFishIndicesExcludingLakeAdjacent = AssignStartingPlots.LekFilterFishIndicesExcludingLakeAdjacent,
 		LekShouldExcludeLuxuryFromRegionalAssignment = AssignStartingPlots.LekShouldExcludeLuxuryFromRegionalAssignment,
 		AssignLuxuryToRegion = AssignStartingPlots.AssignLuxuryToRegion,
 		GetLuxuriesSplitCap = AssignStartingPlots.GetLuxuriesSplitCap,		-- New for Expansion, because we have more luxuries now.
@@ -425,6 +473,7 @@ function AssignStartingPlots.Create()
 		totalLuxPlacedSoFar = 0,
 		realtotalLuxPlacedSoFar = 0,
 		_lek_coastal_lux_package = {},
+		_lek_regional_lux_require_start_same_area = false,
 
 		-- Plot lists for use with global distribution of Luxuries.
 		--
@@ -487,6 +536,7 @@ function AssignStartingPlots.Create()
 		grass_flat_no_feature = {},
 		tundra_flat_no_feature = {},
 		snow_flat_list = {},
+		snow_hills_open_list = {},
 		hills_list = {},
 		land_list = {},
 		coast_list = {},
@@ -2037,7 +2087,11 @@ function AssignStartingPlots:GenerateRegions(args)
 	self.AllowInlandSea = args.AllowInlandSea or 1;
 	self.NoCoastInland = args.NoCoastInland;
 	self.BalancedCoastal = args.BalancedCoastal;
+	self.BalancedCoastalExactTwo = (args.BalancedCoastalExactTwo == true);
+	self.ForceAllInlandPlayerSpawns = (args.ForceAllInlandPlayerSpawns == true);
+	self._lek_tuple_force_two_coastal_majors = (args.BalancedCoastalExactTwo == true);
 	self.MixedBias = args.MixedBias;
+	self._lek_ignore_all_start_bias = (args.IgnoreAllStartBias == true);
 
 	-- Determine number of civilizations and city states present in this game.
 	self.iNumCivs, self.iNumCityStates, self.player_ID_list, self.bTeamGame, self.teams_with_major_civs, self.number_civs_per_team = GetPlayerAndTeamInfo()
@@ -3255,12 +3309,8 @@ function AssignStartingPlots:MeasureSinglePlot(x, y, region_type, distance_from_
 		data[5] = true;
 		return data
 		
-	elseif terrainType == TerrainTypes.TERRAIN_DESERT then -- Non-Oasis, non-FloodPlain flat deserts are Junk, except in Desert regions.
-		if region_type == 4 then
-			data[3] = true;
-		else
-			data[4] = true;
-		end
+	elseif terrainType == TerrainTypes.TERRAIN_DESERT then -- Non-Oasis, non-FloodPlain flat deserts are Junk (desert regions too).
+		data[4] = true;
 		return data
 
 	elseif terrainType == TerrainTypes.TERRAIN_TUNDRA then -- Naked Tundra are Junk, except in Tundra Regions where they are Food
@@ -3919,6 +3969,20 @@ function AssignStartingPlots:LekGlobalSix_LogRippleOrderedSampleDryRun()
 		" all_hard_pass=" .. (R.all_hard_pass and "1" or "0"));
 end
 ------------------------------------------------------------------------------
+function AssignStartingPlots:LekErrorIfLegacyForbidForcedCorner(region_number, where)
+	if self._lek_legacy_forbid_forced_start_placement ~= true then
+		return;
+	end
+	local rid = tostring(_lek_run_id or "na");
+	LekPlacementProbeLog("### LekGlobalSix FATAL runId=" .. rid ..
+		" legacy_forced_SW_corner_blocked region=" .. tostring(region_number) ..
+		" where=" .. tostring(where));
+	error("Lekmap: start placement for region " .. tostring(region_number) .. " failed (" .. tostring(where) ..
+		"). Tuple solver already rejected this map; legacy HB would force the region rectangle SW corner. " ..
+		"Typical causes: no plot meets min inner/middle food-prod-good thresholds after ripples, coastal count too low for a coastal-bias region, " ..
+		"or areaID mismatch. Regenerate, use Capital Precision Fast (Legacy-only), or relax/disable start bias.");
+end
+------------------------------------------------------------------------------
 function AssignStartingPlots:FindStart(region_number, NoCoast)
 	
 	print("No Coast: ", NoCoast);
@@ -4317,8 +4381,7 @@ function AssignStartingPlots:FindStart(region_number, NoCoast)
 		self:PlaceImpactAndRipples(best_fallback_x, best_fallback_y)
 		bSuccessFlag = true;
 	else
-		-- This region cannot have a start and something has gone way wrong.
-		-- We'll force a one tile grass island in the SW corner of the region and put the start there.
+		self:LekErrorIfLegacyForbidForcedCorner(region_number, "FindStart");
 		local forcePlot = Map.GetPlot(iWestX, iSouthY);
 		bSuccessFlag = true;
 		bForcedPlacementFlag = true;
@@ -4363,8 +4426,7 @@ function AssignStartingPlots:FindCoastalStart(region_number)
 		-- This region cannot support an Along Ocean start. Try instead to find an inland start for it.
 		bSuccessFlag, bForcedPlacementFlag = self:FindStart(region_number, false)
 		if bSuccessFlag == false then
-			-- This region cannot have a start and something has gone very wrong.
-			-- We'll force a one tile grass island in the SW corner of the region and put the start there.
+			self:LekErrorIfLegacyForbidForcedCorner(region_number, "FindCoastalStart_lowCoastalCount");
 			local forcePlot = Map.GetPlot(iWestX, iSouthY);
 			bForcedPlacementFlag = true;
 			forcePlot:SetPlotType(PlotTypes.PLOT_LAND, false, true);
@@ -4652,8 +4714,7 @@ function AssignStartingPlots:FindCoastalStart(region_number)
 		-- This region cannot support an Along Ocean start. Try instead to find an Inland start for it.
 		bSuccessFlag, bForcedPlacementFlag = self:FindStart(region_number, false)
 		if bSuccessFlag == false then
-			-- This region cannot have a start and something has gone way wrong.
-			-- We'll force a one tile grass island in the SW corner of the region and put the start there.
+			self:LekErrorIfLegacyForbidForcedCorner(region_number, "FindCoastalStart_afterFindStart");
 			local forcePlot = Map.GetPlot(iWestX, iSouthY);
 			bForcedPlacementFlag = true;
 			forcePlot:SetPlotType(PlotTypes.PLOT_LAND, false, true);
@@ -4829,8 +4890,7 @@ function AssignStartingPlots:FindStartWithoutRegardToAreaID(region_number, bMust
 		self:PlaceImpactAndRipples(best_fallback_x, best_fallback_y)
 		bSuccessFlag = true;
 	else
-		-- Somehow, this region has had no eligible plots of any kind.
-		-- We'll force a one tile grass island in the SW corner of the region and put the start there.
+		self:LekErrorIfLegacyForbidForcedCorner(region_number, "FindStartWithoutRegardToAreaID");
 		local forcePlot = Map.GetPlot(iWestX, iSouthY);
 		bForcedPlacementFlag = true;
 		forcePlot:SetPlotType(PlotTypes.PLOT_LAND, false, true);
@@ -4936,6 +4996,7 @@ function AssignStartingPlots:LekVirtualSixInlandOceanUndesirable()
 end
 
 function AssignStartingPlots:LekRunOneStartPlacementPass(regionAssignList, iNumRegions, res_reg, iNumCoastNeeded)
+	local coastQuotaStart = iNumCoastNeeded;
 	for assignIndex = 1, iNumRegions do
 		local currentRegionNumber = regionAssignList[assignIndex];
 		local bSuccessFlag = false;
@@ -4947,7 +5008,11 @@ function AssignStartingPlots:LekRunOneStartPlacementPass(regionAssignList, iNumR
 			iNumCoastNeeded = iNumCoastNeeded - 1;
 		else
 			print("Don't Allow Spawning on Coast: " .. tostring(self.NoCoastInland));
-			bSuccessFlag, bForcedPlacementFlag = self:FindStart(currentRegionNumber, self.NoCoastInland);
+			local noCoastArg = self.NoCoastInland;
+			if self.BalancedCoastalExactTwo == true and self.ForceAllInlandPlayerSpawns ~= true then
+				noCoastArg = true;
+			end
+			bSuccessFlag, bForcedPlacementFlag = self:FindStart(currentRegionNumber, noCoastArg);
 		end
 		print("- - -");
 		print("Start Plot for Region #", currentRegionNumber, " was successful: ", bSuccessFlag);
@@ -4955,6 +5020,9 @@ function AssignStartingPlots:LekRunOneStartPlacementPass(regionAssignList, iNumR
 		if not bSuccessFlag then
 			return false, iNumCoastNeeded;
 		end
+	end
+	if coastQuotaStart > 0 and iNumCoastNeeded > 0 then
+		return false, iNumCoastNeeded;
 	end
 	return true, iNumCoastNeeded;
 end
@@ -4975,6 +5043,7 @@ local LEK_G6_S1_D_MAX = 18;
 local LEK_G6_S1_RELAX_MAX = 19;
 local LEK_G6_S1_TARGET_D = 13;
 local LEK_G6_S2_SECOND_NEAREST_MAX = 15;
+local LEK_G6_MIN_PAIRWISE_PLOTDIST_FALLBACK = 9;
 
 function AssignStartingPlots:LekGlobalSix_NoCoastInlandEnforced()
 	if self.NoCoastInland ~= true then
@@ -4989,14 +5058,8 @@ function AssignStartingPlots:LekGlobalSix_NoCoastInlandEnforced()
 	return true;
 end
 
--- Map script "Start Distance" (Map custom option 6): hard minimum PlotDistance between any two majors.
-function AssignStartingPlots.LekGlobalSix_MinPairwiseDistanceFromStartDistanceOption()
-	local ok, v = pcall(function()
-		return LekMapGetCustomOption(6);
-	end);
-	if not ok or type(v) ~= "number" then
-		return nil;
-	end
+-- Map script "Start Distance" (legacy custom option 6): minimum PlotDistance between any two majors (tuple + post-BA).
+function AssignStartingPlots.LekGlobalSix_MapOpt6ToMinPairwisePlotDist(v)
 	if v == 1 then
 		return 7;
 	end
@@ -5007,6 +5070,30 @@ function AssignStartingPlots.LekGlobalSix_MinPairwiseDistanceFromStartDistanceOp
 		return 11;
 	end
 	return nil;
+end
+
+function AssignStartingPlots.LekGlobalSix_MinPairwiseDistanceFromStartDistanceOption()
+	local ok, v = pcall(function()
+		return LekMapGetCustomOption(6);
+	end);
+	local mapped = nil;
+	if ok and type(v) == "number" then
+		mapped = AssignStartingPlots.LekGlobalSix_MapOpt6ToMinPairwisePlotDist(v);
+	end
+	if mapped ~= nil then
+		return mapped;
+	end
+	local h = nil;
+	if type(_lek_map_hidden_option_defaults) == "table" then
+		h = _lek_map_hidden_option_defaults[6];
+	end
+	if type(h) == "number" then
+		local m2 = AssignStartingPlots.LekGlobalSix_MapOpt6ToMinPairwisePlotDist(h);
+		if m2 ~= nil then
+			return m2;
+		end
+	end
+	return LEK_G6_MIN_PAIRWISE_PLOTDIST_FALLBACK;
 end
 
 function AssignStartingPlots:LekGlobalSix_OK_Section1_CentreBand()
@@ -5376,9 +5463,17 @@ function AssignStartingPlots:LekGlobalSix_OK_Section4_TwoCoastalGeoCycle()
 		end
 	end
 	local nC = #coastalPos;
-	if nC ~= 2 then
-		local def = coastalSaltOnly and "saltOcean" or "oceanOrLake";
-		return true, "n/a_coastalCount=" .. tostring(nC) .. "_def=" .. def;
+	local forceExactTwo = (self.BalancedCoastalExactTwo == true) and (self.ForceAllInlandPlayerSpawns ~= true);
+	if forceExactTwo then
+		if nC ~= 2 then
+			local def = coastalSaltOnly and "saltOcean" or "oceanOrLake";
+			return false, "force2_need_exactly2_got=" .. tostring(nC) .. "_def=" .. def;
+		end
+	else
+		if nC ~= 2 then
+			local def = coastalSaltOnly and "saltOcean" or "oceanOrLake";
+			return true, "n/a_coastalCount=" .. tostring(nC) .. "_def=" .. def;
+		end
 	end
 	return true, "geoAngleOrder_twoC";
 end
@@ -5536,6 +5631,97 @@ function AssignStartingPlots:LekGlobalSix_Section5_BuildPlayerBiasPlist()
 	end
 	if #plist ~= 6 then
 		return nil, "internal_player_count_ne_6";
+	end
+	if self.ForceAllInlandPlayerSpawns == true then
+		for _, p in ipairs(plist) do
+			if p.tag == "coastal" then
+				p.tag = "flex";
+			end
+		end
+	elseif self._lek_ignore_all_start_bias == true then
+		for _, p in ipairs(plist) do
+			p.tag = "flex";
+		end
+	elseif self._lek_tuple_force_two_coastal_majors == true then
+		local function civNeedsMandatoryCoastal(pid)
+			local player = Players[pid];
+			if not player then return false; end
+			local row = GameInfo.Civilizations[player:GetCivilizationType()];
+			if not row then return false; end
+			return CivNeedsCoastalStart(row.Type) == true;
+		end
+		local function coastalCount()
+			local n = 0;
+			for _, p in ipairs(plist) do
+				if p.tag == "coastal" then n = n + 1; end
+			end
+			return n;
+		end
+		local naturalMandatoryCoastal = 0;
+		for _, p in ipairs(plist) do
+			if civNeedsMandatoryCoastal(p.pid) then
+				naturalMandatoryCoastal = naturalMandatoryCoastal + 1;
+			end
+		end
+		local targetCoastal = 2;
+		while coastalCount() > targetCoastal do
+			local downgraded = false;
+			for _, p in ipairs(plist) do
+				if p.tag == "coastal" and not civNeedsMandatoryCoastal(p.pid) then
+					p.tag = "flex";
+					downgraded = true;
+					break;
+				end
+			end
+			if not downgraded then break; end
+		end
+		local function tierForceCoastal(p)
+			if p.tag == "coastal" then
+				return 999;
+			end
+			local player = Players[p.pid];
+			if not player then return 500; end
+			local row = GameInfo.Civilizations[player:GetCivilizationType()];
+			if not row then return 500; end
+			local t = row.Type;
+			if p.tag == "flex" then
+				if CivNeedsCoastalStart(t) then
+					return 60;
+				end
+				if CivNeedsPlaceFirstCoastalStart(t) then
+					return 40;
+				end
+				return 10;
+			end
+			if p.tag == "avoid" then
+				return 20;
+			end
+			if p.tag == "river" then
+				return 30;
+			end
+			if p.tag == "pri1" or p.tag == "prim" then
+				return 50;
+			end
+			return 45;
+		end
+		if naturalMandatoryCoastal ~= 1 then
+			while coastalCount() < targetCoastal do
+				local bestI, bestTier = nil, 9999;
+				for i, p in ipairs(plist) do
+					if p.tag ~= "coastal" then
+						local tr = tierForceCoastal(p);
+						if tr < bestTier then
+							bestTier = tr;
+							bestI = i;
+						end
+					end
+				end
+				if not bestI then
+					break;
+				end
+				plist[bestI].tag = "coastal";
+			end
+		end
 	end
 	return plist, nil;
 end
@@ -5944,7 +6130,7 @@ function AssignStartingPlots:LekGlobalSix_OK_LogDiagnostics()
 	local dHi = self._lek_g6_runtime_s1_max or self._lek_ok_diag_last_tuple_phase_s1max or LEK_G6_S1_D_MAX;
 	local s2cap = self._lek_g6_runtime_s2_max or self._lek_ok_diag_last_tuple_phase_s2max or LEK_G6_S2_SECOND_NEAREST_MAX;
 	local mp = AssignStartingPlots.LekGlobalSix_MinPairwiseDistanceFromStartDistanceOption();
-	local mpStr = (type(mp) == "number") and ("_minPairMapOpt6_ge" .. tostring(mp)) or "_minPair_off";
+	local mpStr = "_minPair_ge" .. tostring(mp);
 	LekPlacementProbeLog("### LekGlobalSix_OK diag runId=" .. rid ..
 		" spec=SCRATCHPAD-placement-spec-v0.11 first_fail=" .. tostring(R.first_fail or "none") ..
 		" all_hard_pass=" .. (R.all_hard_pass and "1" or "0") ..
@@ -5985,7 +6171,7 @@ function AssignStartingPlots:LekGlobalSix_LogRuleAuditAfterTupleCommit()
 		end
 	end
 	local dReq = AssignStartingPlots.LekGlobalSix_MinPairwiseDistanceFromStartDistanceOption();
-	local pairwiseOk = (type(dReq) ~= "number") or (minD ~= nil and minD >= dReq);
+	local pairwiseOk = (minD ~= nil and minD >= dReq);
 	local coastalSalt = (self._lek_global_six_coastal_bias_requires_salt == true);
 	local nCoastR = 0;
 	for r = 1, 6 do
@@ -6003,7 +6189,7 @@ function AssignStartingPlots:LekGlobalSix_LogRuleAuditAfterTupleCommit()
 	LekPlacementProbeLog("### LekGlobalSix ruleAuditAfterTuple runId=" .. rid ..
 		" scope=region_slots" ..
 		" minPlotDist=" .. tostring(minD) ..
-		" minRequiredMapOpt6=" .. tostring(dReq or "nil") ..
+		" minRequiredPairwisePlotDist=" .. tostring(dReq) ..
 		" pairwiseOk=" .. (pairwiseOk and "1" or "0") ..
 		" regionsCoastalLike=" .. tostring(nCoastR) ..
 		" noCoastInlandEnforced=" .. (AssignStartingPlots.LekGlobalSix_NoCoastInlandEnforced(self) and "1" or "0"), 2);
@@ -6088,7 +6274,7 @@ function AssignStartingPlots:LekGlobalSix_LogRuleAuditAfterPlayers()
 		end
 	end
 	local dReq = AssignStartingPlots.LekGlobalSix_MinPairwiseDistanceFromStartDistanceOption();
-	local pairwiseOk = (type(dReq) ~= "number") or (minD ~= nil and minD >= dReq);
+	local pairwiseOk = (minD ~= nil and minD >= dReq);
 	for _, p in ipairs(plist) do
 		local player = Players[p.pid];
 		local sp = player and player:GetStartingPlot();
@@ -6140,7 +6326,7 @@ function AssignStartingPlots:LekGlobalSix_LogRuleAuditAfterPlayers()
 		" scope=final_player_plots" ..
 		" violations=" .. tostring(viol) ..
 		" minPlotDist=" .. tostring(minD) ..
-		" minRequiredMapOpt6=" .. tostring(dReq or "nil") ..
+		" minRequiredPairwisePlotDist=" .. tostring(dReq) ..
 		" pairwiseOk=" .. (pairwiseOk and "1" or "0") ..
 		" noCoastInlandEnforced=" .. (enforceNC and "1" or "0") ..
 		" detail=" .. table.concat(parts, ";"), 2);
@@ -6651,11 +6837,15 @@ end
 	Value 1 Fast (Legacy): _lek_global_six_skip_tuple_use_legacy = true; LekGlobalSixChooseLocations returns immediately with
 	_lek_global_six_tuple_solver_accepted = true so regen does not fire; legacy ChooseLocations runs (no tuple).
 
-	Value 2 Slow (fallback: Legacy): pace_fast = true; regen_max_layouts = 3; relax_min_layout = 3; fatal_on_exhausted = false;
-	minimal_s2_fallback max layout = 3; exhausted layouts → legacy ChooseLocations.
+	Value 2 Slow: pace_fast = true; regen_max_layouts = 3; fatal_on_exhausted = false; tuple fail on last layout → legacy ChooseLocations.
+	SW-corner forced starts (HB fallback when no plot scores) are blocked if tuple had failed (_lek_legacy_forbid_forced_start_placement).
 
-	Value 3 Very Slow (fallback: death): pace_fast = false; regen_max_layouts = 11; relax_min_layout = 6; fatal_on_exhausted = true;
+	Value 3 Very Slow: pace_fast = false; regen_max_layouts = 11; relax_min_layout = 6; fatal_on_exhausted = true;
 	minimal_s2_fallback off; exhausted → error (no legacy).
+
+	Slip-through chain when Slow hits legacy after tuple rejection: LekGlobalSix_RunTupleSearch finds no six-tuple satisfying distance/OK rules for this
+	terrain roll → ChooseLocations runs legacy region-by-region FindStart/FindCoastalStart. If every candidate fails min scores and fallback_plots is
+	empty, vanilla HB forces a 1-tile grass city at the region rectangle SW corner — that last step becomes fatal instead when tuple had failed.
 ]]
 function AssignStartingPlots.LekGlobalSix_SlowPaceLayoutGeometryBoost(layoutN)
 	if type(layoutN) ~= "number" or layoutN < 6 then
@@ -6666,7 +6856,8 @@ function AssignStartingPlots.LekGlobalSix_SlowPaceLayoutGeometryBoost(layoutN)
 end
 
 function AssignStartingPlots:LekGlobalSix_FallbackSearchCandidateForRegion(region_r)
-	local list = AssignStartingPlots.LekGlobalSix_GatherTupleStyleCandidateIndices(self, region_r, false);
+	local tupleNoCoast = (self.ForceAllInlandPlayerSpawns == true);
+	local list = AssignStartingPlots.LekGlobalSix_GatherTupleStyleCandidateIndices(self, region_r, tupleNoCoast);
 	local rt = self.regionTypes[region_r];
 	if not rt then
 		return nil;
@@ -6709,7 +6900,8 @@ function AssignStartingPlots:LekGlobalSix_FallbackSearchCandidateForRegion(regio
 end
 
 function AssignStartingPlots:LekGlobalSix_GatherSearchCandidatesOrdered(region_r)
-	local list = AssignStartingPlots.LekGlobalSix_GatherTupleStyleCandidateIndices(self, region_r, false);
+	local tupleNoCoast = (self.ForceAllInlandPlayerSpawns == true);
+	local list = AssignStartingPlots.LekGlobalSix_GatherTupleStyleCandidateIndices(self, region_r, tupleNoCoast);
 	local rt = self.regionTypes[region_r];
 	if not rt then
 		return {};
@@ -7641,6 +7833,8 @@ end
 function AssignStartingPlots:ChooseLocations(args)
 	print("Map Generation - Choosing Start Locations for Civilizations");
 	local args = args or {};
+	self._lek_choose_locations_legacy_start_placement = false;
+	self._lek_legacy_forbid_forced_start_placement = false;
 	local iW, iH = Map.GetGridSize();
 	local mustBeCoast = args.mustBeCoast or false; -- if true, will force all starts on salt water coast if possible
 	
@@ -7676,7 +7870,7 @@ function AssignStartingPlots:ChooseLocations(args)
 			" fatal_on_exhausted=" .. tostring(self._lek_global_six_fatal_on_exhausted == true) ..
 			" NoCoastInland=" .. tostring(self.NoCoastInland) ..
 			" noCoastInlandEnforcedSix=" .. (AssignStartingPlots.LekGlobalSix_NoCoastInlandEnforced(self) and "1" or "0") ..
-			" minPairwiseMapOpt6=" .. tostring(AssignStartingPlots.LekGlobalSix_MinPairwiseDistanceFromStartDistanceOption() or "nil"));
+			" minPairwisePlotDist=" .. tostring(AssignStartingPlots.LekGlobalSix_MinPairwiseDistanceFromStartDistanceOption()));
 		if dsbRaw == 1 then
 			LekPlacementProbeLog("### LekGlobalSix runId=" .. rid .. " path=skipped reason=GAMEOPTION_DISABLE_START_BIAS");
 			lekSixBiasSkipsGlobalSolver = true;
@@ -7744,6 +7938,7 @@ function AssignStartingPlots:ChooseLocations(args)
 			end
 			LekPlacementProbeAt(1, "### LekGlobalSix runId=" .. rid .. " path=solver_finished ChooseLocations_early_return=1"
 				.. " layout=" .. tostring(att0) .. "/" .. tostring(maxL0));
+			self:LekAssertBalancedCoastalExactTwoOrRegen();
 			return;
 		else
 			local maxRegenL = _lek_global_six_regen_max_layouts;
@@ -7763,17 +7958,26 @@ function AssignStartingPlots:ChooseLocations(args)
 					" reason=tuple_solver_no_accepted_tuple skip_legacy=1");
 				return;
 			end
-			if self._lek_global_six_fatal_on_exhausted == true then
+			if self._lek_global_six_fatal_on_exhausted == true
+				and self._lek_global_six_tuple_solver_accepted == false then
 				local msg = "### LekGlobalSix FATAL runId=" .. rid ..
-					" slow_pace_exhausted_layouts=" .. tostring(att) .. "/" .. tostring(maxRegenL) ..
-					" tuple_solver_no_accepted_tuple_no_legacy";
+					" exhausted_layouts=" .. tostring(att) .. "/" .. tostring(maxRegenL) ..
+					" tuple_solver_no_accepted_tuple no_HB_legacy_fallback";
 				LekPlacementProbeLog(msg);
-				error("LekGlobalSix [very slow placement pace]: no valid six-tuple after " .. tostring(maxRegenL) ..
-					" map layouts. Set \"Capital Precision\" to Slow (fallback: Legacy) or Fast (Legacy), or relax islands/start rules.");
+				error("LekGlobalSix: no valid six-tuple after " .. tostring(maxRegenL) ..
+					" map layouts (Capital Precision Medium or Very Slow). Regenerate or relax start/island rules.");
 			end
-			LekPlacementProbeAt(2, "### LekGlobalSix runId=" .. rid .. " path=fallthrough reason=solver_returned_false legacy_ChooseLocations_continues=1");
+			LekPlacementProbeAt(2, "### LekGlobalSix runId=" .. rid ..
+				" path=fallthrough legacy_ChooseLocations_continues=1 tuple_accepted=" .. tostring(self._lek_global_six_tuple_solver_accepted == true));
+			self._lek_legacy_forbid_forced_start_placement = (self._lek_global_six_tuple_solver_accepted == false);
+			if self._lek_legacy_forbid_forced_start_placement then
+				LekPlacementProbeAt(1, "### LekGlobalSix runId=" .. rid ..
+					" legacy_after_tuple_fail=1 HB_SW_corner_force_disabled_if_triggered");
+			end
 		end
 	end
+
+	self._lek_choose_locations_legacy_start_placement = true;
 
 	-- Set up list of regions (to be processed in this order).
 	--
@@ -7821,30 +8025,35 @@ function AssignStartingPlots:ChooseLocations(args)
 	end
 	
 	for loop = 1, self.iNumCivs do
-		local playerNum = self.player_ID_list[loop]; -- MP games can have gaps between player numbers, so we cannot assume a sequential set of IDs.
-		local player = Players[playerNum];
-		local civType = GameInfo.Civilizations[player:GetCivilizationType()].Type;
-		print("Player", playerNum, "of Civ Type", civType);
-		local bNeedsCoastalStart = CivNeedsCoastalStart(civType);
-		-- Roll for coastal start for weak bias civs
-		if self.MixedBias and Map.Rand(100, "") >= 60 and CivNeedsPlaceFirstCoastalStart(civType) then
-			bNeedsCoastalStart = false;
-		end
-		if bNeedsCoastalStart == true then
-			print("- - - - - - - needs Coastal Start!"); print("-");
-			iNumCoastNeeded = iNumCoastNeeded + 1;
-		else
-			local bNeedsRiverStart = CivNeedsRiverStart(civType)
-			if bNeedsRiverStart == true then
-				print("- - - - - - - needs River Start!"); print("-");
-				iNumRiverCivs = iNumRiverCivs + 1;
+		if not self._lek_ignore_all_start_bias then
+			local playerNum = self.player_ID_list[loop]; -- MP games can have gaps between player numbers, so we cannot assume a sequential set of IDs.
+			local player = Players[playerNum];
+			local civType = GameInfo.Civilizations[player:GetCivilizationType()].Type;
+			print("Player", playerNum, "of Civ Type", civType);
+			local bNeedsCoastalStart = CivNeedsCoastalStart(civType);
+			if self.ForceAllInlandPlayerSpawns == true then
+				bNeedsCoastalStart = false;
+			end
+			-- Roll for coastal start for weak bias civs
+			if self.MixedBias and Map.Rand(100, "") >= 60 and CivNeedsPlaceFirstCoastalStart(civType) then
+				bNeedsCoastalStart = false;
+			end
+			if bNeedsCoastalStart == true then
+				print("- - - - - - - needs Coastal Start!"); print("-");
+				iNumCoastNeeded = iNumCoastNeeded + 1;
 			else
-				local iNumRegionPriority = GetNumStartRegionPriorityForCiv(civType)
-				if iNumRegionPriority > 0 then
-					print("- - - - - - - needs Region Priority!"); print("-");
-					local table_of_this_civs_priority_needs = GetStartRegionPriorityListForCiv_GetIDs(civType)
-					iNumPriorityCivs = iNumPriorityCivs + 1;
-					priority_lists[playerNum] = table_of_this_civs_priority_needs;
+				local bNeedsRiverStart = CivNeedsRiverStart(civType)
+				if bNeedsRiverStart == true then
+					print("- - - - - - - needs River Start!"); print("-");
+					iNumRiverCivs = iNumRiverCivs + 1;
+				else
+					local iNumRegionPriority = GetNumStartRegionPriorityForCiv(civType)
+					if iNumRegionPriority > 0 then
+						print("- - - - - - - needs Region Priority!"); print("-");
+						local table_of_this_civs_priority_needs = GetStartRegionPriorityListForCiv_GetIDs(civType)
+						iNumPriorityCivs = iNumPriorityCivs + 1;
+						priority_lists[playerNum] = table_of_this_civs_priority_needs;
+					end
 				end
 			end
 		end
@@ -7899,7 +8108,11 @@ function AssignStartingPlots:ChooseLocations(args)
 		end
 	end
 	-- add extra coastals if balanced coast setting was chosen
-	if self.BalancedCoastal then
+	if self.BalancedCoastal and self.BalancedCoastalExactTwo and iNumRegions >= 2 then
+		local cap = math.min(2, iNumRegions);
+		local iNumCoastStart = iNumCoastNeeded;
+		iNumCoastNeeded = (iNumCoastStart > cap) and iNumCoastStart or cap;
+	elseif self.BalancedCoastal then
 		iRoll = Map.Rand(100, "Roll for extra coast");
 		local iNumCoastStart = iNumCoastNeeded;
 		if iNumRegions == 6 then
@@ -8072,6 +8285,10 @@ function AssignStartingPlots:ChooseLocations(args)
 		_lek_global_six_request_map_regen = true;
 		LekPlacementProbeAt(1, "### LekGlobalSix mapRegen request runId=" .. tostring(_lek_run_id or "na") ..
 			" layout=" .. tostring(att) .. "/" .. tostring(maxRegenL) .. " reason=tuple_solver_no_accepted_tuple");
+	end
+
+	if _lek_global_six_request_map_regen ~= true then
+		self:LekAssertBalancedCoastalExactTwoOrRegen();
 	end
 
 	if lekProbe then
@@ -8805,30 +9022,163 @@ function AssignStartingPlots:AddStrategicBalanceResources(region_number)
 end
 ------------------------------------------------------------------------------
 function AssignStartingPlots:AttemptToPlaceStoneAtGrassPlot(x, y)
-	-- Function modified May 2011 to boost production at heavy grass starts. - BT
-	-- Now placing Stone instead of Cows. Returns true if Stone is placed.
-	--print("-"); print("Attempting to place Stone at: ", x, y);
 	local plot = Map.GetPlot(x, y);
 	if plot == nil then
-		--print("Placement failed, plot was nil.");
 		return false
 	end
 	if plot:GetResourceType(-1) ~= -1 then
-		--print("Plot already had a resource.");
 		return false
 	end
 	local plotType = plot:GetPlotType()
-	if plotType == PlotTypes.PLOT_LAND then
+	if plotType == PlotTypes.PLOT_LAND or plotType == PlotTypes.PLOT_HILLS then
 		local featureType = plot:GetFeatureType()
 		if featureType == FeatureTypes.NO_FEATURE then
 			local terrainType = plot:GetTerrainType()
-			if terrainType == TerrainTypes.TERRAIN_GRASS then -- Place Stone
+			if terrainType == TerrainTypes.TERRAIN_GRASS or terrainType == TerrainTypes.TERRAIN_PLAINS then
+				if plotType ~= PlotTypes.PLOT_LAND then
+					return false;
+				end
 				plot:SetResourceType(self.stone_ID, 1);
-				--print("Placed Stone.");
+				self.amounts_of_resources_placed[self.stone_ID + 1] = self.amounts_of_resources_placed[self.stone_ID + 1] + 1;
+				return true;
+			elseif terrainType == TerrainTypes.TERRAIN_DESERT
+				or terrainType == TerrainTypes.TERRAIN_TUNDRA
+				or terrainType == TerrainTypes.TERRAIN_SNOW then
+				plot:SetResourceType(self.stone_ID, 1);
 				self.amounts_of_resources_placed[self.stone_ID + 1] = self.amounts_of_resources_placed[self.stone_ID + 1] + 1;
 				return true
 			end
 		end
+	end
+	return false
+end
+
+function AssignStartingPlots:LekTryPlaceStoneOnRingPrefHills(x, y, ringAdjustments)
+	local iW, iH = Map.GetGridSize();
+	local hillArid, flatArid = {}, {};
+	local flatTemperate = {};
+	for _, plot_adjustments in ipairs(ringAdjustments) do
+		local searchX, searchY = self:ApplyHexAdjustment(x, y, plot_adjustments);
+		if searchX >= 0 and searchX < iW and searchY >= 0 and searchY < iH then
+			local plot = Map.GetPlot(searchX, searchY);
+			if plot and plot:GetResourceType(-1) == -1 and plot:GetFeatureType() == FeatureTypes.NO_FEATURE then
+				local tt = plot:GetTerrainType();
+				local pt = plot:GetPlotType();
+				if tt == TerrainTypes.TERRAIN_GRASS or tt == TerrainTypes.TERRAIN_PLAINS then
+					if pt == PlotTypes.PLOT_LAND then
+						flatTemperate[#flatTemperate + 1] = {searchX, searchY};
+					end
+				elseif tt == TerrainTypes.TERRAIN_DESERT or tt == TerrainTypes.TERRAIN_TUNDRA or tt == TerrainTypes.TERRAIN_SNOW then
+					if pt == PlotTypes.PLOT_HILLS then
+						hillArid[#hillArid + 1] = {searchX, searchY};
+					elseif pt == PlotTypes.PLOT_LAND then
+						flatArid[#flatArid + 1] = {searchX, searchY};
+					end
+				end
+			end
+		end
+	end
+	for i = #flatTemperate, 2, -1 do
+		local j = 1 + Map.Rand(i, "LekStoneGrassFlatOrd");
+		flatTemperate[i], flatTemperate[j] = flatTemperate[j], flatTemperate[i];
+	end
+	for i = #flatArid, 2, -1 do
+		local j = 1 + Map.Rand(i, "LekStoneAridFlatOrd");
+		flatArid[i], flatArid[j] = flatArid[j], flatArid[i];
+	end
+	for i = #hillArid, 2, -1 do
+		local j = 1 + Map.Rand(i, "LekStoneAridHillOrd");
+		hillArid[i], hillArid[j] = hillArid[j], hillArid[i];
+	end
+	for _, c in ipairs(flatTemperate) do
+		if self:AttemptToPlaceStoneAtGrassPlot(c[1], c[2]) then
+			return true;
+		end
+	end
+	for _, c in ipairs(flatArid) do
+		if self:AttemptToPlaceStoneAtGrassPlot(c[1], c[2]) then
+			return true;
+		end
+	end
+	for _, c in ipairs(hillArid) do
+		local thresh = 22;
+		local hp = Map.GetPlot(c[1], c[2]);
+		if hp and hp:GetTerrainType() == TerrainTypes.TERRAIN_SNOW then
+			thresh = math.floor(22 * 0.8);
+		end
+		if Map.Rand(100, "LekStoneAridHillTry") < thresh then
+			if self:AttemptToPlaceStoneAtGrassPlot(c[1], c[2]) then
+				return true;
+			end
+		end
+	end
+	return false;
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekApplyStartRingsHillMountainPolicy(x, y)
+	local iW, iH = Map.GetGridSize();
+	local TARGET_MIN_HILLS = 4;
+	local TARGET_MAX_MOUNTAINS = 2;
+	local evenRing = (y / 2 == math.floor(y / 2));
+	local ringAdj = evenRing
+		and { self.firstRingYIsEven, self.secondRingYIsEven }
+		or { self.firstRingYIsOdd, self.secondRingYIsOdd };
+	local plots = {};
+	for ri = 1, 2 do
+		for _, adj in ipairs(ringAdj[ri]) do
+			local sx, sy = self:ApplyHexAdjustment(x, y, adj);
+			if sx >= 0 and sx < iW and sy >= 0 and sy < iH then
+				local p = Map.GetPlot(sx, sy);
+				if p then
+					plots[#plots + 1] = p;
+				end
+			end
+		end
+	end
+	local function isNWPlot(p)
+		local ok, v = pcall(function() return p:IsNaturalWonder(); end);
+		return ok and v == true;
+	end
+	local function classify()
+		local nHill, nMtn = 0, 0;
+		local mtns, flats = {}, {};
+		for _, p in ipairs(plots) do
+			if not isNWPlot(p) then
+				local pt = p:GetPlotType();
+				if pt == PlotTypes.PLOT_MOUNTAIN then
+					nMtn = nMtn + 1;
+					mtns[#mtns + 1] = p;
+				elseif pt == PlotTypes.PLOT_HILLS then
+					nHill = nHill + 1;
+				elseif pt == PlotTypes.PLOT_LAND then
+					flats[#flats + 1] = p;
+				end
+			end
+		end
+		return nHill, nMtn, mtns, flats;
+	end
+	local nHill, nMtn, mtns, flats = classify();
+	for i = #mtns, 2, -1 do
+		local j = 1 + Map.Rand(i, "LekStartRingMtn");
+		mtns[i], mtns[j] = mtns[j], mtns[i];
+	end
+	local mi = 1;
+	while nMtn > TARGET_MAX_MOUNTAINS and mi <= #mtns do
+		mtns[mi]:SetPlotType(PlotTypes.PLOT_HILLS, false, true);
+		mi = mi + 1;
+		nMtn = nMtn - 1;
+		nHill = nHill + 1;
+	end
+	nHill, nMtn, mtns, flats = classify();
+	for i = #flats, 2, -1 do
+		local j = 1 + Map.Rand(i, "LekStartRingHill");
+		flats[i], flats[j] = flats[j], flats[i];
+	end
+	local fi = 1;
+	while nHill < TARGET_MIN_HILLS and fi <= #flats do
+		flats[fi]:SetPlotType(PlotTypes.PLOT_HILLS, false, true);
+		fi = fi + 1;
+		nHill = nHill + 1;
 	end
 end
 ------------------------------------------------------------------------------
@@ -8848,6 +9198,9 @@ function AssignStartingPlots:NormalizeStartLocation(region_number)
 	print("-------------------------------- NormalizeStartLocation started -------------------------------- ")
 	local iW, iH = Map.GetGridSize();
 	local start_point_data = self.startingPlots[region_number];
+	if not start_point_data or type(start_point_data[1]) ~= "number" or type(start_point_data[2]) ~= "number" then
+		return;
+	end
 	local x = start_point_data[1];
 	local y = start_point_data[2];
 	local plot = Map.GetPlot(x, y);
@@ -8867,7 +9220,8 @@ function AssignStartingPlots:NormalizeStartLocation(region_number)
 	
 	-- Remove any feature Ice from the first ring.
 	self:GenerateLuxuryPlotListsAtCitySite(x, y, 1, true)
-	
+	self:LekApplyStartRingsHillMountainPolicy(x, y)
+
 	print("%%%%%%%%%%%%%%%% PLOT EVALUATION %%%%%%%%%%%%%%%%");
 	print("Evaluation for region: ", region_number, "At Location: ", x, y);
 	
@@ -9541,40 +9895,22 @@ function AssignStartingPlots:NormalizeStartLocation(region_number)
 		local tried_all_second_ring = false;
 		while iNumStoneNeeded > 0 do
 			if innerPlaced < 1 and tried_all_first_ring == false then
-				-- Add bonus to inner ring.
-				for attempt = 1, 6 do
-					local plot_adjustments = randomized_first_ring_adjustments[attempt];
-					local searchX, searchY = self:ApplyHexAdjustment(x, y, plot_adjustments)
-					-- Attempt to place Cows at the currently chosen plot.
-					local placedBonus = self:AttemptToPlaceStoneAtGrassPlot(searchX, searchY);
-					if placedBonus == true then
-						--print("Placed Stone in first ring at ", searchX, searchY);
-						innerPlaced = innerPlaced + 1;
-						iNumStoneNeeded = iNumStoneNeeded - 1;
-						break
-					elseif attempt == 6 then
-						tried_all_first_ring = true;
-					end
+				if self:LekTryPlaceStoneOnRingPrefHills(x, y, randomized_first_ring_adjustments) then
+					innerPlaced = innerPlaced + 1;
+					iNumStoneNeeded = iNumStoneNeeded - 1;
+				else
+					tried_all_first_ring = true;
 				end
 
 			elseif tried_all_second_ring == false then
-				-- Add bonus to second ring.
-				for attempt = 1, 12 do
-					local plot_adjustments = randomized_second_ring_adjustments[attempt];
-					local searchX, searchY = self:ApplyHexAdjustment(x, y, plot_adjustments)
-					-- Attempt to place Stone at the currently chosen plot.
-					local placedBonus = self:AttemptToPlaceStoneAtGrassPlot(searchX, searchY);
-					if placedBonus == true then
-						--print("Placed Stone in second ring at ", searchX, searchY);
-						iNumStoneNeeded = iNumStoneNeeded - 1;
-						break
-					elseif attempt == 12 then
-						tried_all_second_ring = true;
-					end
+				if self:LekTryPlaceStoneOnRingPrefHills(x, y, randomized_second_ring_adjustments) then
+					iNumStoneNeeded = iNumStoneNeeded - 1;
+				else
+					tried_all_second_ring = true;
 				end
 
-			else -- Tried everywhere, have to give up.
-				break				
+			else
+				break
 			end
 		end
 	end
@@ -9716,7 +10052,7 @@ function AssignStartingPlots:BalanceAndAssign(args)
 		end
 		for loop = 1, self.iNumCivs or 0 do
 			local player_ID = self.player_ID_list[loop];
-			local player = Players[player_ID];
+			local player = LekSafeMajorPlayer(player_ID);
 			if player then
 				player:SetStartingPlot(nil);
 			end
@@ -9733,10 +10069,15 @@ function AssignStartingPlots:BalanceAndAssign(args)
 		self:NormalizeStartLocation(region_number)
 	end
 
+	local function LekBA_RegionHasValidStart(rn)
+		local sp = self.startingPlots[rn];
+		return sp ~= nil and type(sp[1]) == "number" and type(sp[2]) == "number";
+	end
+
 	-- Check Game Option for disabling civ-specific biases.
 	-- If they are to be disabled, then all civs are simply assigned to start plots at random.
 	local bDisableStartBias = Game.GetCustomOption("GAMEOPTION_DISABLE_START_BIAS");
-	if bDisableStartBias == 1 then
+	if bDisableStartBias == 1 or self._lek_ignore_all_start_bias == true then
 		--print("-"); print("ALERT: Civ Start Biases have been selected to be Disabled!"); print("-");
 		local playerList = {};
 		for loop = 1, self.iNumCivs do
@@ -9745,12 +10086,15 @@ function AssignStartingPlots:BalanceAndAssign(args)
 		end
 		local playerListShuffled = GetShuffledCopyOfTable(playerList)
 		for region_number, player_ID in ipairs(playerListShuffled) do
-			local x = self.startingPlots[region_number][1];
-			local y = self.startingPlots[region_number][2];
-			local start_plot = Map.GetPlot(x, y)
-			local player = Players[player_ID]
-			local i = y * iW + x + 1;
-			player:SetStartingPlot(start_plot)
+			local sp = self.startingPlots[region_number];
+			if sp and type(sp[1]) == "number" and type(sp[2]) == "number" then
+				local x, y = sp[1], sp[2];
+				local start_plot = Map.GetPlot(x, y);
+				local player = LekSafeMajorPlayer(player_ID);
+				if player and start_plot then
+					player:SetStartingPlot(start_plot);
+				end
+			end
 		end
 		-- If this is a team game (any team has more than one Civ in it) then make 
 		-- sure team members start near each other if possible. (This may scramble 
@@ -9792,7 +10136,10 @@ function AssignStartingPlots:BalanceAndAssign(args)
 	-- that come before. In other words, each Civ can have only one need type.
 	for loop = 1, self.iNumCivs do
 		local playerNum = self.player_ID_list[loop]; -- MP games can have gaps between player numbers, so we cannot assume a sequential set of IDs.
-		local player = Players[playerNum];
+		local player = LekSafeMajorPlayer(playerNum);
+		if not player then
+			print("BalanceAndAssign: LekSafeMajorPlayer nil for slot", playerNum);
+		else
 		local civType = GameInfo.Civilizations[player:GetCivilizationType()].Type;
 		print("Player", playerNum, "of Civ Type", civType);
 		local bNeedsCoastalStart = CivNeedsCoastalStart(civType)
@@ -9837,6 +10184,7 @@ function AssignStartingPlots:BalanceAndAssign(args)
 					end
 				end
 			end
+		end
 		end
 	end
 	
@@ -9895,31 +10243,59 @@ function AssignStartingPlots:BalanceAndAssign(args)
 	
 	-- Handle Coastal Start Bias
 	if iNumCoastalCivs > 0 then
-		-- Generate lists of regions eligible to support a coastal start.
 		local iNumRegionsWithCoastalStart, iNumRegionsWithLakeStart, iNumUnassignableCoastStarts = 0, 0, 0;
+		local forceTwoCoast = (self.BalancedCoastalExactTwo == true) and (self.ForceAllInlandPlayerSpawns ~= true);
 		for region_number, bAlreadyAssigned in ipairs(region_status) do
 			if bAlreadyAssigned == false then
-				if self.startLocationConditions[region_number][1] == true then
+				local slcRN = self.startLocationConditions[region_number];
+				if slcRN and slcRN[1] == true then
 					print("Region#", region_number, "has a Coastal Start.");
 					iNumRegionsWithCoastalStart = iNumRegionsWithCoastalStart + 1;
 					table.insert(regions_with_coastal_start, region_number);
 				end
 			end
 		end
-		if iNumRegionsWithCoastalStart < iNumCoastalCivs then
+		if forceTwoCoast then
+			regions_with_coastal_start = {};
+			iNumRegionsWithCoastalStart = 0;
 			for region_number, bAlreadyAssigned in ipairs(region_status) do
 				if bAlreadyAssigned == false then
-					if self.startLocationConditions[region_number][2] == true and
-					   self.startLocationConditions[region_number][1] == false then
-						print("Region#", region_number, "has a Lake Start.");
-						iNumRegionsWithLakeStart = iNumRegionsWithLakeStart + 1;
-						table.insert(regions_with_lake_start, region_number);
+					local t = self.startingPlots[region_number];
+					if t and type(t[1]) == "number" and type(t[2]) == "number" then
+						local pi = t[2] * iW + t[1] + 1;
+						if self.plotDataIsCoastal[pi] == true then
+							iNumRegionsWithCoastalStart = iNumRegionsWithCoastalStart + 1;
+							table.insert(regions_with_coastal_start, region_number);
+						end
 					end
 				end
 			end
-		end
-		if iNumRegionsWithCoastalStart + iNumRegionsWithLakeStart < iNumCoastalCivs then
-			iNumUnassignableCoastStarts = iNumCoastalCivs - (iNumRegionsWithCoastalStart + iNumRegionsWithLakeStart);
+			regions_with_coastal_start = lek_rank_regions_for_map_center_band(regions_with_coastal_start);
+			while #regions_with_coastal_start > 2 do
+				table.remove(regions_with_coastal_start, #regions_with_coastal_start);
+			end
+			iNumRegionsWithCoastalStart = #regions_with_coastal_start;
+			iNumRegionsWithLakeStart = 0;
+			regions_with_lake_start = {};
+			if iNumRegionsWithCoastalStart < iNumCoastalCivs then
+				iNumUnassignableCoastStarts = iNumCoastalCivs - iNumRegionsWithCoastalStart;
+			end
+		else
+			if iNumRegionsWithCoastalStart < iNumCoastalCivs then
+				for region_number, bAlreadyAssigned in ipairs(region_status) do
+					if bAlreadyAssigned == false then
+						local slcRN = self.startLocationConditions[region_number];
+						if slcRN and slcRN[2] == true and slcRN[1] == false then
+							print("Region#", region_number, "has a Lake Start.");
+							iNumRegionsWithLakeStart = iNumRegionsWithLakeStart + 1;
+							table.insert(regions_with_lake_start, region_number);
+						end
+					end
+				end
+			end
+			if iNumRegionsWithCoastalStart + iNumRegionsWithLakeStart < iNumCoastalCivs then
+				iNumUnassignableCoastStarts = iNumCoastalCivs - (iNumRegionsWithCoastalStart + iNumRegionsWithLakeStart);
+			end
 		end
 		-- Now assign those with coastal bias to start locations, where possible.
 		print("iNumCoastalCivs: " .. iNumCoastalCivs);
@@ -9977,8 +10353,10 @@ function AssignStartingPlots:BalanceAndAssign(args)
 					local x = self.startingPlots[choose_this_region][1];
 					local y = self.startingPlots[choose_this_region][2];
 					local plot = Map.GetPlot(x, y);
-					local player = Players[playerNum];
-					player:SetStartingPlot(plot);
+					local player = LekSafeMajorPlayer(playerNum);
+					if player and plot then
+						player:SetStartingPlot(plot);
+					end
 					--print("Player Number", playerNum, "assigned a COASTAL START BIAS location in Region#", choose_this_region, "at Plot", x, y);
 					region_status[choose_this_region] = true;
 					civ_status[playerNum + 1] = true;
@@ -9991,15 +10369,16 @@ function AssignStartingPlots:BalanceAndAssign(args)
 					if a then
 						table.remove(regions_still_available, c[1]);
 					end
-				else
-					-- Out of coastal starts, assign this civ to region with lake start.
+				elseif not forceTwoCoast and iNumRegionsWithLakeStart > 0
+					and loop <= iNumRegionsWithCoastalStart + iNumRegionsWithLakeStart then
 					local choose_this_region = shuffled_lake_regions[current_lake_index];
 					local x = self.startingPlots[choose_this_region][1];
 					local y = self.startingPlots[choose_this_region][2];
 					local plot = Map.GetPlot(x, y);
-					local player = Players[playerNum];
-					player:SetStartingPlot(plot);
-					--print("Player Number", playerNum, "with Coastal Bias assigned a fallback Lake location in Region#", choose_this_region, "at Plot", x, y);
+					local player = LekSafeMajorPlayer(playerNum);
+					if player and plot then
+						player:SetStartingPlot(plot);
+					end
 					region_status[choose_this_region] = true;
 					civ_status[playerNum + 1] = true;
 					iNumCoastalCivsRemaining = iNumCoastalCivsRemaining - 1;
@@ -10012,6 +10391,8 @@ function AssignStartingPlots:BalanceAndAssign(args)
 						table.remove(regions_still_available, c[1]);
 					end
 					current_lake_index = current_lake_index + 1;
+				else
+					break;
 				end
 			end
 		--else
@@ -10025,7 +10406,8 @@ function AssignStartingPlots:BalanceAndAssign(args)
 		local iNumRegionsWithRiverStart, iNumRegionsNearRiverStart, iNumUnassignableRiverStarts = 0, 0, 0;
 		for region_number, bAlreadyAssigned in ipairs(region_status) do
 			if bAlreadyAssigned == false then
-				if self.startLocationConditions[region_number][3] == true then
+				local slcRN = self.startLocationConditions[region_number];
+				if slcRN and slcRN[3] == true then
 					iNumRegionsWithRiverStart = iNumRegionsWithRiverStart + 1;
 					table.insert(regions_with_river_start, region_number);
 				end
@@ -10033,8 +10415,8 @@ function AssignStartingPlots:BalanceAndAssign(args)
 		end
 		for region_number, bAlreadyAssigned in ipairs(region_status) do
 			if bAlreadyAssigned == false then
-				if self.startLocationConditions[region_number][4] == true and
-				   self.startLocationConditions[region_number][3] == false then
+				local slcRN = self.startLocationConditions[region_number];
+				if slcRN and slcRN[4] == true and slcRN[3] == false then
 					iNumRegionsNearRiverStart = iNumRegionsNearRiverStart + 1;
 					table.insert(regions_with_near_river_start, region_number);
 				end
@@ -10066,8 +10448,10 @@ function AssignStartingPlots:BalanceAndAssign(args)
 					local x = self.startingPlots[choose_this_region][1];
 					local y = self.startingPlots[choose_this_region][2];
 					local plot = Map.GetPlot(x, y);
-					local player = Players[playerNum];
-					player:SetStartingPlot(plot);
+					local player = LekSafeMajorPlayer(playerNum);
+					if player and plot then
+						player:SetStartingPlot(plot);
+					end
 					--print("Player Number", playerNum, "assigned a RIVER START BIAS location in Region#", choose_this_region, "at Plot", x, y);
 					region_status[choose_this_region] = true;
 					civ_status[playerNum + 1] = true;
@@ -10081,8 +10465,10 @@ function AssignStartingPlots:BalanceAndAssign(args)
 					local x = self.startingPlots[choose_this_region][1];
 					local y = self.startingPlots[choose_this_region][2];
 					local plot = Map.GetPlot(x, y);
-					local player = Players[playerNum];
-					player:SetStartingPlot(plot);
+					local player = LekSafeMajorPlayer(playerNum);
+					if player and plot then
+						player:SetStartingPlot(plot);
+					end
 					--print("Player Number", playerNum, "with River Bias assigned a fallback 'near river' location in Region#", choose_this_region, "at Plot", x, y);
 					region_status[choose_this_region] = true;
 					civ_status[playerNum + 1] = true;
@@ -10099,7 +10485,8 @@ function AssignStartingPlots:BalanceAndAssign(args)
 			local fallbacks_with_river_start, fallbacks_with_near_river_start = {}, {};
 			for region_number, bAlreadyAssigned in ipairs(region_status) do
 				if bAlreadyAssigned == false then
-					if self.startLocationConditions[region_number][3] == true then
+					local slcRN = self.startLocationConditions[region_number];
+					if slcRN and slcRN[3] == true then
 						iNumFallbacksWithRiverStart = iNumFallbacksWithRiverStart + 1;
 						table.insert(fallbacks_with_river_start, region_number);
 					end
@@ -10107,8 +10494,8 @@ function AssignStartingPlots:BalanceAndAssign(args)
 			end
 			for region_number, bAlreadyAssigned in ipairs(region_status) do
 				if bAlreadyAssigned == false then
-					if self.startLocationConditions[region_number][4] == true and
-					   self.startLocationConditions[region_number][3] == false then
+					local slcRN = self.startLocationConditions[region_number];
+					if slcRN and slcRN[4] == true and slcRN[3] == false then
 						iNumFallbacksNearRiverStart = iNumFallbacksNearRiverStart + 1;
 						table.insert(fallbacks_with_near_river_start, region_number);
 					end
@@ -10136,8 +10523,10 @@ function AssignStartingPlots:BalanceAndAssign(args)
 						local x = self.startingPlots[choose_this_region][1];
 						local y = self.startingPlots[choose_this_region][2];
 						local plot = Map.GetPlot(x, y);
-						local player = Players[playerNum];
-						player:SetStartingPlot(plot);
+						local player = LekSafeMajorPlayer(playerNum);
+						if player and plot then
+							player:SetStartingPlot(plot);
+						end
 						--print("Player Number", playerNum, "with Coastal Bias assigned a fallback river location in Region#", choose_this_region, "at Plot", x, y);
 						region_status[choose_this_region] = true;
 						civ_status[playerNum + 1] = true;
@@ -10151,8 +10540,10 @@ function AssignStartingPlots:BalanceAndAssign(args)
 						local x = self.startingPlots[choose_this_region][1];
 						local y = self.startingPlots[choose_this_region][2];
 						local plot = Map.GetPlot(x, y);
-						local player = Players[playerNum];
-						player:SetStartingPlot(plot);
+						local player = LekSafeMajorPlayer(playerNum);
+						if player and plot then
+							player:SetStartingPlot(plot);
+						end
 						--print("Player Number", playerNum, "with Coastal Bias assigned a fallback 'near river' location in Region#", choose_this_region, "at Plot", x, y);
 						region_status[choose_this_region] = true;
 						civ_status[playerNum + 1] = true;
@@ -10205,20 +10596,22 @@ function AssignStartingPlots:BalanceAndAssign(args)
 				print("* Attempting to assign Player#", iPlayerNum, "to a region of Type#", iPriorityType);
 				local bFoundCandidate, candidate_regions = false, {};
 				for test_loop, region_number in ipairs(regions_still_available) do
-					if self.regionTypes[region_number] == iPriorityType then
+					if self.regionTypes[region_number] == iPriorityType and LekBA_RegionHasValidStart(region_number) then
 						table.insert(candidate_regions, region_number);
 						bFoundCandidate = true;
 						--print("- - Found candidate: Region#", region_number);
 					end
 				end
-				if bFoundCandidate then
-					local diceroll = 1 + Map.Rand(table.maxn(candidate_regions), "Choosing from among Candidate Regions for start bias - LUA");
+				if bFoundCandidate and #candidate_regions > 0 then
+					local diceroll = 1 + Map.Rand(#candidate_regions, "Choosing from among Candidate Regions for start bias - LUA");
 					local choose_this_region = candidate_regions[diceroll];
 					local x = self.startingPlots[choose_this_region][1];
 					local y = self.startingPlots[choose_this_region][2];
 					local plot = Map.GetPlot(x, y);
-					local player = Players[iPlayerNum];
-					player:SetStartingPlot(plot);
+					local player = LekSafeMajorPlayer(iPlayerNum);
+					if player and plot then
+						player:SetStartingPlot(plot);
+					end
 					print("Player Number", iPlayerNum, "with single Region Priority assigned to Region#", choose_this_region, "at Plot", x, y);
 					region_status[choose_this_region] = true;
 					civ_status[iPlayerNum + 1] = true;
@@ -10250,23 +10643,27 @@ function AssignStartingPlots:BalanceAndAssign(args)
 				--print("* Attempting to assign Player#", iPlayerNum, "to one of its Priority Region Types.");
 				local bFoundCandidate, candidate_regions = false, {};
 				for test_loop, region_number in ipairs(regions_still_available) do
-					for inner_loop = 1, iNumPriorityTypes do
-						local region_type_to_test = priority_lists[iPlayerNum][inner_loop];
-						if self.regionTypes[region_number] == region_type_to_test then
-							table.insert(candidate_regions, region_number);
-							bFoundCandidate = true;
-							--print("- - Found candidate: Region#", region_number);
+					if LekBA_RegionHasValidStart(region_number) then
+						for inner_loop = 1, iNumPriorityTypes do
+							local region_type_to_test = priority_lists[iPlayerNum][inner_loop];
+							if self.regionTypes[region_number] == region_type_to_test then
+								table.insert(candidate_regions, region_number);
+								bFoundCandidate = true;
+								--print("- - Found candidate: Region#", region_number);
+							end
 						end
 					end
 				end
-				if bFoundCandidate then
-					local diceroll = 1 + Map.Rand(table.maxn(candidate_regions), "Choosing from among Candidate Regions for start bias - LUA");
+				if bFoundCandidate and #candidate_regions > 0 then
+					local diceroll = 1 + Map.Rand(#candidate_regions, "Choosing from among Candidate Regions for start bias - LUA");
 					local choose_this_region = candidate_regions[diceroll];
 					local x = self.startingPlots[choose_this_region][1];
 					local y = self.startingPlots[choose_this_region][2];
 					local plot = Map.GetPlot(x, y);
-					local player = Players[iPlayerNum];
-					player:SetStartingPlot(plot);
+					local player = LekSafeMajorPlayer(iPlayerNum);
+					if player and plot then
+						player:SetStartingPlot(plot);
+					end
 					--print("Player Number", iPlayerNum, "with multiple Region Priority assigned to Region#", choose_this_region, "at Plot", x, y);
 					region_status[choose_this_region] = true;
 					civ_status[iPlayerNum + 1] = true;
@@ -10288,12 +10685,16 @@ function AssignStartingPlots:BalanceAndAssign(args)
 				local choose_this_region = self:FindFallbackForUnmatchedRegionPriority(iPriorityType, regions_still_available)
 				if choose_this_region == -1 then
 					--print("FAILED to find fallback region bias for player#", iPlayerNum);
+				elseif not LekBA_RegionHasValidStart(choose_this_region) then
+					print("BalanceAndAssign: FindFallback region#", choose_this_region, "has no startingPlots slot; skip player#", iPlayerNum);
 				else
 					local x = self.startingPlots[choose_this_region][1];
 					local y = self.startingPlots[choose_this_region][2];
 					local plot = Map.GetPlot(x, y);
-					local player = Players[iPlayerNum];
-					player:SetStartingPlot(plot);
+					local player = LekSafeMajorPlayer(iPlayerNum);
+					if player and plot then
+						player:SetStartingPlot(plot);
+					end
 					--print("Player Number", iPlayerNum, "with single Region Priority assigned to FALLBACK Region#", choose_this_region, "at Plot", x, y);
 					region_status[choose_this_region] = true;
 					civ_status[iPlayerNum + 1] = true;
@@ -10338,19 +10739,21 @@ function AssignStartingPlots:BalanceAndAssign(args)
 						bFoundCandidate = false;
 					end
 				end
-				if bFoundCandidate == true then
+				if bFoundCandidate == true and LekBA_RegionHasValidStart(region_number) then
 					table.insert(candidate_regions, region_number);
 					--print("- - Found candidate: Region#", region_number)
 				end
 			end
-			if table.maxn(candidate_regions) > 0 then
-				local diceroll = 1 + Map.Rand(table.maxn(candidate_regions), "Choosing from among Candidate Regions for start bias - LUA");
+			if #candidate_regions > 0 then
+				local diceroll = 1 + Map.Rand(#candidate_regions, "Choosing from among Candidate Regions for start bias - LUA");
 				local choose_this_region = candidate_regions[diceroll];
 				local x = self.startingPlots[choose_this_region][1];
 				local y = self.startingPlots[choose_this_region][2];
 				local plot = Map.GetPlot(x, y);
-				local player = Players[iPlayerNum];
-				player:SetStartingPlot(plot);
+				local player = LekSafeMajorPlayer(iPlayerNum);
+				if player and plot then
+					player:SetStartingPlot(plot);
+				end
 				--print("Player Number", iPlayerNum, "with Region Avoid assigned to allowed region type in Region#", choose_this_region, "at Plot", x, y);
 				region_status[choose_this_region] = true;
 				civ_status[iPlayerNum + 1] = true;
@@ -10392,16 +10795,18 @@ function AssignStartingPlots:BalanceAndAssign(args)
 				local x = self.startingPlots[region_number][1];
 				local y = self.startingPlots[region_number][2];
 				local start_plot = Map.GetPlot(x, y)
-				local player = Players[player_ID]
-				player:SetStartingPlot(start_plot)
+				local player = LekSafeMajorPlayer(player_ID)
+				if player and start_plot then
+					player:SetStartingPlot(start_plot)
+				end
 			end
 		end
 	end
 
-	-- Rescue pass: guarantee every player has a starting plot.
-	-- If any player is missing one after all bias handling above, assign them to
-	-- any leftover unassigned region, or the best available region as last resort.
+	-- Rescue pass: guarantee every player has a starting plot (non-global-six), or
+	-- leave nil and log when global-six 6p would duplicate a region / stack majors.
 	local rescue_log = {};
+	local strictSixNoStackedRescue = (self._lek_global_six_solver == true) and ((self.iNumCivs or 0) == 6);
 	local all_region_pool = {};
 	for r = 1, self.iNumCivs do
 		if self.startingPlots[r] ~= nil then
@@ -10410,10 +10815,9 @@ function AssignStartingPlots:BalanceAndAssign(args)
 	end
 	for loop = 1, self.iNumCivs do
 		local player_ID = self.player_ID_list[loop];
-		local player = Players[player_ID];
-		local sp = player:GetStartingPlot();
+		local player = LekSafeMajorPlayer(player_ID);
+		local sp = player and player:GetStartingPlot();
 		if sp == nil then
-			-- Find an unoccupied region first.
 			local rescue_region = nil;
 			for _, r in ipairs(all_region_pool) do
 				if region_status[r] == false then
@@ -10421,17 +10825,23 @@ function AssignStartingPlots:BalanceAndAssign(args)
 					break;
 				end
 			end
-			-- If all regions are taken, fall back to any region (last resort).
-			if rescue_region == nil then
+			if rescue_region == nil and not strictSixNoStackedRescue then
 				rescue_region = all_region_pool[1];
+			end
+			if strictSixNoStackedRescue and rescue_region ~= nil and region_status[rescue_region] == true then
+				rescue_region = nil;
 			end
 			if rescue_region ~= nil and self.startingPlots[rescue_region] ~= nil then
 				local rx = self.startingPlots[rescue_region][1];
 				local ry = self.startingPlots[rescue_region][2];
 				local rescue_plot = Map.GetPlot(rx, ry);
-				player:SetStartingPlot(rescue_plot);
+				if player and rescue_plot then
+					player:SetStartingPlot(rescue_plot);
+				end
 				region_status[rescue_region] = true;
 				table.insert(rescue_log, "pid=" .. player_ID .. " rescued->region=" .. rescue_region .. " x=" .. rx .. " y=" .. ry);
+			elseif strictSixNoStackedRescue then
+				table.insert(rescue_log, "pid=" .. player_ID .. " RESCUE SKIPPED strict_global_six_no_free_region");
 			else
 				table.insert(rescue_log, "pid=" .. player_ID .. " RESCUE FAILED no valid region");
 			end
@@ -10456,6 +10866,9 @@ function AssignStartingPlots:BalanceAndAssign(args)
 		if not _okPAud then
 			LekPlacementProbeAt(1, "### LekGlobalSix ruleAuditAfterPlayers pcall_err runId="
 				.. tostring(_lek_run_id or "na") .. " err=" .. tostring(_errPAud));
+		end
+		if _lek_global_six_request_map_regen ~= true then
+			self:LekAssertGlobalSixPlayerMinPairwiseOrRegen();
 		end
 	end
 	--	
@@ -11349,6 +11762,38 @@ function AssignStartingPlots:AttemptToPlaceNaturalWonder(wonder_number, row_numb
 			end
 			-- Now place this wonder and record the placement.
 			plot:SetFeatureType(feature_type_to_place)
+			local nwTag = self.wonder_list[wonder_number];
+			local nwu = nwTag and string.upper(tostring(nwTag)) or "";
+			if nwu == "FEATURE_FUJI" then
+				local wantForest = 2;
+				local dirs = {};
+				for _, direction in ipairs(self.direction_types) do
+					dirs[#dirs + 1] = direction;
+				end
+				for i = #dirs, 2, -1 do
+					local j = 1 + Map.Rand(i, "Lek Fuji forest order");
+					dirs[i], dirs[j] = dirs[j], dirs[i];
+				end
+				local placedFujiForest = 0;
+				for _, direction in ipairs(dirs) do
+					if placedFujiForest >= wantForest then
+						break;
+					end
+					local adjPlot = Map.PlotDirection(x, y, direction);
+					if adjPlot and not adjPlot:IsWater() then
+						local pt = adjPlot:GetPlotType();
+						local tt = adjPlot:GetTerrainType();
+						local ft = adjPlot:GetFeatureType();
+						if ft == FeatureTypes.NO_FEATURE
+							and tt ~= TerrainTypes.TERRAIN_DESERT
+							and tt ~= TerrainTypes.TERRAIN_SNOW
+							and (pt == PlotTypes.PLOT_LAND or pt == PlotTypes.PLOT_HILLS) then
+							adjPlot:SetFeatureType(FeatureTypes.FEATURE_FOREST, -1);
+							placedFujiForest = placedFujiForest + 1;
+						end
+					end
+				end
+			end
 			table.insert(self.placed_natural_wonder, wonder_number);
 			local nwRipple = math.floor(iH / 5);
 			if (self.wonder_list[wonder_number] == "FEATURE_KING_SOLOMONS_MINES" or self.wonder_list[wonder_number] == "FEATURE_SOLOMONS_MINES") and plotIndex == _solomons_island_mines_plot then
@@ -11637,10 +12082,12 @@ function AssignStartingPlots:AssignCityStatesToRegionsOrToUninhabited(args)
 							iNumCivLandmassPlots = iNumCivLandmassPlots + 1;
 						else
 							iNumUninhabitedLandmassPlots = iNumUninhabitedLandmassPlots + 1;
-							if self.plotDataIsCoastal[plotIndex] == true then
-								table.insert(self.uninhabited_areas_coastal_plots, plotIndex);
-							else
-								table.insert(self.uninhabited_areas_inland_plots, plotIndex);
+							if self:CanPlaceCityStateAt(x, y, -1, false, false) == true then
+								if self.plotDataIsCoastal[plotIndex] == true then
+									table.insert(self.uninhabited_areas_coastal_plots, plotIndex);
+								else
+									table.insert(self.uninhabited_areas_inland_plots, plotIndex);
+								end
 							end
 						end
 					else -- AreaID-based method must be applied, which cannot all be done in this loop
@@ -11677,10 +12124,12 @@ function AssignStartingPlots:AssignCityStatesToRegionsOrToUninhabited(args)
 						local plot = Map.GetPlot(x, y);
 						local terrainType = plot:GetTerrainType();
 						if terrainType ~= TerrainTypes.TERRAIN_SNOW then
-							if self.plotDataIsCoastal[plotIndex] == true then
-								table.insert(self.uninhabited_areas_coastal_plots, plotIndex);
-							else
-								table.insert(self.uninhabited_areas_inland_plots, plotIndex);
+							if self:CanPlaceCityStateAt(x, y, -1, false, false) == true then
+								if self.plotDataIsCoastal[plotIndex] == true then
+									table.insert(self.uninhabited_areas_coastal_plots, plotIndex);
+								else
+									table.insert(self.uninhabited_areas_inland_plots, plotIndex);
+								end
 							end
 						end
 					end
@@ -11791,9 +12240,16 @@ end
 ------------------------------------------------------------------------------
 function AssignStartingPlots:CanPlaceCityStateAt(x, y, area_ID, force_it, ignore_collisions)
 	local iW, iH = Map.GetGridSize();
-	local edgeRowsNorthSouth = 3;
-	if iH > edgeRowsNorthSouth * 2 then
-		if y < edgeRowsNorthSouth or y > iH - 1 - edgeRowsNorthSouth then
+	local wrapX = Map.IsWrapX and Map:IsWrapX();
+	local wrapY = Map.IsWrapY and Map:IsWrapY();
+	local edgeStrip = 4;
+	if not wrapY then
+		if y < edgeStrip or y > iH - 1 - edgeStrip then
+			return false;
+		end
+	end
+	if not wrapX then
+		if x < edgeStrip or x > iW - 1 - edgeStrip then
 			return false;
 		end
 	end
@@ -12087,6 +12543,9 @@ function AssignStartingPlots:PlaceCityState(coastal_plot_list, inland_plot_list,
 		local chosen = choose_preferred_nearby(selected_plot_index);
 		local x = (chosen - 1) % iW;
 		local y = (chosen - x - 1) / iW;
+		if self:CanPlaceCityStateAt(x, y, refine_area_id, false, false) ~= true then
+			return 0, 0, false;
+		end
 		self._lek_cs_place_success = (self._lek_cs_place_success or 0) + 1;
 		return x, y, true;
 	end
@@ -12923,6 +13382,7 @@ end
 ------------------------------------------------------------------------------
 function AssignStartingPlots:GenerateGlobalResourcePlotLists()
 	-- This function generates all global plot lists needed for resource distribution.
+	self.barren_plots = 0;
 	local iW, iH = Map.GetGridSize();
 	local temp_coast_next_to_land_list, temp_marsh_list, temp_flood_plains_list = {}, {}, {};
 	local temp_hills_open_list, temp_hills_covered_list, temp_hills_jungle_list = {}, {}, {};
@@ -12940,7 +13400,7 @@ function AssignStartingPlots:GenerateGlobalResourcePlotLists()
 
 	local temp_hills_list, temp_coast_list, temp_lake_coast_fish, temp_grass_flat_no_feature = {}, {}, {}, {};
 	local temp_plains_hills_open = {};
-	local temp_tundra_flat_no_feature, temp_snow_flat_list, temp_land_list = {}, {}, {}, {};
+	local temp_tundra_flat_no_feature, temp_snow_flat_list, temp_snow_hills_open, temp_land_list = {}, {}, {}, {};
 	local temp_marble_list, temp_deer_list, temp_desert_wheat_list, temp_banana_list = {}, {}, {}, {};
 	--
 	for y = 0, iH - 1 do
@@ -13034,6 +13494,10 @@ function AssignStartingPlots:GenerateGlobalResourcePlotLists()
 					else
 						self.barren_plots = self.barren_plots + 1;					-- MOD.Barathor: Fixed
 						table.remove(temp_hills_list);								-- MOD.Barathor: Fixed
+					end
+				elseif plotType == PlotTypes.PLOT_HILLS and terrainType == TerrainTypes.TERRAIN_SNOW then
+					if featureType == FeatureTypes.NO_FEATURE then
+						table.insert(temp_snow_hills_open, i);
 					end
 				elseif featureType == FeatureTypes.FEATURE_MARSH then
 					table.insert(temp_marsh_list, i);
@@ -13173,6 +13637,7 @@ function AssignStartingPlots:GenerateGlobalResourcePlotLists()
 	self.grass_flat_no_feature = GetShuffledCopyOfTable(temp_grass_flat_no_feature)
 	self.tundra_flat_no_feature = GetShuffledCopyOfTable(temp_tundra_flat_no_feature)
 	self.snow_flat_list = GetShuffledCopyOfTable(temp_snow_flat_list)
+	self.snow_hills_open_list = GetShuffledCopyOfTable(temp_snow_hills_open)
 	self.hills_list = GetShuffledCopyOfTable(temp_hills_list)
 	self.land_list = GetShuffledCopyOfTable(temp_land_list)
 	self.coast_list = GetShuffledCopyOfTable(temp_coast_list)
@@ -13605,7 +14070,7 @@ function AssignStartingPlots:ProcessResourceList(frequency, impact_table_number,
 		return
 	end
 	local iW, iH = Map.GetGridSize();
-	local iNumTotalPlots = table.maxn(plot_list);
+	local iNumTotalPlots = LekHBPlotListLen(plot_list);
 	local iNumResourcesToPlace = math.ceil(iNumTotalPlots / frequency);
 	local res_ID, res_quantity, res_weight, res_min, res_max, res_range, res_threshold = {}, {}, {}, {}, {}, {}, {};
 	local totalWeight, accumulatedWeight = 0, 0;
@@ -13825,7 +14290,7 @@ function AssignStartingPlots:PlaceSpecificNumberOfResources(resource_ID, quantit
 	end
 	local iW, iH = Map.GetGridSize();
 	local iNumLeftToPlace = amount;
-	local iNumPlots = table.maxn(plot_list);
+	local iNumPlots = LekHBPlotListLen(plot_list);
 	local iNumResources = math.min(amount, math.ceil(ratio * iNumPlots));
 	-- Main loop
 	for place_resource = 1, iNumResources do
@@ -13834,7 +14299,7 @@ function AssignStartingPlots:PlaceSpecificNumberOfResources(resource_ID, quantit
 				local x = (plotIndex - 1) % iW;
 				local y = (plotIndex - x - 1) / iW;
 				local res_plot = Map.GetPlot(x, y)
-				if res_plot:GetResourceType(-1) == -1 then -- Placing this resource in this plot.
+				if res_plot and res_plot:GetResourceType(-1) == -1 then
 					res_plot:SetResourceType(resource_ID, quantity);
 					self.amounts_of_resources_placed[resource_ID + 1] = self.amounts_of_resources_placed[resource_ID + 1] + quantity;
 					--print("-"); print("Placed Resource#", resource_ID, "at Plot", x, y);
@@ -13897,7 +14362,10 @@ function AssignStartingPlots:LekCollectFishPlotIndicesNearStart(x, y, max_ring)
 	local wrapY = Map:IsWrapY();
 	local odd = self.firstRingYIsOdd;
 	local even = self.firstRingYIsEven;
-	local fish_list = {};
+	local byRing = {};
+	for r = 1, max_ring do
+		byRing[r] = {};
+	end
 	for ripple_radius = 1, max_ring do
 		local currentX = x - ripple_radius;
 		local currentY = y;
@@ -13928,7 +14396,7 @@ function AssignStartingPlots:LekCollectFishPlotIndicesNearStart(x, y, max_ring)
 					if plotType == PlotTypes.PLOT_OCEAN then
 						if featureType ~= self.feature_atoll and featureType ~= FeatureTypes.FEATURE_ICE then
 							if terrainType == TerrainTypes.TERRAIN_COAST and not plot:IsLake() then
-								table.insert(fish_list, realY * iW + realX + 1);
+								table.insert(byRing[ripple_radius], realY * iW + realX + 1);
 							end
 						end
 					end
@@ -13937,40 +14405,116 @@ function AssignStartingPlots:LekCollectFishPlotIndicesNearStart(x, y, max_ring)
 			end
 		end
 	end
+	local fish_list = {};
+	for r = 1, max_ring do
+		local ring = byRing[r];
+		if #ring > 0 then
+			ring = GetShuffledCopyOfTable(ring);
+			for _, idx in ipairs(ring) do
+				fish_list[#fish_list + 1] = idx;
+			end
+		end
+	end
 	return fish_list;
 end
 ------------------------------------------------------------------------------
-function AssignStartingPlots:LekPlaceFishNearStart(x, y, max_ring, count)
+function AssignStartingPlots:LekPlaceFishNearStart(x, y, max_ring, count, granary_cap)
 	if count == nil or count < 1 or self.fish_ID == nil then
 		return
 	end
-	local fish_list = self:LekCollectFishPlotIndicesNearStart(x, y, max_ring);
+	if granary_cap == nil then
+		granary_cap = 3;
+	end
+	local want = count;
+	if granary_cap > 0 then
+		local n = self:LekCountGranaryBudgetNearStart(x, y, max_ring);
+		local room = math.max(0, granary_cap - n);
+		want = math.min(count, room);
+		if want < count then
+			if self:LekTryStripOneStoneFromRing2NearStart(x, y) then
+				n = self:LekCountGranaryBudgetNearStart(x, y, max_ring);
+				room = math.max(0, granary_cap - n);
+				want = math.min(count, room);
+			end
+		end
+	end
+	if want < 1 then
+		return
+	end
+	local fish_list = self:LekFilterLakeFishIndicesAwayFromMajorStarts(
+		self:LekCollectFishPlotIndicesNearStart(x, y, max_ring), 4);
 	if #fish_list == 0 then
 		return
 	end
-	local shuf_list = GetShuffledCopyOfTable(fish_list);
-	self:PlaceSpecificNumberOfResources(self.fish_ID, 1, count, 1, -1, 0, 0, shuf_list);
+	self:PlaceSpecificNumberOfResources(self.fish_ID, 1, want, 1, -1, 0, 0, fish_list);
 end
 ------------------------------------------------------------------------------
-function AssignStartingPlots:LekFilterSecondLuxCandidatesForCoastalPackage(region_number, candidate_types)
-	local pkg = self._lek_coastal_lux_package[region_number]
-	local slc = self.startLocationConditions[region_number]
-	if pkg == nil or slc == nil or slc[1] ~= true then
-		return candidate_types
+-- Coastal cap fish (when not refish): from land-lux count near capital (rings 1–3). 3 land → 1 fish, 4+ land → 2 fish.
+function AssignStartingPlots:LekPlaceFishForCoastalLuxPackage(x, y, region_number, secondLuxId)
+	local cplot = Map.GetPlot(x, y);
+	if not (cplot and cplot:IsCoastalLand() and not self._lek_coastal_refish) then
+		return;
 	end
-	local filtered = {}
-	for _, res_ID in ipairs(candidate_types) do
-		local sea = self:LekIsSeaLuxuryResourceId(res_ID)
-		if (pkg == 'B' or pkg == 'C') and not sea then
-			table.insert(filtered, res_ID)
-		elseif (pkg == 'A' or pkg == 'D') and sea then
-			table.insert(filtered, res_ID)
+	local nLand = self:LekCountLandLuxuriesNearCapital(x, y, 3);
+	local nFish = 1;
+	if nLand >= 4 then
+		nFish = 2;
+	end
+	local fishRing = 3;
+	local granCap = 3;
+	if nFish >= 2 then
+		fishRing = 4;
+		granCap = 6;
+	end
+	self:LekPlaceFishNearStart(x, y, fishRing, nFish, granCap);
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekSanitizeFishNearMajorLakeCells(plotDistanceLimit)
+	if self.fish_ID == nil or self.startingPlots == nil then
+		return;
+	end
+	local dlim = plotDistanceLimit;
+	if type(dlim) ~= "number" or dlim < 1 then
+		dlim = 4;
+	end
+	local iW, iH = Map.GetGridSize();
+	local stripped = 0;
+	for y = 0, iH - 1 do
+		for x = 0, iW - 1 do
+			local plot = Map.GetPlot(x, y);
+			if plot and plot:GetResourceType(-1) == self.fish_ID and plot:IsLake() then
+				local kill = false;
+				for r = 1, self.iNumCivs or 0 do
+					local sp = self.startingPlots[r];
+					if sp and type(sp[1]) == "number" and type(sp[2]) == "number" then
+						local d = nil;
+						if Map.PlotDistance then
+							d = Map.PlotDistance(x, y, sp[1], sp[2]);
+						elseif PlotDistance then
+							d = PlotDistance(x, y, sp[1], sp[2]);
+						end
+						if d == nil then
+							d = self:LekGlobalSix_PlotDistance(x, y, sp[1], sp[2]);
+						end
+						if type(d) ~= "number" or d <= dlim then
+							kill = true;
+							break;
+						end
+					end
+				end
+				if kill then
+					plot:SetResourceType(-1);
+					stripped = stripped + 1;
+					if self.amounts_of_resources_placed and self.amounts_of_resources_placed[self.fish_ID + 1] then
+						self.amounts_of_resources_placed[self.fish_ID + 1] = math.max(0, self.amounts_of_resources_placed[self.fish_ID + 1] - 1);
+					end
+				end
+			end
 		end
 	end
-	if #filtered > 0 then
-		return filtered
+	if stripped > 0 then
+		LekMapgenFileTrace("### LekSanitizeFishNearMajorLakeCells stripped=", stripped, " dlim=", dlim);
 	end
-	return candidate_types
 end
 ------------------------------------------------------------------------------
 function AssignStartingPlots:AssignLuxuryToRegion(region_number)
@@ -14140,93 +14684,60 @@ function AssignStartingPlots:AssignLuxuryToRegion(region_number)
 	print("Coast Start: " .. tostring(is_coastal_start));
 	print("Coast Lux option (true=Guaranteed sea when eligible): " .. tostring(CoastLux));
 
-	local pick_coastal_uniform = false;
-	local coastal_pkg = nil;
-	if is_coastal_start and iNumAvailableTypes > 0 then
-		local num_land_types = iNumAvailableTypes - num_coast_lux;
-		if CoastLux == true and num_coast_lux > 0 then
-			coastal_pkg = 'B';
-			pick_coastal_uniform = true;
-		elseif num_coast_lux > 0 and num_land_types > 0 then
-			local r = Map.Rand(100, "Lek coastal lux package land-regional test");
-			if r < 45 then
-				coastal_pkg = 'A';
-			elseif r < 90 then
-				coastal_pkg = 'C';
-			elseif r < 95 then
-				coastal_pkg = 'B';
-				pick_coastal_uniform = true;
-			else
-				coastal_pkg = 'D';
-				pick_coastal_uniform = true;
-			end
-		elseif num_coast_lux > 0 and num_land_types == 0 then
-			local rsd = Map.Rand(100, "Lek coastal lux seaonly BD 90v10");
-			if rsd < 10 then
-				coastal_pkg = 'D';
-			else
-				coastal_pkg = 'B';
-			end
-			pick_coastal_uniform = true;
-		elseif num_coast_lux == 0 and num_land_types > 0 then
-			local r = Map.Rand(100, "Lek coastal lux landonly AC 90v10");
-			if r < 10 then
-				coastal_pkg = 'C';
-			else
-				coastal_pkg = 'A';
-			end
-		end
-		if coastal_pkg ~= nil then
-			self._lek_coastal_lux_package[region_number] = coastal_pkg;
+	local land_indices, sea_indices = {}, {};
+	for index = 1, iNumAvailableTypes do
+		if self:LekIsSeaLuxuryResourceId(resource_IDs[index]) then
+			table.insert(sea_indices, index);
+		else
+			table.insert(land_indices, index);
 		end
 	end
 
-	if pick_coastal_uniform then
-		local diceroll = 1 + Map.Rand(num_coast_lux, "Choose resource type - Assign Luxury To Region - Lua");
-		print("----------------------- Sea-lux bucket (uniform among eligible sea types) -----------------------");
-		print("Num Coastal Luxes: " .. tostring(num_coast_lux));
-		print("Diceroll: " .. tostring(diceroll));
-		use_this_ID = coastal_luxes[diceroll];
-		print("Res ID: " .. tostring(use_this_ID));
+	local function pickRegionalFromIndices(idxList)
+		if idxList == nil or #idxList == 0 then
+			return nil;
+		end
+		if #idxList == 1 then
+			return resource_IDs[idxList[1]];
+		end
+		local tw = 0;
+		for _, i in ipairs(idxList) do
+			tw = tw + (resource_weights[i] or 0);
+		end
+		if tw <= 0 then
+			local j = 1 + Map.Rand(#idxList, "AssignLuxuryToRegion subset uniform");
+			return resource_IDs[idxList[j]];
+		end
+		local r = Map.Rand(10000, "AssignLuxuryToRegion subset weighted");
+		local acc = 0;
+		for _, i in ipairs(idxList) do
+			acc = acc + (resource_weights[i] or 0) * 10000 / tw;
+			if r < acc then
+				return resource_IDs[i];
+			end
+		end
+		return resource_IDs[idxList[#idxList]];
+	end
+
+	if is_coastal_start and iNumAvailableTypes > 0 then
+		self._lek_coastal_lux_package[region_number] = nil;
+		if #sea_indices == 0 then
+			use_this_ID = pickRegionalFromIndices(land_indices);
+		elseif #land_indices == 0 then
+			use_this_ID = pickRegionalFromIndices(sea_indices);
+		elseif Map.Rand(2, "Lek coastal regional land v sea 50-50") == 0 then
+			use_this_ID = pickRegionalFromIndices(land_indices);
+		else
+			use_this_ID = pickRegionalFromIndices(sea_indices);
+		end
 	else
+		self._lek_coastal_lux_package[region_number] = nil;
 		local diceroll = Map.Rand(10000, "Choose resource type - Assign Luxury To Region - Lua");
 		print("Res Diceroll: " .. diceroll);
-		local use_land_only_weights = (is_coastal_start and num_coast_lux > 0 and CoastLux ~= true);
-		local land_indices = {};
-		if use_land_only_weights then
-			for index = 1, iNumAvailableTypes do
-				local id = resource_IDs[index];
-				if not self:LekIsSeaLuxuryResourceId(id) then
-					table.insert(land_indices, index);
-				end
-			end
-		end
-		if use_land_only_weights and #land_indices > 0 then
-			local twLand = 0;
-			for _, idx in ipairs(land_indices) do
-				twLand = twLand + resource_weights[idx];
-			end
-			if twLand > 0 then
-				local acc = 0;
-				local land_thr = {};
-				for _, idx in ipairs(land_indices) do
-					acc = acc + resource_weights[idx];
-					table.insert(land_thr, acc * 10000 / twLand);
-				end
-				for i = 1, #land_indices do
-					if diceroll <= land_thr[i] then
-						use_this_ID = resource_IDs[land_indices[i]];
-						break
-					end
-				end
-			end
-		end
-		if use_this_ID == nil then
-			for index, threshold in ipairs(res_threshold) do
-				if diceroll <= threshold then
-					use_this_ID = resource_IDs[index];
-					break
-				end
+		for index, threshold in ipairs(res_threshold) do
+			if diceroll <= threshold then
+				use_this_ID = resource_IDs[index];
+				break
 			end
 		end
 	end
@@ -14564,6 +15075,9 @@ function AssignStartingPlots:GetListOfAllowableLuxuriesAtCitySite(x, y, radius, 
 	local wrapY = Map:IsWrapY();
 	local odd = self.firstRingYIsOdd;
 	local even = self.firstRingYIsEven;
+	if not odd or not even then
+		return table.fill(false, 99);
+	end
 	local nextX, nextY, plot_adjustments;
 	local allowed_luxuries = table.fill(false, 99);		-- MOD.Barathor: original = 35; updated to hold higher luxury ID's
 	
@@ -14595,6 +15109,7 @@ function AssignStartingPlots:GetListOfAllowableLuxuriesAtCitySite(x, y, radius, 
 					end
 					-- We've arrived at the correct x and y for the current plot.
 					local plot = Map.GetPlot(realX, realY);
+					if plot then
 					local plotType = plot:GetPlotType()
 					local terrainType = plot:GetTerrainType()
 					local featureType = plot:GetFeatureType()
@@ -14742,6 +15257,7 @@ function AssignStartingPlots:GetListOfAllowableLuxuriesAtCitySite(x, y, radius, 
 						end
 					end
 					-- MOD.Barathor: End
+					end
 					currentX, currentY = nextX, nextY;
 				end
 			end
@@ -15226,6 +15742,13 @@ function AssignStartingPlots:FilterLuxuryPlotListsWithinPlotDistanceOfMajorStart
 	if type(sx) ~= "number" or type(sy) ~= "number" then
 		return luxury_plot_lists;
 	end
+	local wantArea = nil;
+	if self._lek_regional_lux_require_start_same_area == true then
+		local cap = Map.GetPlot(sx, sy);
+		if cap then
+			wantArea = cap:GetArea();
+		end
+	end
 	local origTotal = 0;
 	for i = 1, #luxury_plot_lists do
 		local lst = luxury_plot_lists[i];
@@ -15244,7 +15767,15 @@ function AssignStartingPlots:FilterLuxuryPlotListsWithinPlotDistanceOfMajorStart
 				local y = math.floor((plotIndex - x - 1) / iW);
 				local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, sx, sy, x, y);
 				if type(d) == "number" and d <= max_plot_distance then
-					table.insert(out, plotIndex);
+					if wantArea ~= nil then
+						local ap = Map.GetPlot(x, y);
+						if not ap or ap:GetArea() ~= wantArea then
+						else
+							table.insert(out, plotIndex);
+						end
+					else
+						table.insert(out, plotIndex);
+					end
 				end
 			end
 		end
@@ -15618,6 +16149,7 @@ end
 
 ------------------------------------------------------------------------------
 function AssignStartingPlots:LekPlaceRegionalLuxuryShortfallFallback()
+	self._lek_regional_lux_shortfall_after_fallback = {};
 	local q = self._lek_regional_lux_fallback_queue;
 	if q == nil or #q == 0 then
 		return;
@@ -15653,12 +16185,776 @@ function AssignStartingPlots:LekPlaceRegionalLuxuryShortfallFallback()
 			local left = self:PlaceSpecificNumberOfResources(res_ID, 1, amount, 1, -1, 0, 0, shuf_list);
 			if left > 0 then
 				LekMapgenFileTrace("-", "LEK regional fallback still short Region#", region_number, "res", res_ID, "left", left, "poolSize", #pool);
+				table.insert(self._lek_regional_lux_shortfall_after_fallback, {
+					region_number = region_number,
+					res_id = res_ID,
+					left = left,
+					pool_size = #pool,
+				});
 			else
 				LekMapgenFileTrace("-", "LEK regional fallback cleared", amount, "x res", res_ID, "Region#", region_number);
 			end
 		end
 	end
 	self._lek_regional_lux_fallback_queue = {};
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekCascadePlaceSecondLuxAtStart(x, y, res_ID, maxRing)
+	if res_ID == nil then
+		return 1;
+	end
+	local primary, secondary, tertiary, quaternary, quinary, senary = self:GetIndicesForLuxuryType(res_ID);
+	local luxury_plot_lists, shuf_list;
+	local iNumLeftToPlace;
+	if res_ID == self.marble_ID or res_ID == self.perfume_ID then
+		luxury_plot_lists = self:GenerateLuxuryPlotListsAtCitySite(x, y, 3, false);
+		local pool = self:LekBuildMarblePerfumeStartPlotListRing3Hill(luxury_plot_lists, x, y, primary, secondary, tertiary, quaternary, quinary, senary);
+		shuf_list = GetShuffledCopyOfTable(pool);
+		iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, 1, 1, -1, 0, 0, shuf_list);
+	else
+		local order = { primary, secondary, tertiary, quaternary, quinary, senary };
+		local ringsToTry = {};
+		local seenRing = {};
+		local function pushRing(r)
+			if r >= 1 and r <= 3 and not seenRing[r] then
+				seenRing[r] = true;
+				ringsToTry[#ringsToTry + 1] = r;
+			end
+		end
+		for r = 1, 3 do
+			pushRing(r);
+		end
+		iNumLeftToPlace = 1;
+		for _, ringN in ipairs(ringsToTry) do
+			if iNumLeftToPlace <= 0 then
+				break;
+			end
+			luxury_plot_lists = self:GenerateLuxuryPlotListsAtCitySite(x, y, ringN, false);
+			for _, li in ipairs(order) do
+				if iNumLeftToPlace <= 0 then
+					break;
+				end
+				if type(li) == "number" and li > 0 then
+					local lst = luxury_plot_lists[li];
+					if lst ~= nil and LekHBPlotListLen(lst) > 0 then
+						shuf_list = GetShuffledCopyOfTable(lst);
+						iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, 1, 1, -1, 0, 0, shuf_list);
+					end
+				end
+			end
+		end
+	end
+	return iNumLeftToPlace;
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekSecondLuxUnfilteredPool(region_number, allowRing, used_randoms_as_secondaries)
+	local sp = self.startingPlots[region_number];
+	if not sp or type(sp[1]) ~= "number" or type(sp[2]) ~= "number" then
+		return {};
+	end
+	local x, y = sp[1], sp[2];
+	local allow = self:GetListOfAllowableLuxuriesAtCitySite(x, y, allowRing);
+	local pool = {};
+	local function tryAdd(res_ID)
+		if res_ID ~= nil and allow[res_ID] == true and used_randoms_as_secondaries[res_ID] ~= true then
+			pool[#pool + 1] = res_ID;
+		end
+	end
+	for __, res_ID in ipairs(self.resourceIDs_assigned_to_random) do
+		tryAdd(res_ID);
+	end
+	if (self.start_locations ~= 1) and (self.start_locations ~= 2) and (self.start_locations ~= 3) then
+		for __, res_ID in ipairs(self.resourceIDs_assigned_to_special_case) do
+			tryAdd(res_ID);
+		end
+	end
+	for __, res_ID in ipairs(self.resourceIDs_assigned_to_cs) do
+		tryAdd(res_ID);
+	end
+	local region_lux_ID = self.region_luxury_assignment[region_number];
+	for __, res_ID in ipairs(self.resourceIDs_assigned_to_regions) do
+		if res_ID ~= region_lux_ID then
+			tryAdd(res_ID);
+		end
+	end
+	return pool;
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekResourceIsLuxury(resId)
+	if resId == nil or resId < 0 then
+		return false;
+	end
+	local info = GameInfo.Resources[resId];
+	if info == nil then
+		return false;
+	end
+	local rc = info.ResourceClass or info.ResourceClassType;
+	return rc == "RESOURCECLASS_LUXURY";
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekResourceIsBonus(resId)
+	if resId == nil or resId < 0 then
+		return false;
+	end
+	local info = GameInfo.Resources[resId];
+	if info == nil then
+		return false;
+	end
+	local rc = info.ResourceClass or info.ResourceClassType;
+	return rc == "RESOURCECLASS_BONUS";
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekVisitPlotsHexRingsFromCenter(x, y, max_ring, fn)
+	if max_ring == nil or max_ring < 1 or fn == nil then
+		return;
+	end
+	local iW, iH = Map.GetGridSize();
+	local wrapX = Map:IsWrapX();
+	local wrapY = Map:IsWrapY();
+	local odd = self.firstRingYIsOdd;
+	local even = self.firstRingYIsEven;
+	for ripple_radius = 1, max_ring do
+		local currentX = x - ripple_radius;
+		local currentY = y;
+		for direction_index = 1, 6 do
+			for plot_to_handle = 1, ripple_radius do
+				local plot_adjustments;
+				if currentY / 2 > math.floor(currentY / 2) then
+					plot_adjustments = odd[direction_index];
+				else
+					plot_adjustments = even[direction_index];
+				end
+				local nextX = currentX + plot_adjustments[1];
+				local nextY = currentY + plot_adjustments[2];
+				if wrapX == false and (nextX < 0 or nextX >= iW) then
+				elseif wrapY == false and (nextY < 0 or nextY >= iH) then
+				else
+					local realX, realY = nextX, nextY;
+					if wrapX then realX = realX % iW; end
+					if wrapY then realY = realY % iH; end
+					local plot = Map.GetPlot(realX, realY);
+					if plot then fn(plot, realX, realY); end
+				end
+				currentX, currentY = nextX, nextY;
+			end
+		end
+	end
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekStripLuxuryResourcesNearStart(x, y, max_ring, used_randoms_as_secondaries)
+	local center = Map.GetPlot(x, y);
+	if center then
+		local rc = center:GetResourceType(-1);
+		if rc >= 0 and self:LekResourceIsLuxury(rc) then
+			if used_randoms_as_secondaries then
+				used_randoms_as_secondaries[rc] = false;
+			end
+			if self.amounts_of_resources_placed and self.amounts_of_resources_placed[rc + 1] then
+				self.amounts_of_resources_placed[rc + 1] = math.max(0, self.amounts_of_resources_placed[rc + 1] - 1);
+			end
+			if self.totalLuxPlacedSoFar then
+				self.totalLuxPlacedSoFar = math.max(0, self.totalLuxPlacedSoFar - 1);
+			end
+			center:SetResourceType(-1);
+		end
+	end
+	self:LekVisitPlotsHexRingsFromCenter(x, y, max_ring, function(plot, _, _)
+		local rt = plot:GetResourceType(-1);
+		if rt >= 0 and self:LekResourceIsLuxury(rt) then
+			if used_randoms_as_secondaries then
+				used_randoms_as_secondaries[rt] = false;
+			end
+			if self.amounts_of_resources_placed and self.amounts_of_resources_placed[rt + 1] then
+				self.amounts_of_resources_placed[rt + 1] = math.max(0, self.amounts_of_resources_placed[rt + 1] - 1);
+			end
+			if self.totalLuxPlacedSoFar then
+				self.totalLuxPlacedSoFar = math.max(0, self.totalLuxPlacedSoFar - 1);
+			end
+			plot:SetResourceType(-1);
+		end
+	end);
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekCountLuxuriesNearCapital(x, y, max_ring)
+	local n = 0;
+	local pc = Map.GetPlot(x, y);
+	if pc then
+		local r = pc:GetResourceType(-1);
+		if r >= 0 and self:LekResourceIsLuxury(r) then
+			n = n + 1;
+		end
+	end
+	self:LekVisitPlotsHexRingsFromCenter(x, y, max_ring, function(plot, _, _)
+		local rt = plot:GetResourceType(-1);
+		if rt >= 0 and self:LekResourceIsLuxury(rt) then
+			n = n + 1;
+		end
+	end);
+	return n;
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekAssertRegionalLuxuryNoShortfallAfterFallbackOrRegen()
+	if _lek_global_six_request_map_regen == true then
+		return;
+	end
+	if self.resource_setting == 1 then
+		return;
+	end
+	local t = self._lek_regional_lux_shortfall_after_fallback;
+	if t == nil or #t == 0 then
+		return;
+	end
+	local parts = {};
+	local cap = 12;
+	for i = 1, math.min(#t, cap) do
+		local e = t[i];
+		parts[#parts + 1] = "r" .. tostring(e.region_number)
+			.. ":res" .. tostring(e.res_id)
+			.. ":left" .. tostring(e.left)
+			.. ":pool" .. tostring(e.pool_size);
+	end
+	local extra = (#t > cap) and (" …(+" .. tostring(#t - cap) .. "_more)") or "";
+	local brief = table.concat(parts, " ") .. extra;
+	local maxRegenL = _lek_global_six_regen_max_layouts;
+	if type(maxRegenL) ~= "number" or maxRegenL < 1 then
+		maxRegenL = 4;
+	end
+	local att = _lek_map_layout_attempt or 1;
+	local canRegen = (_lek_enable_hb_generatemap_regen_loop == true) and (att < maxRegenL);
+	local fs = "### LEK REGIONAL LUX POST-FALLBACK SHORTFALL GATE runId=" .. tostring(_lek_run_id or "na")
+		.. " nShort=" .. tostring(#t)
+		.. " detail=[" .. brief .. "]"
+		.. " layout=" .. tostring(att) .. "/" .. tostring(maxRegenL)
+		.. " canRegen=" .. (canRegen and "1" or "0") .. " ###";
+	print(fs);
+	LekMapgenFileTrace(fs);
+	if canRegen then
+		_lek_global_six_request_map_regen = true;
+		return;
+	end
+	error("Lekmap: regional luxury shortage remains after fallback repair (n=" .. tostring(#t) .. "). Detail: " .. brief);
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekAssertCapitalLuxuryTilesMinimumOrRegen(minLux, countRing)
+	if minLux == nil then
+		minLux = 4;
+	end
+	if countRing == nil then
+		countRing = 3;
+	end
+	if self.resource_setting == 1 then
+		return;
+	end
+	for rn = 1, self.iNumCivs do
+		local sp = self.startingPlots[rn];
+		if sp and type(sp[1]) == "number" and type(sp[2]) == "number" then
+			local nLux = self:LekCountLuxuriesNearCapital(sp[1], sp[2], countRing);
+			if nLux < minLux then
+				local maxRegenL = _lek_global_six_regen_max_layouts;
+				if type(maxRegenL) ~= "number" or maxRegenL < 1 then
+					maxRegenL = 4;
+				end
+				local att = _lek_map_layout_attempt or 1;
+				local canRegen = (_lek_enable_hb_generatemap_regen_loop == true) and (att < maxRegenL);
+				local fs = "### LEK CAPITAL LUX TILE GATE runId=" .. tostring(_lek_run_id or "na")
+					.. " Region#=" .. tostring(rn) .. " luxuryTilesNearCapital=" .. tostring(nLux)
+					.. " need>=" .. tostring(minLux) .. " ring<=" .. tostring(countRing)
+					.. " layout=" .. tostring(att) .. "/" .. tostring(maxRegenL)
+					.. " canRegen=" .. (canRegen and "1" or "0") .. " ###";
+				print(fs);
+				LekMapgenFileTrace(fs);
+				if canRegen then
+					_lek_global_six_request_map_regen = true;
+					return;
+				end
+				error("Lekmap: could not reach " .. tostring(minLux)
+					.. " luxury tiles within " .. tostring(countRing) .. " rings of capital for region "
+					.. tostring(rn) .. " (got " .. tostring(nLux) .. "). Map regen exhausted or disabled; "
+					.. "increase regen layouts or relax placement.");
+			end
+		end
+	end
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekCountMajorStartsAdjacentToSaltWater()
+	local n = 0;
+	local iW, iH = Map.GetGridSize();
+	for r = 1, self.iNumCivs or 0 do
+		local sp = self.startingPlots[r];
+		if sp and type(sp[1]) == "number" and type(sp[2]) == "number" then
+			local x, y = sp[1], sp[2];
+			if x >= 0 and x < iW and y >= 0 and y < iH then
+				local pi = y * iW + x + 1;
+				if self.plotDataIsCoastal and self.plotDataIsCoastal[pi] == true then
+					n = n + 1;
+				end
+			end
+		end
+	end
+	return n;
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekAssertBalancedCoastalExactTwoOrRegen()
+	if self.BalancedCoastalExactTwo ~= true then
+		return;
+	end
+	if self.ForceAllInlandPlayerSpawns == true then
+		return;
+	end
+	if (self.iNumCivs or 0) < 2 then
+		return;
+	end
+	if _lek_global_six_request_map_regen == true then
+		return;
+	end
+	local needExact = math.min(2, self.iNumCivs);
+	local nSalt = self:LekCountMajorStartsAdjacentToSaltWater();
+	if nSalt == needExact then
+		return;
+	end
+	local maxRegenL = _lek_global_six_regen_max_layouts;
+	if type(maxRegenL) ~= "number" or maxRegenL < 1 then
+		maxRegenL = 4;
+	end
+	local att = _lek_map_layout_attempt or 1;
+	local canRegen = (_lek_enable_hb_generatemap_regen_loop == true) and (att < maxRegenL);
+	local fs = "### LEK FORCE2 COAST runId=" .. tostring(_lek_run_id or "na")
+		.. " saltAdjMajorStarts=" .. tostring(nSalt) .. " need_exact=" .. tostring(needExact)
+		.. " layout=" .. tostring(att) .. "/" .. tostring(maxRegenL)
+		.. " canRegen=" .. (canRegen and "1" or "0") .. " ###";
+	print(fs);
+	LekMapgenFileTrace(fs);
+	if canRegen then
+		_lek_global_six_request_map_regen = true;
+		return;
+	end
+	error("Lekmap: Force-2 coastals unmet - " .. tostring(nSalt)
+		.. " major capitals salt-adjacent (need exactly " .. tostring(needExact) .. "). "
+		.. "Map regen exhausted or disabled.");
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekGlobalSix_MinPairwiseAmongMajorPlayers()
+	local n = self.iNumCivs or 0;
+	if n < 2 then
+		return nil, 0, n;
+	end
+	local coords = {};
+	for loop = 1, n do
+		local player_ID = self.player_ID_list[loop];
+		local player = LekSafeMajorPlayer(player_ID);
+		if player then
+			local sp = player:GetStartingPlot();
+			if sp then
+				coords[#coords + 1] = { sp:GetX(), sp:GetY() };
+			end
+		end
+	end
+	if #coords ~= n then
+		return nil, #coords, n;
+	end
+	local minD = nil;
+	for i = 1, #coords do
+		for j = i + 1, #coords do
+			local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, coords[i][1], coords[i][2], coords[j][1], coords[j][2]);
+			if d == nil then
+				return nil, -1, n;
+			end
+			if minD == nil or d < minD then
+				minD = d;
+			end
+		end
+	end
+	return minD, n, n;
+end
+
+function AssignStartingPlots:LekAssertGlobalSixPlayerMinPairwiseOrRegen()
+	if (self.iNumCivs or 0) ~= 6 then
+		return;
+	end
+	if self._lek_global_six_solver ~= true then
+		return;
+	end
+	if _lek_global_six_request_map_regen == true then
+		return;
+	end
+	local dReq = AssignStartingPlots.LekGlobalSix_MinPairwiseDistanceFromStartDistanceOption();
+	local minD, have, need = AssignStartingPlots.LekGlobalSix_MinPairwiseAmongMajorPlayers(self);
+	local bad = false;
+	local reason = "";
+	if minD == nil then
+		bad = true;
+		if have == -1 then
+			reason = "PlotDistance unavailable among majors";
+		else
+			reason = "incomplete_player_plots have=" .. tostring(have) .. " need=" .. tostring(need);
+		end
+	elseif minD < dReq then
+		bad = true;
+		reason = "minPlotDist=" .. tostring(minD) .. " required>=" .. tostring(dReq);
+	end
+	if not bad then
+		return;
+	end
+	local maxRegenL = _lek_global_six_regen_max_layouts;
+	if type(maxRegenL) ~= "number" or maxRegenL < 1 then
+		maxRegenL = 4;
+	end
+	local att = _lek_map_layout_attempt or 1;
+	local canRegen = (_lek_enable_hb_generatemap_regen_loop == true) and (att < maxRegenL);
+	local fs = "### LEK MAJOR MIN PAIRWISE runId=" .. tostring(_lek_run_id or "na")
+		.. " " .. reason
+		.. " layout=" .. tostring(att) .. "/" .. tostring(maxRegenL)
+		.. " canRegen=" .. (canRegen and "1" or "0") .. " ###";
+	print(fs);
+	if LekMapgenFileTrace then
+		LekMapgenFileTrace(fs);
+	end
+	pcall(function()
+		if type(LekMapgenDiagLogAppend) == "function" then
+			LekMapgenDiagLogAppend({ fs });
+		end
+	end);
+	if canRegen then
+		_lek_global_six_request_map_regen = true;
+		return;
+	end
+	error("Lekmap: capital spacing failed - " .. reason
+		.. ". Map regen exhausted or disabled.");
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekCountLandLuxuriesNearCapital(x, y, max_ring)
+	local n = 0;
+	local function bump(plot)
+		if not plot then
+			return;
+		end
+		local rt = plot:GetResourceType(-1);
+		if rt >= 0 and self:LekResourceIsLuxury(rt) and not self:LekIsSeaLuxuryResourceId(rt) then
+			n = n + 1;
+		end
+	end
+	bump(Map.GetPlot(x, y));
+	self:LekVisitPlotsHexRingsFromCenter(x, y, max_ring, function(plot, _, _)
+		bump(plot);
+	end);
+	return n;
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekSortPlotIndicesMainlandFirst(plotIndices, capX, capY)
+	if plotIndices == nil or #plotIndices == 0 then
+		return plotIndices;
+	end
+	local iW, iH = Map.GetGridSize();
+	local cx = math.floor(iW / 2);
+	local cy = math.floor(iH / 2);
+	local vx = cx - capX;
+	local vy = cy - capY;
+	if vx == 0 and vy == 0 then
+		return GetShuffledCopyOfTable(plotIndices);
+	end
+	local scored = {};
+	for _, idx in ipairs(plotIndices) do
+		local px = (idx - 1) % iW;
+		local py = (idx - px - 1) / iW;
+		local dot = (px - capX) * vx + (py - capY) * vy;
+		scored[#scored + 1] = { idx = idx, s = dot };
+	end
+	table.sort(scored, function(a, b)
+		if a.s ~= b.s then
+			return a.s > b.s;
+		end
+		return Map.Rand(2, "") == 0;
+	end);
+	local out = {};
+	for i = 1, #scored do
+		out[i] = scored[i].idx;
+	end
+	return out;
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekCountGranaryBudgetNearStart(x, y, max_ring)
+	local n = 0;
+	local pc = Map.GetPlot(x, y);
+	if pc then
+		local rt = pc:GetResourceType(-1);
+		if rt >= 0 then
+			if self.fish_ID ~= nil and rt == self.fish_ID then
+				n = n + 1;
+			elseif self:LekResourceIsBonus(rt) then
+				n = n + 1;
+			end
+		end
+	end
+	self:LekVisitPlotsHexRingsFromCenter(x, y, max_ring, function(plot, _, _)
+		local rt = plot:GetResourceType(-1);
+		if rt >= 0 then
+			if self.fish_ID ~= nil and rt == self.fish_ID then
+				n = n + 1;
+			elseif self:LekResourceIsBonus(rt) then
+				n = n + 1;
+			end
+		end
+	end);
+	return n;
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekTryStripOneStoneFromRing2NearStart(x, y)
+	for _, plotIndex in ipairs(self:LekEnumeratePlotIndicesOnHexRing(x, y, 2)) do
+		local plot = Map.GetPlotByIndex(plotIndex - 1);
+		if plot and plot:GetResourceType(-1) == self.stone_ID then
+			if self.amounts_of_resources_placed and self.amounts_of_resources_placed[self.stone_ID + 1] then
+				self.amounts_of_resources_placed[self.stone_ID + 1] = math.max(0, self.amounts_of_resources_placed[self.stone_ID + 1] - 1);
+			end
+			plot:SetResourceType(-1);
+			return true;
+		end
+	end
+	return false;
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekPlaceStartingRegionalLuxBundleForRegion(region_number)
+	local this_region_luxury = self.region_luxury_assignment[region_number];
+	if this_region_luxury == nil then
+		return;
+	end
+	local x = self.startingPlots[region_number][1];
+	local y = self.startingPlots[region_number][2];
+	LekMapgenFileTrace("-", "LEK redo: regional Luxury#", this_region_luxury, "at start", x, y, "Region#", region_number);
+	local iNumToPlace = 2;
+	if self.start_locations == 1 or self.start_locations == 2 then
+		iNumToPlace = 3;
+	end
+	local primary, secondary, tertiary, quaternary, quinary, senary, luxury_plot_lists, shuf_list;
+	primary, secondary, tertiary, quaternary, quinary, senary = self:GetIndicesForLuxuryType(this_region_luxury);
+	local iNumLeftToPlace;
+	if this_region_luxury == self.marble_ID or this_region_luxury == self.perfume_ID then
+		luxury_plot_lists = self:GenerateLuxuryPlotListsAtCitySite(x, y, 3, false);
+		local ring3hills = self:LekBuildMarblePerfumeStartPlotListRing3Hill(luxury_plot_lists, x, y, primary, secondary, tertiary, quaternary, quinary, senary);
+		shuf_list = self:LekSortPlotIndicesMainlandFirst(ring3hills, x, y);
+		iNumLeftToPlace = self:PlaceSpecificNumberOfResources(this_region_luxury, 1, iNumToPlace, 1, -1, 0, 0, shuf_list);
+	else
+		luxury_plot_lists = self:GenerateLuxuryPlotListsAtCitySite(x, y, 2, false);
+		shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[primary], x, y);
+		iNumLeftToPlace = self:PlaceSpecificNumberOfResources(this_region_luxury, 1, iNumToPlace, 0.5, -1, 0, 0, shuf_list);
+		if iNumLeftToPlace > 0 and secondary > 0 then
+			shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[secondary], x, y);
+			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(this_region_luxury, 1, iNumLeftToPlace, 0.5, -1, 0, 0, shuf_list);
+		end
+		if iNumLeftToPlace > 0 and tertiary > 0 then
+			shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[tertiary], x, y);
+			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(this_region_luxury, 1, iNumLeftToPlace, 0.5, -1, 0, 0, shuf_list);
+		end
+		if iNumLeftToPlace > 0 and quaternary > 0 then
+			shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[quaternary], x, y);
+			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(this_region_luxury, 1, iNumLeftToPlace, 0.5, -1, 0, 0, shuf_list);
+		end
+		if iNumLeftToPlace > 0 and quinary > 0 then
+			shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[quinary], x, y);
+			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(this_region_luxury, 1, iNumLeftToPlace, 0.5, -1, 0, 0, shuf_list);
+		end
+		if iNumLeftToPlace > 0 and senary > 0 then
+			shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[senary], x, y);
+			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(this_region_luxury, 1, iNumLeftToPlace, 0.5, -1, 0, 0, shuf_list);
+		end
+		if iNumLeftToPlace > 0 then
+			luxury_plot_lists = self:GenerateLuxuryPlotListsAtCitySite(x, y, 3, false);
+			shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[primary], x, y);
+			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(this_region_luxury, 1, iNumLeftToPlace, 1, -1, 0, 0, shuf_list);
+			if iNumLeftToPlace > 0 and secondary > 0 then
+				shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[secondary], x, y);
+				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(this_region_luxury, 1, iNumLeftToPlace, 1, -1, 0, 0, shuf_list);
+			end
+			if iNumLeftToPlace > 0 and tertiary > 0 then
+				shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[tertiary], x, y);
+				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(this_region_luxury, 1, iNumLeftToPlace, 1, -1, 0, 0, shuf_list);
+			end
+			if iNumLeftToPlace > 0 and quaternary > 0 then
+				shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[quaternary], x, y);
+				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(this_region_luxury, 1, iNumLeftToPlace, 1, -1, 0, 0, shuf_list);
+			end
+			if iNumLeftToPlace > 0 and quinary > 0 then
+				shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[quinary], x, y);
+				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(this_region_luxury, 1, iNumLeftToPlace, 1, -1, 0, 0, shuf_list);
+			end
+			if iNumLeftToPlace > 0 and senary > 0 then
+				shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[senary], x, y);
+				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(this_region_luxury, 1, iNumLeftToPlace, 1, -1, 0, 0, shuf_list);
+			end
+		end
+	end
+	if iNumLeftToPlace > 0 and this_region_luxury ~= nil then
+		local prev = self.luxury_low_fert_compensation[this_region_luxury] or 0;
+		self.luxury_low_fert_compensation[this_region_luxury] = prev - iNumLeftToPlace;
+		self.region_low_fert_compensation[region_number] = (self.region_low_fert_compensation[region_number] or 0) - iNumLeftToPlace;
+	end
+	if iNumLeftToPlace > 0 and self.iNumTypesRandom > 0 then
+		luxury_plot_lists = self:GenerateLuxuryPlotListsAtCitySite(x, y, 3, false);
+		local randoms_to_place = 1;
+		for loop, random_res in ipairs(self.resourceIDs_assigned_to_random) do
+			primary, secondary, tertiary, quaternary, quinary, senary = self:GetIndicesForLuxuryType(random_res);
+			if randoms_to_place > 0 then
+				shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[primary], x, y);
+				randoms_to_place = self:PlaceSpecificNumberOfResources(random_res, 1, 1, 1, -1, 0, 0, shuf_list);
+			end
+			if randoms_to_place > 0 and secondary > 0 then
+				shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[secondary], x, y);
+				randoms_to_place = self:PlaceSpecificNumberOfResources(random_res, 1, 1, 1, -1, 0, 0, shuf_list);
+			end
+			if randoms_to_place > 0 and tertiary > 0 then
+				shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[tertiary], x, y);
+				randoms_to_place = self:PlaceSpecificNumberOfResources(random_res, 1, 1, 1, -1, 0, 0, shuf_list);
+			end
+			if randoms_to_place > 0 and quaternary > 0 then
+				shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[quaternary], x, y);
+				randoms_to_place = self:PlaceSpecificNumberOfResources(random_res, 1, 1, 1, -1, 0, 0, shuf_list);
+			end
+			if randoms_to_place > 0 and quinary > 0 then
+				shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[quinary], x, y);
+				randoms_to_place = self:PlaceSpecificNumberOfResources(random_res, 1, 1, 1, -1, 0, 0, shuf_list);
+			end
+			if randoms_to_place > 0 and senary > 0 then
+				shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[senary], x, y);
+				randoms_to_place = self:PlaceSpecificNumberOfResources(random_res, 1, 1, 1, -1, 0, 0, shuf_list);
+			end
+		end
+	end
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekRunSecondaryLuxuryForSingleRegion(region_number, used_randoms_as_secondaries, allow_lux_list_ring, placed2ndLux_ref)
+	local x = self.startingPlots[region_number][1];
+	local y = self.startingPlots[region_number][2];
+	local use_this_ID;
+	local candidate_types, iNumTypesAllowed = {}, 0;
+	local allowed_luxuries = self:GetListOfAllowableLuxuriesAtCitySite(x, y, allow_lux_list_ring);
+	LekMapgenFileTrace("-", "--- LEK redo: Second Luxury Region#", region_number, "allowRing=", allow_lux_list_ring, "---");
+	for loop, res_ID in ipairs(self.resourceIDs_assigned_to_random) do
+		if allowed_luxuries[res_ID] == true and used_randoms_as_secondaries[res_ID] ~= true then
+			iNumTypesAllowed = iNumTypesAllowed + 1;
+			table.insert(candidate_types, res_ID);
+		end
+	end
+	if (self.start_locations ~= 1) and (self.start_locations ~= 2) and (self.start_locations ~= 3) then
+		for loop, res_ID in ipairs(self.resourceIDs_assigned_to_special_case) do
+			if allowed_luxuries[res_ID] == true and used_randoms_as_secondaries[res_ID] ~= true then
+				iNumTypesAllowed = iNumTypesAllowed + 1;
+				table.insert(candidate_types, res_ID);
+			end
+		end
+	end
+	if iNumTypesAllowed > 0 then
+		use_this_ID = candidate_types[1 + Map.Rand(iNumTypesAllowed, "LekRedo2ndLux")];
+	else
+		for loop, res_ID in ipairs(self.resourceIDs_assigned_to_cs) do
+			if allowed_luxuries[res_ID] == true and used_randoms_as_secondaries[res_ID] ~= true then
+				iNumTypesAllowed = iNumTypesAllowed + 1;
+				table.insert(candidate_types, res_ID);
+			end
+		end
+		if iNumTypesAllowed > 0 then
+			use_this_ID = candidate_types[1 + Map.Rand(iNumTypesAllowed, "LekRedo2ndLuxCS")];
+		else
+			local region_lux_ID = self.region_luxury_assignment[region_number];
+			for loop, res_ID in ipairs(self.resourceIDs_assigned_to_regions) do
+				if res_ID ~= region_lux_ID then
+					if allowed_luxuries[res_ID] == true and used_randoms_as_secondaries[res_ID] ~= true then
+						iNumTypesAllowed = iNumTypesAllowed + 1;
+						table.insert(candidate_types, res_ID);
+					end
+				end
+			end
+			if iNumTypesAllowed > 0 then
+				use_this_ID = candidate_types[1 + Map.Rand(iNumTypesAllowed, "LekRedo2ndLuxOtherReg")];
+			else
+				if placed2ndLux_ref then placed2ndLux_ref[1] = false; end
+			end
+		end
+	end
+	local luxCandSnap = {};
+	for _, rid in ipairs(candidate_types) do
+		luxCandSnap[#luxCandSnap + 1] = rid;
+	end
+	if use_this_ID ~= nil then
+		local function cascadeSecondLuxId(resId)
+			return self:LekCascadePlaceSecondLuxAtStart(x, y, resId, 3);
+		end
+		local iNumLeftToPlace = cascadeSecondLuxId(use_this_ID);
+		if iNumLeftToPlace > 0 and #luxCandSnap > 0 then
+			for i = #luxCandSnap, 2, -1 do
+				local j = 1 + Map.Rand(i, "LekRedo2ndLuxAlt");
+				luxCandSnap[i], luxCandSnap[j] = luxCandSnap[j], luxCandSnap[i];
+			end
+			for _, altId in ipairs(luxCandSnap) do
+				if altId ~= use_this_ID and iNumLeftToPlace > 0 then
+					iNumLeftToPlace = cascadeSecondLuxId(altId);
+					if iNumLeftToPlace == 0 then
+						use_this_ID = altId;
+						break;
+					end
+				end
+			end
+		end
+		if iNumLeftToPlace > 0 then
+			if placed2ndLux_ref then placed2ndLux_ref[1] = false; end
+		else
+			used_randoms_as_secondaries[use_this_ID] = true;
+			self._lek_second_lux_start_ok[region_number] = true;
+			self:LekPlaceFishForCoastalLuxPackage(x, y, region_number, use_this_ID);
+		end
+	end
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekEnsureCapitalLuxuryMinimumNearStart(used_randoms_as_secondaries, minLux, countRing)
+	if minLux == nil then
+		minLux = 4;
+	end
+	if countRing == nil then
+		countRing = 3;
+	end
+	if self.resource_setting == 1 then
+		return;
+	end
+	if self._lek_second_lux_start_ok == nil then
+		self._lek_second_lux_start_ok = {};
+	end
+	local placed2ndLux_ref = { true };
+	for attempt = 1, 2 do
+		local short = {};
+		for rn = 1, self.iNumCivs do
+			local sp = self.startingPlots[rn];
+			if sp and type(sp[1]) == "number" and type(sp[2]) == "number" then
+				local nx = self:LekCountLuxuriesNearCapital(sp[1], sp[2], countRing);
+				if nx < minLux then
+					short[#short + 1] = rn;
+				end
+			end
+		end
+		if #short == 0 then
+			return;
+		end
+		for _, rn in ipairs(short) do
+			local sp = self.startingPlots[rn];
+			local x, y = sp[1], sp[2];
+			local nx = self:LekCountLuxuriesNearCapital(x, y, countRing);
+			local slog = "### LEK CAPITAL LUX SHORTFALL runId=" .. tostring(_lek_run_id or "na") .. " Region#"
+				.. tostring(rn) .. " attempt=" .. tostring(attempt) .. " luxNearCapital=" .. tostring(nx)
+				.. " need>=" .. tostring(minLux) .. " at " .. tostring(x) .. "," .. tostring(y);
+			print(slog);
+			LekMapgenFileTrace(slog);
+			self:LekStripLuxuryResourcesNearStart(x, y, 5, used_randoms_as_secondaries);
+			self._lek_second_lux_start_ok[rn] = nil;
+			self:LekPlaceStartingRegionalLuxBundleForRegion(rn);
+			placed2ndLux_ref[1] = true;
+			self:LekRunSecondaryLuxuryForSingleRegion(rn, used_randoms_as_secondaries, (attempt == 1) and 2 or 3, placed2ndLux_ref);
+			if not self._lek_second_lux_start_ok[rn] then
+				local cplot = Map.GetPlot(x, y);
+				if cplot and cplot:IsCoastalLand() and not self._lek_coastal_refish then
+					LekMapgenFileTrace("-", "LEK redo fallback fish pkg Region#", rn);
+					self:LekPlaceFishForCoastalLuxPackage(x, y, rn, nil);
+				end
+			end
+		end
+	end
+	self:LekAssertCapitalLuxuryTilesMinimumOrRegen(minLux, countRing);
 end
 ------------------------------------------------------------------------------
 function AssignStartingPlots:PlaceLuxuries()
@@ -15672,8 +16968,10 @@ function AssignStartingPlots:PlaceLuxuries()
 		local region_number = reg_data[1];
 		local this_region_luxury = reg_data[2];
 		if this_region_luxury ~= nil then
-		local x = self.startingPlots[region_number][1];
-		local y = self.startingPlots[region_number][2];
+		local spLux = self.startingPlots[region_number];
+		if spLux and type(spLux[1]) == "number" and type(spLux[2]) == "number" then
+		local x = spLux[1];
+		local y = spLux[2];
 		LekMapgenFileTrace("-", "Attempting to place Luxury#", this_region_luxury, "at start plot", x, y, "in Region#", region_number);
 		-- Determine number to place at the start location
 		local iNumToPlace = 2;	-- MOD.Barathor: Updated -- original = 1 -- Most times, 2 of the initial type are placed at the start anyway, because of the old fertility checks below.  This will make it consistent.
@@ -15799,6 +17097,7 @@ function AssignStartingPlots:PlaceLuxuries()
 					randoms_to_place = self:PlaceSpecificNumberOfResources(random_res, 1, 1, 1, -1, 0, 0, shuf_list);
 				end
 			end
+		end
 		end
 		end
 	end
@@ -16117,162 +17416,19 @@ function AssignStartingPlots:PlaceLuxuries()
 
 		LekMapgenFileTrace("|||||||||||||||||||||||||||||||||||| Secondary Lux Check ||||||||||||||||||||||||||||||||||||");
 
-		local coastal_rotation = 1;
+		self._lek_second_lux_start_ok = {};
 		for region_number = 1, self.iNumCivs do
-			local x = self.startingPlots[region_number][1];
-			local y = self.startingPlots[region_number][2];
+			local sp2nd = self.startingPlots[region_number];
+			if not (sp2nd and type(sp2nd[1]) == "number" and type(sp2nd[2]) == "number") then
+			else
+			local x = sp2nd[1];
+			local y = sp2nd[2];
 
 			local cplot = Map.GetPlot(x, y)
-
-			local use_this_ID;
-			local candidate_types, iNumTypesAllowed = {}, 0;
-			local allowed_luxuries = self:GetListOfAllowableLuxuriesAtCitySite(x, y, 2)
-			LekMapgenFileTrace("-", "--- Eligible Types List for Second Luxury in Region#", region_number, "---");
-			-- See if any Random types are eligible.
-			for loop, res_ID in ipairs(self.resourceIDs_assigned_to_random) do
-				if allowed_luxuries[res_ID] == true and used_randoms_as_secondaries[res_ID] ~= true then
-					LekMapgenFileTrace("- Found eligible luxury type:", res_ID);
-					iNumTypesAllowed = iNumTypesAllowed + 1;
-					table.insert(candidate_types, res_ID);
-				end
-			end
-			-- Check to see if any Special Case luxuries are eligible. Disallow if Strategic Balance resource setting.
-			if (self.start_locations ~= 1) and (self.start_locations ~= 2) and (self.start_locations ~= 3) then
-				for loop, res_ID in ipairs(self.resourceIDs_assigned_to_special_case) do
-					if allowed_luxuries[res_ID] == true and used_randoms_as_secondaries[res_ID] ~= true then
-						LekMapgenFileTrace("- Found eligible luxury type:", res_ID);
-						iNumTypesAllowed = iNumTypesAllowed + 1;
-						table.insert(candidate_types, res_ID);
-					end
-				end
-			end
-
-			if not self._lek_coastal_refish then
-				candidate_types = self:LekFilterSecondLuxCandidatesForCoastalPackage(region_number, candidate_types);
-				iNumTypesAllowed = 0;
-				for __ in ipairs(candidate_types) do
-					iNumTypesAllowed = iNumTypesAllowed + 1;
-				end
-			end
-
-			if self._lek_coastal_refish and Map.GetPlot(x, y):IsCoastalLand() then
-				candidate_types = {};
-				table.insert(candidate_types, self.whale_ID);
-				table.insert(candidate_types, self.pearls_ID);
-				table.insert(candidate_types, self.crab_ID);
-				if self.bModLuxes and self.coral_ID ~= nil then
-					table.insert(candidate_types, self.coral_ID);
-				end
-				local nCand = #candidate_types;
-				iNumTypesAllowed = nCand;
-				if nCand > 0 then
-					local force_idx = 1 + (coastal_rotation % nCand);
-					coastal_rotation = coastal_rotation + 1;
-					use_this_ID = candidate_types[force_idx];
-					LekMapgenFileTrace("sapht: forcing a coastal lux rot/id = ", force_idx, use_this_ID);
-				end
-			elseif iNumTypesAllowed > 0 then
-				local diceroll = 1 + Map.Rand(iNumTypesAllowed, "Choosing second luxury type at a start location - LUA");
-				LekMapgenFileTrace("sapht: rolling lux dice")
-				use_this_ID = candidate_types[diceroll];
+			if not cplot then
+				LekMapgenFileTrace("-", "Second Luxury skip Region#", region_number, "nil plot", x, y);
+				placed2ndLux = false;
 			else
-				-- See if any City State types are eligible.
-				for loop, res_ID in ipairs(self.resourceIDs_assigned_to_cs) do
-					if allowed_luxuries[res_ID] == true and used_randoms_as_secondaries[res_ID] ~= true then
-						LekMapgenFileTrace("- Found eligible luxury type:", res_ID);
-						iNumTypesAllowed = iNumTypesAllowed + 1;
-						table.insert(candidate_types, res_ID);
-					end
-				end
-				if iNumTypesAllowed > 0 then
-					local diceroll = 1 + Map.Rand(iNumTypesAllowed, "Choosing second luxury type at a start location - LUA");
-					use_this_ID = candidate_types[diceroll];
-				else
-					-- See if anybody else's regional type is eligible.
-					local region_lux_ID = self.region_luxury_assignment[region_number];
-					for loop, res_ID in ipairs(self.resourceIDs_assigned_to_regions) do
-						if res_ID ~= region_lux_ID then
-							if allowed_luxuries[res_ID] == true and used_randoms_as_secondaries[res_ID] ~= true then
-								LekMapgenFileTrace("- Found eligible luxury type:", res_ID);
-								iNumTypesAllowed = iNumTypesAllowed + 1;
-								table.insert(candidate_types, res_ID);
-							end
-						end
-					end
-					if iNumTypesAllowed > 0 then
-						local diceroll = 1 + Map.Rand(iNumTypesAllowed, "Choosing second luxury type at a start location - LUA");
-						use_this_ID = candidate_types[diceroll];
-					else
-						LekMapgenFileTrace("-", "Failed to place second Luxury type in 2nd ring at start in Region#", region_number, "-- no eligible types!", "-");
-						placed2ndLux = false;
-					end
-				end
-			end
-			LekMapgenFileTrace("--- End of Eligible Types list for Second Luxury in Region#", region_number, "---");
-			LekMapgenFileTrace("Random Res 2 Rings: " .. tostring(use_this_ID));
-
-			if use_this_ID ~= nil then -- Place this luxury type at this start.
-				local primary, secondary, tertiary, quaternary, quinary, senary, luxury_plot_lists, shuf_list;			-- MOD.Barathor: New -- added a quinary and senary list
-				primary, secondary, tertiary, quaternary, quinary, senary = self:GetIndicesForLuxuryType(use_this_ID);	-- MOD.Barathor: New -- added a quinary and senary list
-				local iNumLeftToPlace;
-				if use_this_ID == self.marble_ID or use_this_ID == self.perfume_ID then
-					luxury_plot_lists = self:GenerateLuxuryPlotListsAtCitySite(x, y, 3, false);
-					local pool = self:LekBuildMarblePerfumeStartPlotListRing3Hill(luxury_plot_lists, x, y, primary, secondary, tertiary, quaternary, quinary, senary);
-					shuf_list = GetShuffledCopyOfTable(pool);
-					iNumLeftToPlace = self:PlaceSpecificNumberOfResources(use_this_ID, 1, 1, 1, -1, 0, 0, shuf_list);
-				else
-					luxury_plot_lists = self:GenerateLuxuryPlotListsAtCitySite(x, y, 2, false)
-					shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[primary])
-					iNumLeftToPlace = self:PlaceSpecificNumberOfResources(use_this_ID, 1, 1, 1, -1, 0, 0, shuf_list);
-					if iNumLeftToPlace > 0 and secondary > 0 then
-						shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[secondary])
-						iNumLeftToPlace = self:PlaceSpecificNumberOfResources(use_this_ID, 1, 1, 1, -1, 0, 0, shuf_list);
-					end
-					if iNumLeftToPlace > 0 and tertiary > 0 then
-						shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[tertiary])
-						iNumLeftToPlace = self:PlaceSpecificNumberOfResources(use_this_ID, 1, 1, 1, -1, 0, 0, shuf_list);
-					end
-					if iNumLeftToPlace > 0 and quaternary > 0 then
-						shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[quaternary])
-						iNumLeftToPlace = self:PlaceSpecificNumberOfResources(use_this_ID, 1, 1, 1, -1, 0, 0, shuf_list);
-					end
-					if iNumLeftToPlace > 0 and quinary > 0 then
-						shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[quinary])
-						iNumLeftToPlace = self:PlaceSpecificNumberOfResources(use_this_ID, 1, 1, 1, -1, 0, 0, shuf_list);
-					end
-					if iNumLeftToPlace > 0 and senary > 0 then
-						shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[senary])
-						iNumLeftToPlace = self:PlaceSpecificNumberOfResources(use_this_ID, 1, 1, 1, -1, 0, 0, shuf_list);
-					end
-				end
-				if iNumLeftToPlace > 0 then
-					LekMapgenFileTrace("-", "Second Luxury failed in first attempt Region#", region_number, "res", use_this_ID, "left", iNumLeftToPlace);
-				end
-				if iNumLeftToPlace == 0 then
-					LekMapgenFileTrace("-", "Placed Second Luxury type of ID#", use_this_ID, "for start located at Plot", x, y, " in Region#", region_number);
-					used_randoms_as_secondaries[use_this_ID] = true;
-					LekMapgenFileTrace("Random Res State: " .. tostring(used_randoms_as_secondaries[use_this_ID]));
-					local pkg = self._lek_coastal_lux_package[region_number];
-					if cplot:IsCoastalLand() and not self._lek_coastal_refish then
-						if pkg == 'A' then
-							self:LekPlaceFishNearStart(x, y, 3, 1);
-						elseif pkg == 'C' then
-							self:LekPlaceFishNearStart(x, y, 3, 2);
-						end
-					end
-				end
-			end
-		end
-	end
-
-	-- if we failed to place a 2nd lux within the first 2 rings extend the possible locations to the 3rd ring
-	if placed2ndLux == false then
-		
-		local placed2ndLux = true;
-
-		for region_number = 1, self.iNumCivs do
-			local x = self.startingPlots[region_number][1];
-			local y = self.startingPlots[region_number][2];
 			local use_this_ID;
 			local candidate_types, iNumTypesAllowed = {}, 0;
 			local allowed_luxuries = self:GetListOfAllowableLuxuriesAtCitySite(x, y, 3)
@@ -16296,28 +17452,9 @@ function AssignStartingPlots:PlaceLuxuries()
 				end
 			end
 
-			if not self._lek_coastal_refish then
-				candidate_types = self:LekFilterSecondLuxCandidatesForCoastalPackage(region_number, candidate_types);
-				iNumTypesAllowed = 0;
-				for __ in ipairs(candidate_types) do
-					iNumTypesAllowed = iNumTypesAllowed + 1;
-				end
-			end
-
-			if self._lek_coastal_refish and Map.GetPlot(x, y):IsCoastalLand() then
-				candidate_types = {};
-				table.insert(candidate_types, self.whale_ID);
-				table.insert(candidate_types, self.pearls_ID);
-				table.insert(candidate_types, self.crab_ID);
-				if self.bModLuxes and self.coral_ID ~= nil then
-					table.insert(candidate_types, self.coral_ID);
-				end
-				iNumTypesAllowed = #candidate_types;
-				LekMapgenFileTrace("sapht: forcing a coastal lux (2) n=", iNumTypesAllowed);
-			end
-		
 			if iNumTypesAllowed > 0 then
 				local diceroll = 1 + Map.Rand(iNumTypesAllowed, "Choosing second luxury type at a start location - LUA");
+				LekMapgenFileTrace("sapht: rolling lux dice")
 				use_this_ID = candidate_types[diceroll];
 			else
 				-- See if any City State types are eligible.
@@ -16332,8 +17469,8 @@ function AssignStartingPlots:PlaceLuxuries()
 					local diceroll = 1 + Map.Rand(iNumTypesAllowed, "Choosing second luxury type at a start location - LUA");
 					use_this_ID = candidate_types[diceroll];
 				else
-					-- See if anybody else's regional type is eligible.
-					local region_lux_ID = self.region_luxury_assignment[region_number];
+					local rla = self.region_luxury_assignment;
+					local region_lux_ID = rla and rla[region_number];
 					for loop, res_ID in ipairs(self.resourceIDs_assigned_to_regions) do
 						if res_ID ~= region_lux_ID then
 							if allowed_luxuries[res_ID] == true and used_randoms_as_secondaries[res_ID] ~= true then
@@ -16347,68 +17484,87 @@ function AssignStartingPlots:PlaceLuxuries()
 						local diceroll = 1 + Map.Rand(iNumTypesAllowed, "Choosing second luxury type at a start location - LUA");
 						use_this_ID = candidate_types[diceroll];
 					else
-						LekMapgenFileTrace("-", "Failed to place second Luxury type in 3rd ring at start in Region#", region_number, "-- no eligible types!", "-");
+						LekMapgenFileTrace("-", "Failed to place second Luxury type in 2nd ring at start in Region#", region_number, "-- no eligible types!", "-");
 						placed2ndLux = false;
 					end
 				end
 			end
+			local luxCandSnap = {};
+			for _, rid in ipairs(candidate_types) do
+				luxCandSnap[#luxCandSnap + 1] = rid;
+			end
 			LekMapgenFileTrace("--- End of Eligible Types list for Second Luxury in Region#", region_number, "---");
+			LekMapgenFileTrace("Random Res rings 1-3: " .. tostring(use_this_ID));
 
-			LekMapgenFileTrace("Random Res 3 Rings: " .. tostring(use_this_ID));
-
-			if use_this_ID ~= nil then -- Place this luxury type at this start.
-				local primary, secondary, tertiary, quaternary, quinary, senary, luxury_plot_lists, shuf_list;			-- MOD.Barathor: New -- added a quinary and senary list
-				primary, secondary, tertiary, quaternary, quinary, senary = self:GetIndicesForLuxuryType(use_this_ID);	-- MOD.Barathor: New -- added a quinary and senary list
-				local iNumLeftToPlace;
-				if use_this_ID == self.marble_ID or use_this_ID == self.perfume_ID then
-					luxury_plot_lists = self:GenerateLuxuryPlotListsAtCitySite(x, y, 3, false);
-					local pool3 = self:LekBuildMarblePerfumeStartPlotListRing3Hill(luxury_plot_lists, x, y, primary, secondary, tertiary, quaternary, quinary, senary);
-					shuf_list = GetShuffledCopyOfTable(pool3);
-					iNumLeftToPlace = self:PlaceSpecificNumberOfResources(use_this_ID, 1, 1, 1, -1, 0, 0, shuf_list);
-				else
-					luxury_plot_lists = self:GenerateLuxuryPlotListsAtCitySite(x, y, 3, false)
-					shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[primary])
-					iNumLeftToPlace = self:PlaceSpecificNumberOfResources(use_this_ID, 1, 1, 1, -1, 0, 0, shuf_list);
-					if iNumLeftToPlace > 0 and secondary > 0 then
-						shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[secondary])
-						iNumLeftToPlace = self:PlaceSpecificNumberOfResources(use_this_ID, 1, 1, 1, -1, 0, 0, shuf_list);
+			if use_this_ID ~= nil then
+				local iNumLeftToPlace = self:LekCascadePlaceSecondLuxAtStart(x, y, use_this_ID, 3);
+				if iNumLeftToPlace > 0 and #luxCandSnap > 0 then
+					LekMapgenFileTrace("-", "Second Luxury retry alt types Region#", region_number, "firstPick=" .. tostring(use_this_ID));
+					for i = #luxCandSnap, 2, -1 do
+						local j = 1 + Map.Rand(i, "Lek2ndLuxAlt");
+						luxCandSnap[i], luxCandSnap[j] = luxCandSnap[j], luxCandSnap[i];
 					end
-					if iNumLeftToPlace > 0 and tertiary > 0 then
-						shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[tertiary])
-						iNumLeftToPlace = self:PlaceSpecificNumberOfResources(use_this_ID, 1, 1, 1, -1, 0, 0, shuf_list);
-					end
-					if iNumLeftToPlace > 0 and quaternary > 0 then
-						shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[quaternary])
-						iNumLeftToPlace = self:PlaceSpecificNumberOfResources(use_this_ID, 1, 1, 1, -1, 0, 0, shuf_list);
-					end
-					if iNumLeftToPlace > 0 and quinary > 0 then
-						shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[quinary])
-						iNumLeftToPlace = self:PlaceSpecificNumberOfResources(use_this_ID, 1, 1, 1, -1, 0, 0, shuf_list);
-					end
-					if iNumLeftToPlace > 0 and senary > 0 then
-						shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[senary])
-						iNumLeftToPlace = self:PlaceSpecificNumberOfResources(use_this_ID, 1, 1, 1, -1, 0, 0, shuf_list);
+					for _, altId in ipairs(luxCandSnap) do
+						if altId ~= use_this_ID and iNumLeftToPlace > 0 then
+							iNumLeftToPlace = self:LekCascadePlaceSecondLuxAtStart(x, y, altId, 3);
+							if iNumLeftToPlace == 0 then
+								use_this_ID = altId;
+								break;
+							end
+						end
 					end
 				end
 				if iNumLeftToPlace > 0 then
-					LekMapgenFileTrace("-", "Second Luxury failed 3-ring retry Region#", region_number, "res", use_this_ID, "left", iNumLeftToPlace);
+					local poolUF = self:LekSecondLuxUnfilteredPool(region_number, 3, used_randoms_as_secondaries);
+					for i = #poolUF, 2, -1 do
+						local j = 1 + Map.Rand(i, "Lek2ndLuxUF");
+						poolUF[i], poolUF[j] = poolUF[j], poolUF[i];
+					end
+					for _, altId in ipairs(poolUF) do
+						if iNumLeftToPlace > 0 then
+							iNumLeftToPlace = self:LekCascadePlaceSecondLuxAtStart(x, y, altId, 3);
+							if iNumLeftToPlace == 0 then
+								use_this_ID = altId;
+								break;
+							end
+						end
+					end
+				end
+				if iNumLeftToPlace > 0 then
+					LekMapgenFileTrace("-", "Second Luxury failed rings 1-3 Region#", region_number, "res", use_this_ID, "left", iNumLeftToPlace);
+					placed2ndLux = false;
 				end
 				if iNumLeftToPlace == 0 then
 					LekMapgenFileTrace("-", "Placed Second Luxury type of ID#", use_this_ID, "for start located at Plot", x, y, " in Region#", region_number);
 					used_randoms_as_secondaries[use_this_ID] = true;
 					LekMapgenFileTrace("Random Res State: " .. tostring(used_randoms_as_secondaries[use_this_ID]));
-					local pkg = self._lek_coastal_lux_package[region_number];
-					if Map.GetPlot(x, y):IsCoastalLand() and not self._lek_coastal_refish then
-						if pkg == 'A' then
-							self:LekPlaceFishNearStart(x, y, 3, 1);
-						elseif pkg == 'C' then
-							self:LekPlaceFishNearStart(x, y, 3, 2);
-						end
+					self._lek_second_lux_start_ok[region_number] = true;
+					self:LekPlaceFishForCoastalLuxPackage(x, y, region_number, use_this_ID);
+				end
+			end
+			end
+			end
+		end
+	end
+
+	if self.resource_setting ~= 1 and self._lek_second_lux_start_ok ~= nil then
+		for region_number = 1, self.iNumCivs do
+			if not self._lek_second_lux_start_ok[region_number] then
+				local spFish = self.startingPlots[region_number];
+				if spFish and type(spFish[1]) == "number" and type(spFish[2]) == "number" then
+					local x = spFish[1];
+					local y = spFish[2];
+					local cplot = Map.GetPlot(x, y);
+					if cplot and cplot:IsCoastalLand() and not self._lek_coastal_refish then
+						LekMapgenFileTrace("-", "Lek coastal package fallback fish (no second lux) Region#", region_number);
+						self:LekPlaceFishForCoastalLuxPackage(x, y, region_number, nil);
 					end
 				end
 			end
 		end
 	end
+
+	self:LekEnsureCapitalLuxuryMinimumNearStart(used_randoms_as_secondaries, 4, 3);
 
 --	self:PlaceMarble()
 	self.realtotalLuxPlacedSoFar = self.totalLuxPlacedSoFar		-- MOD.Barathor: New -- save the real total of luxuries before it gets corrupted with non-luxury additions which use the luxury placement method
@@ -16545,19 +17701,6 @@ function AssignStartingPlots:PlaceLuxuries_OLD()
 					end
 				end
 			end
-
-			if self._lek_coastal_refish and Map.GetPlot(x, y):IsCoastalLand() then
-				candidate_types = {};
-				table.insert(candidate_types, self.whale_ID);
-				table.insert(candidate_types, self.pearls_ID);
-				table.insert(candidate_types, self.crab_ID);
-				if self.bModLuxes and self.coral_ID ~= nil then
-					table.insert(candidate_types, self.coral_ID);
-				end
-				iNumTypesAllowed = #candidate_types;
-				LekMapgenFileTrace("sapht: forcing a coastal lux (3) n=", iNumTypesAllowed);
-			end
-		
 
 			shuf_luxes = GetShuffledCopyOfTable(candidate_types);
 
@@ -17185,7 +18328,9 @@ function AssignStartingPlots:GetListOfAllowableLuxuriesNearCitySite(x, y, radius
 						end
 					-- Checking for land-based eligibility.
 					elseif plotType == PlotTypes.PLOT_HILLS and terrainType ~= TerrainTypes.TERRAIN_SNOW then
-						--print("-"); print("Hills Allowed");
+						if featureType == FeatureTypes.FEATURE_JUNGLE then
+							LekAllowLuxuryIndex(allowed_luxuries, self.ivory_ID)
+						end
 						LekAllowLuxuryIndex(allowed_luxuries, self.gold_ID)
 						LekAllowLuxuryIndex(allowed_luxuries, self.silver_ID)
 						LekAllowLuxuryIndex(allowed_luxuries, self.gems_ID)
@@ -17240,6 +18385,7 @@ function AssignStartingPlots:GetListOfAllowableLuxuriesNearCitySite(x, y, radius
 							LekAllowLuxuryIndex(allowed_luxuries, self.cotton_ID)
 							LekAllowLuxuryIndex(allowed_luxuries, self.incense_ID)
 							LekAllowLuxuryIndex(allowed_luxuries, self.citrus_ID)
+							LekAllowLuxuryIndex(allowed_luxuries, self.ivory_ID)
 							--print("-"); print("Flat Flood Plains Allowed");
 						elseif featureType == FeatureTypes.FEATURE_JUNGLE then		
 							LekAllowLuxuryIndex(allowed_luxuries, self.gems_ID)
@@ -17252,6 +18398,7 @@ function AssignStartingPlots:GetListOfAllowableLuxuriesNearCitySite(x, y, radius
 							LekAllowLuxuryIndex(allowed_luxuries, self.truffles_ID)
 							LekAllowLuxuryIndex(allowed_luxuries, self.rubber_ID)
 							LekAllowLuxuryIndex(allowed_luxuries, self.coconut_ID)
+							LekAllowLuxuryIndex(allowed_luxuries, self.ivory_ID)
 							--print("-"); print("Flat Jungle Allowed");
 						elseif featureType == FeatureTypes.FEATURE_FOREST then		
 							LekAllowLuxuryIndex(allowed_luxuries, self.fur_ID)
@@ -17753,13 +18900,21 @@ function AssignStartingPlots:PlaceSexyBonusAtCivStarts()
 	local bonus_type_associated_with_region_type = {self.deer_ID, self.banana_ID, 
 	self.deer_ID, self.wheat_ID, self.maize_ID, self.sheep_ID, self.wheat_ID, self.cow_ID, self.cow_ID, self.wheat_ID, self.hardwood_ID, self.maize_ID,};
 	
+	if not odd or not even then
+		return;
+	end
 	for region_number = 1, self.iNumCivs do
-		local x = self.startingPlots[region_number][1];
-		local y = self.startingPlots[region_number][2];
+		local spSb = self.startingPlots[region_number];
+		if not (spSb and type(spSb[1]) == "number" and type(spSb[2]) == "number") then
+		else
+		local x, y = spSb[1], spSb[2];
 		local region_type = self.regionTypes[region_number];
+		if type(region_type) ~= "number" or region_type < 1 or region_type > #bonus_type_associated_with_region_type then
+		else
 		local use_this_ID = bonus_type_associated_with_region_type[region_type];
+		if use_this_ID == nil then
+		else
 		local plot_list, fish_list = {}, {};
-		-- For notes on how the hex-iteration works, refer to PlaceResourceImpact()
 		local ripple_radius = 2;
 		local currentX = x - ripple_radius;
 		local currentY = y;
@@ -17785,10 +18940,11 @@ function AssignStartingPlots:PlaceSexyBonusAtCivStarts()
 					if wrapY then
 						realY = realY % iH;
 					end
-					-- We've arrived at the correct x and y for the current plot.
 					local plot = Map.GetPlot(realX, realY);
+					if not plot then
+					else
 					local featureType = plot:GetFeatureType()
-					if plot:GetResourceType(-1) == -1 and featureType ~= FeatureTypes.FEATURE_OASIS then -- No resource or Oasis here, safe to proceed.
+					if plot:GetResourceType(-1) == -1 and featureType ~= FeatureTypes.FEATURE_OASIS then
 						local plotType = plot:GetPlotType()
 						local terrainType = plot:GetTerrainType()
 						local plotIndex = realY * iW + realX + 1;
@@ -17846,6 +19002,7 @@ function AssignStartingPlots:PlaceSexyBonusAtCivStarts()
 							end
 						end
 					end
+					end
 				end
 				currentX, currentY = nextX, nextY;
 			end
@@ -17863,10 +19020,12 @@ function AssignStartingPlots:PlaceSexyBonusAtCivStarts()
 		else
 			local iFishCandidates = table.maxn(fish_list);
 			if iFishCandidates > 0 then
-				--print("Placing 'sexy Fish' in third ring of start location in Region#", region_number);
-				local shuf_list = GetShuffledCopyOfTable(fish_list)
+				local shuf_list = GetShuffledCopyOfTable(self:LekFilterLakeFishIndicesAwayFromMajorStarts(fish_list, 4))
 				local iNumLeftToPlace = self:PlaceSpecificNumberOfResources(self.fish_ID, 1, 1, 1, -1, 0, 0, shuf_list);
 			end
+		end
+		end
+		end
 		end
 	end
 end
@@ -17955,8 +19114,6 @@ function AssignStartingPlots:PlaceCoastalBonusIslands()
 			local p = Map.GetPlot(x, y);
 			if p then
 				if p:GetTerrainType() == TerrainTypes.TERRAIN_OCEAN then return true; end
-				if not wrapX and (x == 0 or x == iW - 1) then return true; end
-				if not wrapY and (y == 0 or y == iH - 1) then return true; end
 				for d = 1, 6 do
 					local nx, ny = getNeighbor(x, y, d);
 					if inBounds(nx, ny) then
@@ -17971,6 +19128,57 @@ function AssignStartingPlots:PlaceCoastalBonusIslands()
 			end
 		end
 		return false;
+	end
+	local function hexStepsToNearestLand(wx, wy)
+		local visited = {};
+		local q = { { wx, wy, 0 } };
+		local qi = 1;
+		while qi <= #q do
+			local x, y, dist = q[qi][1], q[qi][2], q[qi][3];
+			qi = qi + 1;
+			local k = x .. "," .. y;
+			if not visited[k] then
+				visited[k] = true;
+				local p = Map.GetPlot(x, y);
+				if p and not p:IsWater() then
+					return dist;
+				end
+				if dist < 6 then
+					for d = 1, 6 do
+						local nx, ny = getNeighbor(x, y, d);
+						if inBounds(nx, ny) then
+							q[#q + 1] = { nx, ny, dist + 1 };
+						end
+					end
+				end
+			end
+		end
+		return 99;
+	end
+	local function rotDirIsland(d, delta)
+		return ((d - 1 + delta) % 6 + 6) % 6 + 1;
+	end
+	local function hexDirDistIsland(a, b)
+		local d = math.abs(a - b);
+		return math.min(d, 6 - d);
+	end
+	local function dirTowardNearestLand(wx, wy)
+		local bestD, bestDist = 1, 999;
+		for d = 1, 6 do
+			local nx, ny = getNeighbor(wx, wy, d);
+			if inBounds(nx, ny) then
+				local p = Map.GetPlot(nx, ny);
+				if p and not p:IsWater() then
+					return d;
+				end
+				local dist = hexStepsToNearestLand(nx, ny);
+				if dist < 99 and dist + 1 < bestDist then
+					bestDist = dist + 1;
+					bestD = d;
+				end
+			end
+		end
+		return bestD;
 	end
 	local function placeOneIslandForStart(sx, sy, minRing, maxRing)
 		local candidates = {};
@@ -18002,16 +19210,26 @@ function AssignStartingPlots:PlaceCoastalBonusIslands()
 				end
 			end
 		end
-		if #candidates == 0 then return false; end
+		if #candidates == 0 then return nil; end
 
 		local seedPool = math.min(8, #candidates);
 		local seed = candidates[1 + Map.Rand(seedPool, "")];
+		local toward = dirTowardNearestLand(seed[1], seed[2]);
+		local tan1 = rotDirIsland(toward, 1);
+		local tan2 = rotDirIsland(toward, 5);
+		local dirOrder = { 1, 2, 3, 4, 5, 6 };
+		table.sort(dirOrder, function(a, b)
+			local sa = math.min(hexDirDistIsland(a, tan1), hexDirDistIsland(a, tan2));
+			local sb = math.min(hexDirDistIsland(b, tan1), hexDirDistIsland(b, tan2));
+			if sa ~= sb then return sa < sb; end
+			return Map.Rand(2, "") == 0;
+		end);
 		local islandTiles = { {seed[1], seed[2]} };
 		local used = {};
 		used[plotIndex(seed[1], seed[2])] = true;
-		local target = 2 + Map.Rand(5, ""); -- 2..6
+		local target = 2 + Map.Rand(4, "");
 		if Map.Rand(100, "") < 6 then
-			target = 7 + Map.Rand(2, ""); -- rare 7..8
+			target = 6 + Map.Rand(2, "");
 		end
 		local fi = 1;
 		while #islandTiles < target and fi <= #islandTiles do
@@ -18020,7 +19238,7 @@ function AssignStartingPlots:PlaceCoastalBonusIslands()
 			local d0 = 1 + Map.Rand(6, "");
 			local added = false;
 			for j = 0, 5 do
-				local d = ((d0 + j - 1) % 6) + 1;
+				local d = dirOrder[((d0 + j - 1) % 6) + 1];
 				local nx, ny = getNeighbor(fx, fy, d);
 				if inBounds(nx, ny) then
 					local ii = plotIndex(nx, ny);
@@ -18032,7 +19250,7 @@ function AssignStartingPlots:PlaceCoastalBonusIslands()
 						elseif PlotDistance then
 							dCap = PlotDistance(sx, sy, nx, ny);
 						end
-						if dCap and dCap > 8 then
+						if dCap and dCap > 4 then
 						else
 							local adjLand = countAdjacentLand(nx, ny, used);
 							local nextTileNumber = #islandTiles + 1;
@@ -18058,7 +19276,7 @@ function AssignStartingPlots:PlaceCoastalBonusIslands()
 			end
 			if not added then fi = fi + 1; end
 		end
-		if #islandTiles < 2 then return false; end
+		if #islandTiles < 2 then return nil; end
 
 		local backup = {};
 		local placedSet = {};
@@ -18085,17 +19303,23 @@ function AssignStartingPlots:PlaceCoastalBonusIslands()
 				end
 			end
 		end
-		-- 65% forest over island (where allowed).
+		-- Forest after terrain brush: 60% default (−5 vs legacy); desert tiles 3%.
 		if forestID ~= -1 then
 			for _, t in ipairs(islandTiles) do
 				local p = Map.GetPlot(t[1], t[2]);
-				if p and not p:IsWater() and p:GetFeatureType() == FeatureTypes.NO_FEATURE and Map.Rand(100, "") < 65 then
-					p:SetFeatureType(forestID, -1);
+				if p and not p:IsWater() and p:GetFeatureType() == FeatureTypes.NO_FEATURE then
+					local fpct = 60;
+					if p:GetTerrainType() == TerrainTypes.TERRAIN_DESERT then
+						fpct = 3;
+					end
+					if Map.Rand(100, "Lek cap island forest") < fpct then
+						p:SetFeatureType(forestID, -1);
+					end
 				end
 			end
 		end
 		local checkStart = Map.GetPlot(sx, sy);
-		if not (checkStart and checkStart:IsCoastalLand(300) and capitalReachesSaltWater(sx, sy, placedSet)) then
+		if not (checkStart and checkStart:IsCoastalLand(300) and capitalReachesSaltWater(sx, sy, nil)) then
 			for _, b in ipairs(backup) do
 				local p = Map.GetPlot(b.x, b.y);
 				if p then
@@ -18104,20 +19328,269 @@ function AssignStartingPlots:PlaceCoastalBonusIslands()
 					p:SetFeatureType(b.ft, -1);
 				end
 			end
+			return nil;
+		end
+		return backup;
+	end
+
+	local function plotDistXY(ax, ay, bx, by)
+		if Map.PlotDistance then
+			return Map.PlotDistance(ax, ay, bx, by);
+		end
+		if PlotDistance then
+			return PlotDistance(ax, ay, bx, by);
+		end
+		return math.abs(ax - bx) + math.abs(ay - by);
+	end
+	-- Bonus islands 2+3: prioritize surf zone (hex distance 2–7 to mainland, no adjacency to land while building);
+	-- weak tie-break closer to capital. Keeps a 1-tile water buffer to pangaea.
+	local function placeShoreProximalBonusIsland(sx, sy, minRing, maxRing)
+		local function anyForeignLandNeighbor(x, y, used2)
+			for d = 1, 6 do
+				local nx, ny = getNeighbor(x, y, d);
+				if inBounds(nx, ny) then
+					local ii = plotIndex(nx, ny);
+					if used2[ii] then
+					else
+						local np = Map.GetPlot(nx, ny);
+						if np and not np:IsWater() then return true; end
+					end
+				end
+			end
 			return false;
 		end
-		return true;
+		local function countOurNeighbors(x, y, used2)
+			local n = 0;
+			for d = 1, 6 do
+				local nx, ny = getNeighbor(x, y, d);
+				if inBounds(nx, ny) and used2[plotIndex(nx, ny)] then
+					n = n + 1;
+				end
+			end
+			return n;
+		end
+		local function collectNearShoreSeeds(r0, r1)
+			local cand = {};
+			for ripple_radius = r0, r1 do
+				local currentX = sx - ripple_radius;
+				local currentY = sy;
+				for direction_index = 1, 6 do
+					for _ = 1, ripple_radius do
+						local plot_adjustments = (currentY / 2 > math.floor(currentY / 2)) and odd[direction_index] or even[direction_index];
+						local nextX = currentX + plot_adjustments[1];
+						local nextY = currentY + plot_adjustments[2];
+						if wrapX == false and (nextX < 0 or nextX >= iW) then
+						elseif wrapY == false and (nextY < 0 or nextY >= iH) then
+						else
+							local realX = nextX;
+							local realY = nextY;
+							if wrapX then realX = realX % iW; end
+							if wrapY then realY = realY % iH; end
+							local p = Map.GetPlot(realX, realY);
+							local emptyUsed = {};
+							if p and p:IsWater()
+								and not p:IsLake()
+								and not anyForeignLandNeighbor(realX, realY, emptyUsed)
+								and hasLandAtRing2(realX, realY)
+							then
+								local dLand = hexStepsToNearestLand(realX, realY);
+								if dLand == 2 or dLand == 3 then
+									cand[#cand + 1] = { realX, realY, dLand };
+								end
+							end
+						end
+						currentX, currentY = nextX, nextY;
+					end
+				end
+			end
+			return cand;
+		end
+		local attempt = function(rLo, rHi)
+			local candidates = collectNearShoreSeeds(rLo, rHi);
+			if #candidates == 0 then return nil; end
+			table.sort(candidates, function(a, b)
+				if a[3] ~= b[3] then return a[3] < b[3]; end
+				return plotDistXY(a[1], a[2], sx, sy) < plotDistXY(b[1], b[2], sx, sy);
+			end);
+			local seedPool = math.min(12, #candidates);
+			local pickRow = candidates[1 + Map.Rand(seedPool, "Lek shore isle seed")];
+			local seed = { pickRow[1], pickRow[2] };
+			local towardSh = dirTowardNearestLand(seed[1], seed[2]);
+			local tan1sh = rotDirIsland(towardSh, 1);
+			local tan2sh = rotDirIsland(towardSh, 5);
+			local islandTiles = { { seed[1], seed[2] } };
+			local used = {};
+			used[plotIndex(seed[1], seed[2])] = true;
+			local target = 2 + Map.Rand(3, "Lek shore isle size");
+			if Map.Rand(100, "Lek shore isle rare") < 8 then
+				target = 5 + Map.Rand(2, "Lek shore isle rare sz");
+			end
+			local fi = 1;
+			while #islandTiles < target and fi <= #islandTiles do
+				local fx = islandTiles[fi][1];
+				local fy = islandTiles[fi][2];
+				local neigh = {};
+				for d = 1, 6 do
+					local nx, ny = getNeighbor(fx, fy, d);
+					if inBounds(nx, ny) then
+						local p = Map.GetPlot(nx, ny);
+						if not used[plotIndex(nx, ny)] and p and p:IsWater() and not p:IsLake()
+							and not anyForeignLandNeighbor(nx, ny, used)
+						then
+							local shoreD = hexStepsToNearestLand(nx, ny);
+							neigh[#neigh + 1] = { nx, ny, shoreD, d };
+						end
+					end
+				end
+				table.sort(neigh, function(u, v)
+					if u[3] ~= v[3] then return u[3] < v[3]; end
+					local ua = math.min(hexDirDistIsland(u[4], tan1sh), hexDirDistIsland(u[4], tan2sh));
+					local va = math.min(hexDirDistIsland(v[4], tan1sh), hexDirDistIsland(v[4], tan2sh));
+					if ua ~= va then return ua < va; end
+					return plotDistXY(u[1], u[2], sx, sy) < plotDistXY(v[1], v[2], sx, sy);
+				end);
+				local added = false;
+				local d0 = (#neigh > 0) and (1 + Map.Rand(#neigh, "Lek shore isle dir")) or 1;
+				for j = 0, #neigh - 1 do
+					local pick = ((d0 - 1 + j) % #neigh) + 1;
+					local nx, ny = neigh[pick][1], neigh[pick][2];
+					local ii = plotIndex(nx, ny);
+					local shorePick = neigh[pick][3];
+					local dCap = plotDistXY(nx, ny, sx, sy);
+					if dCap > 5 or shorePick > 4 then
+					else
+						local our = countOurNeighbors(nx, ny, used);
+						local nextTileNumber = #islandTiles + 1;
+						local ok = false;
+						if nextTileNumber == 2 then
+							ok = (our == 1);
+						else
+							ok = (our == 1 or our == 2);
+							if not ok and Map.Rand(100, "Lek shore isle noise") < 28 then
+								ok = (our >= 1 and our <= 3);
+							end
+						end
+						if ok then
+							used[ii] = true;
+							islandTiles[#islandTiles + 1] = { nx, ny };
+							added = true;
+							break;
+						end
+					end
+				end
+				if not added then fi = fi + 1; end
+			end
+			if #islandTiles < 2 then return nil; end
+			local backup = {};
+			local placedSet = {};
+			for _, t in ipairs(islandTiles) do
+				local p = Map.GetPlot(t[1], t[2]);
+				if p and p:IsWater() then
+					placedSet[plotIndex(t[1], t[2])] = true;
+					backup[#backup + 1] = {
+						x = t[1], y = t[2],
+						pt = p:GetPlotType(),
+						tt = p:GetTerrainType(),
+						ft = p:GetFeatureType()
+					};
+					p:SetPlotType((Map.Rand(100, "") < 70) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND, false, false);
+					local tg = _lekmap_terrain_generator;
+					local tt;
+					if tg and tg.GenerateTerrainAtPlot then
+						tt = tg:GenerateTerrainAtPlot(t[1], t[2]);
+					end
+					if tt and tt ~= TerrainTypes.NO_TERRAIN then
+						p:SetTerrainType(tt, false, false);
+					else
+						p:SetTerrainType((Map.Rand(100, "") < 62) and TerrainTypes.TERRAIN_GRASS or TerrainTypes.TERRAIN_PLAINS, false, false);
+					end
+				end
+			end
+			if forestID ~= -1 then
+				for _, t in ipairs(islandTiles) do
+					local p = Map.GetPlot(t[1], t[2]);
+					if p and not p:IsWater() and p:GetFeatureType() == FeatureTypes.NO_FEATURE then
+						local fpct = 60;
+						if p:GetTerrainType() == TerrainTypes.TERRAIN_DESERT then
+							fpct = 3;
+						end
+						if Map.Rand(100, "Lek cap shore isle forest") < fpct then
+							p:SetFeatureType(forestID, -1);
+						end
+					end
+				end
+			end
+			local checkStart = Map.GetPlot(sx, sy);
+			if not (checkStart and checkStart:IsCoastalLand(300) and capitalReachesSaltWater(sx, sy, nil)) then
+				for _, b in ipairs(backup) do
+					local p = Map.GetPlot(b.x, b.y);
+					if p then
+						p:SetPlotType(b.pt, false, false);
+						p:SetTerrainType(b.tt, false, false);
+						p:SetFeatureType(b.ft, -1);
+					end
+				end
+				return nil;
+			end
+			return backup;
+		end
+		local b = attempt(minRing, maxRing);
+		if b then return b; end
+		b = attempt(2, 6);
+		if b then return b; end
+		return attempt(2, 7);
 	end
 
 	for region_number = 1, self.iNumCivs do
-		local sx = self.startingPlots[region_number][1];
-		local sy = self.startingPlots[region_number][2];
+		local spC = self.startingPlots[region_number];
+		if not (spC and type(spC[1]) == "number" and type(spC[2]) == "number") then
+		else
+		local sx, sy = spC[1], spC[2];
 		local startPlot = Map.GetPlot(sx, sy);
 		if startPlot and startPlot:IsCoastalLand() then
-			placeOneIslandForStart(sx, sy, 3, 6);
-			if Map.Rand(100, "") < 20 then
-				placeOneIslandForStart(sx, sy, 5, 8);
+			local sessionRestore = {};
+			local b1 = placeOneIslandForStart(sx, sy, 2, 5);
+			if b1 then
+				for _, row in ipairs(b1) do
+					sessionRestore[#sessionRestore + 1] = row;
+				end
 			end
+			LekMapgenFileTrace("-", "LEK bonusIsland Region#", region_number, "kind=deepWater2to5", "tiles=", b1 and #b1 or 0, "plot", sx, sy);
+			local b2 = nil;
+			if b1 then
+				b2 = placeShoreProximalBonusIsland(sx, sy, 2, 5);
+				if b2 then
+					for _, row in ipairs(b2) do
+						sessionRestore[#sessionRestore + 1] = row;
+					end
+				end
+			end
+			LekMapgenFileTrace("-", "LEK bonusIsland Region#", region_number, "kind=shoreProximal_primary", "tiles=", b2 and #b2 or 0);
+			local b3 = nil;
+			if Map.Rand(100, "") < 20 then
+				b3 = placeShoreProximalBonusIsland(sx, sy, 2, 5);
+				if b3 then
+					for _, row in ipairs(b3) do
+						sessionRestore[#sessionRestore + 1] = row;
+					end
+				end
+			end
+			LekMapgenFileTrace("-", "LEK bonusIsland Region#", region_number, "kind=shoreProximal_roll20pct", "tiles=", b3 and #b3 or 0);
+			local verify = Map.GetPlot(sx, sy);
+			if verify and verify:IsCoastalLand() and #sessionRestore > 0 then
+				if not (verify:IsCoastalLand(300) and capitalReachesSaltWater(sx, sy, nil)) then
+					LekMapgenFileTrace("-", "LEK PlaceCoastalBonusIslands: revert; capital lost main ocean link Region#", region_number);
+					for _, b in ipairs(sessionRestore) do
+						local p = Map.GetPlot(b.x, b.y);
+						if p then
+							p:SetPlotType(b.pt, false, false);
+							p:SetTerrainType(b.tt, false, false);
+							p:SetFeatureType(b.ft, -1);
+						end
+					end
+				end
+			end
+		end
 		end
 	end
 end
@@ -18458,25 +19931,74 @@ function AssignStartingPlots:LekFilterLakeFishIndicesAwayFromMajorStarts(plot_in
 	for li = 1, #plot_indices do
 		local plotIndex = plot_indices[li];
 		local x = (plotIndex - 1) % iW;
-		local y = (plotIndex - x - 1) / iW;
-		local ok = true;
-		for r = 1, self.iNumCivs or 0 do
-			local sp = self.startingPlots[r];
-			if sp and type(sp[1]) == "number" and type(sp[2]) == "number" then
-				local d = nil;
-				if Map.PlotDistance then
-					d = Map.PlotDistance(x, y, sp[1], sp[2]);
-				elseif PlotDistance then
-					d = PlotDistance(x, y, sp[1], sp[2]);
-				end
-				if d ~= nil and d <= dlim then
-					ok = false;
-					break;
+		local y = math.floor((plotIndex - x - 1) / iW);
+		local p = Map.GetPlot(x, y);
+		local drop = false;
+		if p and p:IsLake() then
+			for r = 1, self.iNumCivs or 0 do
+				local sp = self.startingPlots[r];
+				if sp and type(sp[1]) == "number" and type(sp[2]) == "number" then
+					local d = nil;
+					if Map.PlotDistance then
+						d = Map.PlotDistance(x, y, sp[1], sp[2]);
+					elseif PlotDistance then
+						d = PlotDistance(x, y, sp[1], sp[2]);
+					end
+					if d == nil and AssignStartingPlots.LekGlobalSix_PlotDistance then
+						d = self:LekGlobalSix_PlotDistance(x, y, sp[1], sp[2]);
+					end
+					if type(d) ~= "number" or d <= dlim then
+						drop = true;
+						break;
+					end
 				end
 			end
 		end
-		if ok then
+		if not drop then
 			out[#out + 1] = plotIndex;
+		end
+	end
+	return out;
+end
+
+function AssignStartingPlots:LekFilterFishIndicesExcludingLakeAdjacent(plot_indices)
+	if plot_indices == nil or #plot_indices == 0 then
+		return plot_indices or {};
+	end
+	local iW, iH = Map.GetGridSize();
+	local wrapX = Map:IsWrapX();
+	local wrapY = Map:IsWrapY();
+	local odd = self.firstRingYIsOdd;
+	local even = self.firstRingYIsEven;
+	if not odd or not even then
+		return plot_indices;
+	end
+	local out = {};
+	for li = 1, #plot_indices do
+		local plotIndex = plot_indices[li];
+		local x = (plotIndex - 1) % iW;
+		local y = math.floor((plotIndex - x - 1) / iW);
+		local p = Map.GetPlot(x, y);
+		if not p or p:IsLake() then
+		else
+			local skip = false;
+			for direction_index = 1, 6 do
+				local plot_adjustments = (y % 2 ~= 0) and odd[direction_index] or even[direction_index];
+				local nx = x + plot_adjustments[1];
+				local ny = y + plot_adjustments[2];
+				if wrapX then nx = nx % iW; if nx < 0 then nx = nx + iW; end; end
+				if wrapY then ny = ny % iH; if ny < 0 then ny = ny + iH; end; end
+				if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+					local np = Map.GetPlot(nx, ny);
+					if np and np:IsLake() then
+						skip = true;
+						break;
+					end
+				end
+			end
+			if not skip then
+				out[#out + 1] = plotIndex;
+			end
 		end
 	end
 	return out;
@@ -18663,7 +20185,12 @@ function AssignStartingPlots:FixResourceGraphics()
 			end
 
 			elseif res_ID == self.stone_ID then
-				AssignStartingPlots.LekFlattenHillForOpenResource(plot, 70, "Lek res stone hill flat");
+				local ttStone = plot:GetTerrainType();
+				if ttStone == TerrainTypes.TERRAIN_GRASS or ttStone == TerrainTypes.TERRAIN_PLAINS then
+					AssignStartingPlots.LekFlattenHillForOpenResource(plot, 12, "Lek res stone hill flat grassplains");
+				else
+					AssignStartingPlots.LekFlattenHillForOpenResource(plot, 12, "Lek res stone hill flat arid");
+				end
 				if featureType ~= FeatureTypes.FEATURE_FLOOD_PLAINS then
 					plot:SetFeatureType(FeatureTypes.NO_FEATURE, -1)
 				end
@@ -19022,8 +20549,54 @@ function AssignStartingPlots:PlaceStrategicAndBonusResources()
 	
 	-- Place Bonus Resources
 	print("Map Generation - Placing Bonuses");
-	local lake_fish = GetShuffledCopyOfTable(
+	local lake_fish_full = GetShuffledCopyOfTable(
 		self:LekFilterLakeFishIndicesAwayFromMajorStarts(self.lake_coast_fish_list or {}, 4));
+	local nLakeFull = #lake_fish_full;
+	local lekLakeFishFrac = self._lek_fish_lake_coast_pool_fraction;
+	if type(lekLakeFishFrac) ~= "number" or lekLakeFishFrac > 1 then
+		lekLakeFishFrac = 0.5;
+	end
+	if lekLakeFishFrac < 0 then
+		lekLakeFishFrac = 0;
+	end
+	local nLakeKept = nLakeFull;
+	local lake_fish = lake_fish_full;
+	if lekLakeFishFrac < 1 - 1e-9 and nLakeFull > 0 then
+		nLakeKept = math.floor(nLakeFull * lekLakeFishFrac + 1e-9);
+		lake_fish = {};
+		for i = 1, nLakeKept do
+			lake_fish[i] = lake_fish_full[i];
+		end
+	end
+	local function lek_fish_freq_keep_total(baseFreq, nCoast, nLakeK, nLakeF)
+		if type(baseFreq) ~= "number" or baseFreq < 1 then
+			return baseFreq;
+		end
+		if type(nCoast) ~= "number" or type(nLakeK) ~= "number" or type(nLakeF) ~= "number" then
+			return baseFreq;
+		end
+		if nLakeF <= nLakeK then
+			return baseFreq;
+		end
+		local poolOld = nCoast + nLakeF;
+		local poolNew = nCoast + nLakeK;
+		local nTarget = math.ceil(poolOld / baseFreq);
+		if nTarget < 1 then
+			return baseFreq;
+		end
+		if poolNew < 1 then
+			return baseFreq;
+		end
+		for f = 1, poolNew do
+			if math.ceil(poolNew / f) == nTarget then
+				return f;
+			end
+		end
+		return math.max(1, math.floor(baseFreq * poolNew / poolOld + 0.5));
+	end
+	local function Lek_FishPoolAwayFromStarts(pool)
+		return self:LekFilterLakeFishIndicesAwayFromMajorStarts(pool or {}, 4);
+	end
 	
 	if self._lek_coastal_refish then
 		local iW, iH = Map.GetGridSize()
@@ -19074,9 +20647,12 @@ function AssignStartingPlots:PlaceStrategicAndBonusResources()
 		local fish_coast_second = GetShuffledCopyOfTable(temp_list_pangaea_second)
 		local fish_coast_outer = GetShuffledCopyOfTable(temp_list_pangaea_outer)
 
-		self:PlaceFishMainland(3 * bonus_multiplier, AssignStartingPlots.LekMergePlotIndexLists(fish_coast_inner, lake_fish));
-		self:PlaceFishMainland(8 * bonus_multiplier, AssignStartingPlots.LekMergePlotIndexLists(fish_coast_second, lake_fish));
-		self:PlaceFishMainland(15 * bonus_multiplier, AssignStartingPlots.LekMergePlotIndexLists(fish_coast_outer, lake_fish));
+		self:PlaceFishMainland(lek_fish_freq_keep_total(3 * bonus_multiplier, #fish_coast_inner, nLakeKept, nLakeFull),
+			Lek_FishPoolAwayFromStarts(AssignStartingPlots.LekMergePlotIndexLists(fish_coast_inner, lake_fish)));
+		self:PlaceFishMainland(lek_fish_freq_keep_total(8 * bonus_multiplier, #fish_coast_second, nLakeKept, nLakeFull),
+			Lek_FishPoolAwayFromStarts(AssignStartingPlots.LekMergePlotIndexLists(fish_coast_second, lake_fish)));
+		self:PlaceFishMainland(lek_fish_freq_keep_total(15 * bonus_multiplier, #fish_coast_outer, nLakeKept, nLakeFull),
+			Lek_FishPoolAwayFromStarts(AssignStartingPlots.LekMergePlotIndexLists(fish_coast_outer, lake_fish)));
 
 	elseif self.method == 1 then
 		local iW, iH = Map.GetGridSize()
@@ -19113,14 +20689,15 @@ function AssignStartingPlots:PlaceStrategicAndBonusResources()
 
 		self.coast_list_panagaea = GetShuffledCopyOfTable(temp_list_panagaea)
 
-		self:PlaceFishMainland(10 * bonus_multiplier, AssignStartingPlots.LekMergePlotIndexLists(self.coast_list_panagaea, lake_fish));
+		self:PlaceFishMainland(lek_fish_freq_keep_total(10 * bonus_multiplier, #self.coast_list_panagaea, nLakeKept, nLakeFull),
+			Lek_FishPoolAwayFromStarts(AssignStartingPlots.LekMergePlotIndexLists(self.coast_list_panagaea, lake_fish)));
 	end
 
-	local coast_and_lake_fish = AssignStartingPlots.LekMergePlotIndexLists(self.coast_list, lake_fish);
+	local coast_and_lake_fish = Lek_FishPoolAwayFromStarts(AssignStartingPlots.LekMergePlotIndexLists(self.coast_list, lake_fish));
 	if self._lek_coastal_refish then
-		self:PlaceFish(16 * bonus_multiplier, coast_and_lake_fish);
+		self:PlaceFish(lek_fish_freq_keep_total(16 * bonus_multiplier, #(self.coast_list or {}), nLakeKept, nLakeFull), coast_and_lake_fish);
 	else
-		self:PlaceFish(8 * bonus_multiplier, coast_and_lake_fish);
+		self:PlaceFish(lek_fish_freq_keep_total(8 * bonus_multiplier, #(self.coast_list or {}), nLakeKept, nLakeFull), coast_and_lake_fish);
 	end
 
 
@@ -19161,7 +20738,7 @@ function AssignStartingPlots:PlaceStrategicAndBonusResources()
 
 	local resources_to_place = {
 	{self.stone_ID, 1, 100, 1, 1} };
-	self:ProcessResourceList(20 * bonus_multiplier, 3, self.dry_grass_flat_no_feature, resources_to_place)
+	self:ProcessResourceList(27 * bonus_multiplier, 3, self.dry_grass_flat_no_feature, resources_to_place)
 
 	local resources_to_place = {
 	{self.bison_ID, 1, 100, 1, 1} };
@@ -19172,12 +20749,29 @@ function AssignStartingPlots:PlaceStrategicAndBonusResources()
 	self:ProcessResourceList(20 * bonus_multiplier, 3, self.hills_open_list, resources_to_place)
 
 	local resources_to_place = {
-	{self.stone_ID, 1, 100, 1, 2} };
-	self:ProcessResourceList(10 * bonus_multiplier, 3, self.tundra_flat_no_feature, resources_to_place)
+	{self.sheep_ID, 1, 100, 1, 1} };
+	self:ProcessResourceList(92 * bonus_multiplier, 3, self.grass_flat_no_feature, resources_to_place)
+	self:ProcessResourceList(100 * bonus_multiplier, 3, self.plains_flat_no_feature, resources_to_place)
+	self:ProcessResourceList(125 * bonus_multiplier, 3, self.flood_plains_list, resources_to_place)
 
 	local resources_to_place = {
 	{self.stone_ID, 1, 100, 1, 2} };
-	self:ProcessResourceList(16 * bonus_multiplier, 3, self.desert_flat_no_feature, resources_to_place)
+	self:ProcessResourceList(14 * bonus_multiplier, 3, self.tundra_flat_no_feature, resources_to_place)
+
+	local resources_to_place = {
+	{self.stone_ID, 1, 100, 1, 2} };
+	self:ProcessResourceList(14 * 0.8 * bonus_multiplier, 3, self.snow_flat_list, resources_to_place)
+
+	local resources_to_place = {
+	{self.stone_ID, 1, 100, 1, 2} };
+	self:ProcessResourceList(22 * bonus_multiplier, 3, self.desert_flat_no_feature, resources_to_place)
+
+	local resources_to_place = {
+	{self.stone_ID, 1, 100, 1, 2} };
+	self:ProcessResourceList(40 * bonus_multiplier, 3, self.hills_open_no_grass_no_plains or {}, resources_to_place)
+	local resources_to_place = {
+	{self.stone_ID, 1, 100, 1, 2} };
+	self:ProcessResourceList(40 * 0.8 * bonus_multiplier, 3, self.snow_hills_open_list or {}, resources_to_place)
 
 	local resources_to_place = {
 	{self.deer_ID, 1, 100, 3, 4} };
@@ -19291,8 +20885,11 @@ function AssignStartingPlots:PlaceResourcesAndCityStates()
 			local msg = "### PlaceResources_err runId=" .. ridRes .. " stage=PlaceLuxuries err=" .. tostring(err);
 			print(msg);
 			LekMapgenDiagLogAppend(msg);
+			error(err);
 		end
 	end
+	self:GenerateGlobalResourcePlotLists()
+
 	-- LekMapgenDiagLogAppend("### LekBuildPing PlaceResources_after_PlaceLuxuries runId=" .. ridRes);
 
 	-- LekMapgenDiagLogAppend("### LekBuildPing PlaceResources_before_StrategicBonus runId=" .. ridRes);
@@ -19312,6 +20909,9 @@ function AssignStartingPlots:PlaceResourcesAndCityStates()
 			print(msg);
 			LekMapgenDiagLogAppend(msg);
 		end
+	end
+	if _lek_global_six_request_map_regen ~= true then
+		self:LekAssertRegionalLuxuryNoShortfallAfterFallbackOrRegen();
 	end
 	-- LekMapgenDiagLogAppend("### LekBuildPing PlaceResources_after_StrategicBonus runId=" .. ridRes);
 	-- LekMapgenDiagLogAppend("### LekBuildPing PlaceResources_before_NormalizeCS runId=" .. ridRes);
@@ -19337,27 +20937,90 @@ function AssignStartingPlots:PlaceResourcesAndCityStates()
 	end
 	-- LekMapgenDiagLogAppend("### LekBuildPing PlaceResources_after_FixGraphics runId=" .. ridRes);
 
-	-- LekMapgenDiagLogAppend("### LekBuildPing PlaceResources_before_snowDeer runId=" .. ridRes);
-	-- Sparse deer on snow: 5% chance per snow tile that has at least one adjacent forest neighbor.
 	do
 		local iW, iH = Map.GetGridSize();
-		for _, i in ipairs(self.snow_flat_list) do
-			if self.playerCollisionData[i] ~= true then
-				local plot = Map.GetPlotByIndex(i - 1);
-				if plot and plot:GetResourceType(-1) == -1 then
-					local x, y = plot:GetX(), plot:GetY();
-					local hasForestNeighbor = false;
-					for d = 0, 5 do
-						local nb = Map.PlotDirection(x, y, d);
-						if nb and nb:GetFeatureType() == FeatureTypes.FEATURE_FOREST then
-							hasForestNeighbor = true;
-							break;
-						end
-					end
-					if hasForestNeighbor and Map.Rand(100, "") < 5 then
+		for y = 0, iH - 1 do
+			for x = 0, iW - 1 do
+				local plot = Map.GetPlot(x, y);
+				if plot and not plot:IsWater()
+					and plot:GetTerrainType() == TerrainTypes.TERRAIN_DESERT
+					and plot:GetPlotType() == PlotTypes.PLOT_HILLS
+					and plot:IsFreshWater()
+					and plot:GetFeatureType() == FeatureTypes.NO_FEATURE
+				then
+					if Map.Rand(100, "Lek desert freshwater hill forest") < 3 then
 						plot:SetFeatureType(FeatureTypes.FEATURE_FOREST, -1);
-						plot:SetResourceType(self.deer_ID, 1);
 					end
+				end
+			end
+		end
+	end
+
+	-- LekMapgenDiagLogAppend("### LekBuildPing PlaceResources_before_snowDeer runId=" .. ridRes);
+	-- Sparse deer or fur on snow (bonus/lux both use same tile rules): only if forest on tile or adjacent;
+	-- empty snow: random tie-break — add forest here, or require neighbor forest and stay clear.
+	do
+		local iW, iH = Map.GetGridSize();
+		local function trySnowDeerOrFur(plot, x, y)
+			if plot == nil or plot:IsWater() then
+				return;
+			end
+			local pt = plot:GetPlotType();
+			if pt ~= PlotTypes.PLOT_LAND and pt ~= PlotTypes.PLOT_HILLS then
+				return;
+			end
+			if plot:GetTerrainType() ~= TerrainTypes.TERRAIN_SNOW then
+				return;
+			end
+			if plot:GetResourceType(-1) ~= -1 then
+				return;
+			end
+			local ft = plot:GetFeatureType();
+			local onForest = (ft == FeatureTypes.FEATURE_FOREST);
+			local hasForestNeighbor = false;
+			for d = 0, 5 do
+				local nb = Map.PlotDirection(x, y, d);
+				if nb and nb:GetFeatureType() == FeatureTypes.FEATURE_FOREST then
+					hasForestNeighbor = true;
+					break;
+				end
+			end
+			if not onForest and not hasForestNeighbor then
+				return;
+			end
+			if Map.Rand(100, "Lek snow deer fur master") >= 4 then
+				return;
+			end
+			local resId = self.deer_ID;
+			if self.fur_ID ~= nil and Map.Rand(2, "Lek snow deer v fur") == 0 then
+				resId = self.fur_ID;
+			end
+			local function commitRes()
+				plot:SetResourceType(resId, 1);
+				self.amounts_of_resources_placed[resId + 1] = self.amounts_of_resources_placed[resId + 1] + 1;
+				if Game.GetResourceUsageType(resId) == ResourceUsageTypes.RESOURCEUSAGE_LUXURY then
+					self.totalLuxPlacedSoFar = self.totalLuxPlacedSoFar + 1;
+				end
+			end
+			if onForest then
+				commitRes();
+				return;
+			end
+			if ft ~= FeatureTypes.NO_FEATURE then
+				return;
+			end
+			if Map.Rand(2, "Lek snow forest on tile v neighbor") == 0 then
+				plot:SetFeatureType(FeatureTypes.FEATURE_FOREST, -1);
+				commitRes();
+			elseif hasForestNeighbor then
+				commitRes();
+			end
+		end
+		for y = 0, iH - 1 do
+			for x = 0, iW - 1 do
+				local i = y * iW + x + 1;
+				if self.playerCollisionData[i] ~= true then
+					trySnowDeerOrFur(Map.GetPlot(x, y), x, y);
 				end
 			end
 		end
@@ -19369,6 +21032,12 @@ function AssignStartingPlots:PlaceResourcesAndCityStates()
 		if not ok then
 			LekMapgenDiagLogAppend("### LekTestCopperOnAllWater err=" .. tostring(err));
 		end
+	end
+
+	self:LekSanitizeFishNearMajorLakeCells(4);
+
+	if _lek_global_six_request_map_regen ~= true then
+		self:LekAssertCapitalLuxuryTilesMinimumOrRegen(4, 3);
 	end
 
 	-- Necessary to implement placement of Natural Wonders, and possibly other plot-type changes.

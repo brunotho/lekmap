@@ -1,16 +1,30 @@
 include("X_IslandHelpers");
 
 local CONFIG = {
-	RIDGE_LEN_MIN = 8, RIDGE_LEN_MAX = 12,
-	RIDGE_TURN_PCT = 18,
-	RIDGE_WIDEN_PCT = 30,
-	SPRAY_BRANCH_MIN = 4, SPRAY_BRANCH_MAX = 7,
-	SPRAY_BRANCH_LEN_MIN = 2, SPRAY_BRANCH_LEN_MAX = 5,
-	SPRAY_STAY_DIR_PCT = 68,
-	FOOTHOLD_COUNT_MIN = 8, FOOTHOLD_COUNT_MAX = 14,
-	FOOTHOLD_ATTACH_PCT = 78,
-	OVAL_SEMI_MAJOR = 7, OVAL_SEMI_MINOR = 4,
-	MOUNTAIN_PCT_MIN = 45, MOUNTAIN_PCT_MAX = 70,
+	RIDGE_LEN_MIN = 4,
+	RIDGE_LEN_MAX = 7,
+	RIDGE_TURN_PCT = 46,
+	RIDGE_DOUBLE_TURN_PCT = 15,
+	RIDGE_SKIP_STEP_PCT = 11,
+	RIDGE_WIGGLE_PCT = 20,
+	RIDGE_WIDTH_MIN = 1,
+	RIDGE_WIDTH_MAX = 3,
+	PAD1_PCT = 84,
+	PAD2_PCT = 46,
+	PAD_GAP_PCT = 14,
+	FOOTHOLD_GAP_PCT = 11,
+	SPRAY_BRANCH_MIN = 2,
+	SPRAY_BRANCH_MAX = 4,
+	SPRAY_BRANCH_LEN_MIN = 1,
+	SPRAY_BRANCH_LEN_MAX = 3,
+	SPRAY_STAY_DIR_PCT = 58,
+	FOOTHOLD_COUNT_MIN = 3,
+	FOOTHOLD_COUNT_MAX = 7,
+	FOOTHOLD_ATTACH_PCT = 72,
+	OVAL_SEMI_MAJOR = 8,
+	OVAL_SEMI_MINOR = 5,
+	MOUNTAIN_PCT_MIN = 20,
+	MOUNTAIN_PCT_MAX = 35,
 };
 
 local function isLand(plotTypes, x, y, iW, iH)
@@ -28,20 +42,75 @@ end
 
 local function kxy(x, y) return x .. "," .. y; end
 
-local function addTile(set, list, x, y)
+local function rotDir(d, delta)
+	return ((d - 1 + delta) % 6 + 6) % 6 + 1;
+end
+
+local function addTile(allSet, allTiles, x, y)
 	local k = kxy(x, y);
-	if not set[k] then
-		set[k] = true;
-		list[#list + 1] = { x, y };
+	if not allSet[k] then
+		allSet[k] = true;
+		allTiles[#allTiles + 1] = { x, y };
 	end
 end
 
-local function dirToward(baseDir)
+local function dirTowardSpray(baseDir)
 	local r = Map.Rand(100, "");
 	if r < CONFIG.SPRAY_STAY_DIR_PCT then return baseDir; end
-	if r < CONFIG.SPRAY_STAY_DIR_PCT + 16 then return ((baseDir + 4) % 6) + 1; end
-	if r < CONFIG.SPRAY_STAY_DIR_PCT + 32 then return ((baseDir) % 6) + 1; end
-	return ((baseDir + 2) % 6) + 1;
+	if r < CONFIG.SPRAY_STAY_DIR_PCT + 18 then return rotDir(baseDir, -1); end
+	if r < CONFIG.SPRAY_STAY_DIR_PCT + 36 then return rotDir(baseDir, 1); end
+	return rotDir(baseDir, Map.Rand(2, "") == 0 and 2 or -2);
+end
+
+local function ridgeWidthNow()
+	return CONFIG.RIDGE_WIDTH_MIN + Map.Rand(CONFIG.RIDGE_WIDTH_MAX - CONFIG.RIDGE_WIDTH_MIN + 1, "scW");
+end
+
+function DrawSplinteredCliffsIsland(plotTypes, allTiles, coreSet, ridgeSet, iW)
+	local count = #allTiles;
+	local mtnPct = CONFIG.MOUNTAIN_PCT_MIN + Map.Rand(CONFIG.MOUNTAIN_PCT_MAX - CONFIG.MOUNTAIN_PCT_MIN + 1, "");
+	local targetMtn = math.max(1, math.floor(count * mtnPct / 100 + 0.5));
+	local mountainSet = {};
+	local mountainCount = 0;
+
+	for _, t in ipairs(allTiles) do
+		local k = kxy(t[1], t[2]);
+		if coreSet[k] then
+			mountainSet[k] = true;
+			mountainCount = mountainCount + 1;
+		end
+	end
+
+	local extra = {};
+	for _, t in ipairs(allTiles) do
+		local k = kxy(t[1], t[2]);
+		if not mountainSet[k] then extra[#extra + 1] = t; end
+	end
+	for i = #extra, 2, -1 do
+		local j = 1 + Map.Rand(i, "");
+		extra[i], extra[j] = extra[j], extra[i];
+	end
+	local ei = 1;
+	while mountainCount < targetMtn and ei <= #extra do
+		local t = extra[ei];
+		local k = kxy(t[1], t[2]);
+		if ridgeSet[k] then
+			mountainSet[k] = true;
+			mountainCount = mountainCount + 1;
+		end
+		ei = ei + 1;
+	end
+
+	for _, t in ipairs(allTiles) do
+		local x, y = t[1], t[2];
+		local idx = y * iW + x;
+		if mountainSet[kxy(x, y)] then
+			plotTypes[idx] = PlotTypes.PLOT_MOUNTAIN;
+		else
+			local h = 36 + Map.Rand(32, "");
+			plotTypes[idx] = (Map.Rand(100, "") < h) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
+		end
+	end
 end
 
 function TryPlaceSplinteredCliffsIsland(plotTypes, centerX, centerY, islLandInRing, params)
@@ -71,125 +140,138 @@ function TryPlaceSplinteredCliffsIsland(plotTypes, centerX, centerY, islLandInRi
 			ex = dy / CONFIG.OVAL_SEMI_MAJOR;
 			ey = dx / CONFIG.OVAL_SEMI_MINOR;
 		end
-		return (ex * ex + ey * ey) <= 1.0;
+		return (ex * ex + ey * ey) <= 1.04;
 	end
 
 	local allSet, allTiles = {}, {};
 	local ridgeSet = {};
+	local coreSet = {};
 
 	local ridgeDir = Map.Rand(6, "") + 1;
-	local sprayDir = ((ridgeDir + 2 + Map.Rand(3, "")) % 6) + 1;
+	local sprayDir = rotDir(ridgeDir, 2 + Map.Rand(2, ""));
 	local x, y = cx, cy;
 	addTile(allSet, allTiles, x, y);
 	ridgeSet[kxy(x, y)] = true;
+	coreSet[kxy(x, y)] = true;
+
 	local ridgeLen = CONFIG.RIDGE_LEN_MIN + Map.Rand(CONFIG.RIDGE_LEN_MAX - CONFIG.RIDGE_LEN_MIN + 1, "");
 	for _ = 1, ridgeLen - 1 do
-		if Map.Rand(100, "") < CONFIG.RIDGE_TURN_PCT then
-			local delta = (Map.Rand(2, "") == 0) and -1 or 1;
-			ridgeDir = ((ridgeDir + delta + 5) % 6) + 1;
-		end
-		local nx, ny = GetHexNeighbor(x, y, ridgeDir, params.iW, params.iH, params.wrapX, params.wrapY);
-		if nx < 0 or nx >= params.iW or ny < 0 or ny >= params.iH then break; end
-		x, y = nx, ny;
-		addTile(allSet, allTiles, x, y);
-		ridgeSet[kxy(x, y)] = true;
-		if Map.Rand(100, "") < CONFIG.RIDGE_WIDEN_PCT then
-			local side = (Map.Rand(2, "") == 0) and ((ridgeDir + 4) % 6) + 1 or ((ridgeDir) % 6) + 1;
-			local sx, sy = GetHexNeighbor(x, y, side, params.iW, params.iH, params.wrapX, params.wrapY);
-			if sx >= 0 and sx < params.iW and sy >= 0 and sy < params.iH then
-				addTile(allSet, allTiles, sx, sy);
-				ridgeSet[kxy(sx, sy)] = true;
+		if Map.Rand(100, "") < CONFIG.RIDGE_SKIP_STEP_PCT then
+		else
+			if Map.Rand(100, "") < CONFIG.RIDGE_TURN_PCT then
+				local delta = (Map.Rand(2, "") == 0) and -1 or 1;
+				ridgeDir = rotDir(ridgeDir, delta);
+				if Map.Rand(100, "") < CONFIG.RIDGE_DOUBLE_TURN_PCT then
+					ridgeDir = rotDir(ridgeDir, delta);
+				end
+			elseif Map.Rand(100, "") < CONFIG.RIDGE_WIGGLE_PCT then
+				ridgeDir = rotDir(ridgeDir, Map.Rand(2, "") == 0 and 1 or -1);
+			end
+			local nx, ny = GetHexNeighbor(x, y, ridgeDir, params.iW, params.iH, params.wrapX, params.wrapY);
+			if nx < 0 or nx >= params.iW or ny < 0 or ny >= params.iH then break; end
+			x, y = nx, ny;
+			addTile(allSet, allTiles, x, y);
+			ridgeSet[kxy(x, y)] = true;
+			coreSet[kxy(x, y)] = true;
+
+			local wband = ridgeWidthNow();
+			local left = rotDir(ridgeDir, 2);
+			local right = rotDir(ridgeDir, -2);
+			local lx, ly = x, y;
+			for s = 1, math.floor(wband / 2) do
+				lx, ly = GetHexNeighbor(lx, ly, left, params.iW, params.iH, params.wrapX, params.wrapY);
+				if lx >= 0 and lx < params.iW and ly >= 0 and ly < params.iH and inOval(lx, ly) then
+					addTile(allSet, allTiles, lx, ly);
+					ridgeSet[kxy(lx, ly)] = true;
+					coreSet[kxy(lx, ly)] = true;
+				end
+			end
+			local rx, ry = x, y;
+			for s = 1, math.floor((wband - 1) / 2) do
+				rx, ry = GetHexNeighbor(rx, ry, right, params.iW, params.iH, params.wrapX, params.wrapY);
+				if rx >= 0 and rx < params.iW and ry >= 0 and ry < params.iH and inOval(rx, ry) then
+					addTile(allSet, allTiles, rx, ry);
+					ridgeSet[kxy(rx, ry)] = true;
+					coreSet[kxy(rx, ry)] = true;
+				end
 			end
 		end
 	end
 
-	local ridgeList = {};
-	for _, t in ipairs(allTiles) do
-		if ridgeSet[kxy(t[1], t[2])] then ridgeList[#ridgeList + 1] = t; end
+	local ridgeTiles = 0;
+	for k in pairs(ridgeSet) do
+		ridgeTiles = ridgeTiles + 1;
 	end
-	if #ridgeList < 6 then return false; end
+	if ridgeTiles < 4 then return false; end
+
+	local function padLayer(padPct, isCoreNeighbor)
+		local toAdd = {};
+		for _, t in ipairs(allTiles) do
+			local k = kxy(t[1], t[2]);
+			local wantCore = isCoreNeighbor and coreSet[k] or (not isCoreNeighbor and not coreSet[k]);
+			if wantCore then
+				for d = 1, 6 do
+					local nx, ny = GetHexNeighbor(t[1], t[2], d, params.iW, params.iH, params.wrapX, params.wrapY);
+					if nx >= 0 and nx < params.iW and ny >= 0 and ny < params.iH and inOval(nx, ny) then
+						local nk = kxy(nx, ny);
+						if not allSet[nk] and Map.Rand(100, "") < padPct then
+							toAdd[#toAdd + 1] = { nx, ny };
+						end
+					end
+				end
+			end
+		end
+		for _, row in ipairs(toAdd) do
+			if Map.Rand(100, "") < CONFIG.PAD_GAP_PCT then
+			else
+				addTile(allSet, allTiles, row[1], row[2]);
+			end
+		end
+	end
+
+	padLayer(CONFIG.PAD1_PCT, true);
+	padLayer(CONFIG.PAD2_PCT, false);
 
 	local branchCount = CONFIG.SPRAY_BRANCH_MIN + Map.Rand(CONFIG.SPRAY_BRANCH_MAX - CONFIG.SPRAY_BRANCH_MIN + 1, "");
 	for _ = 1, branchCount do
-		local seed = ridgeList[1 + Map.Rand(#ridgeList, "")];
+		local seed = allTiles[1 + Map.Rand(#allTiles, "")];
 		local bx, by = seed[1], seed[2];
-		local bdir = dirToward(sprayDir);
+		local bdir = dirTowardSpray(sprayDir);
 		local blen = CONFIG.SPRAY_BRANCH_LEN_MIN + Map.Rand(CONFIG.SPRAY_BRANCH_LEN_MAX - CONFIG.SPRAY_BRANCH_LEN_MIN + 1, "");
 		for _s = 1, blen do
 			local nx, ny = GetHexNeighbor(bx, by, bdir, params.iW, params.iH, params.wrapX, params.wrapY);
 			if nx < 0 or nx >= params.iW or ny < 0 or ny >= params.iH then break; end
 			bx, by = nx, ny;
-			if inOval(bx, by) then addTile(allSet, allTiles, bx, by); end
-			if Map.Rand(100, "") < 60 then
-				local near = (Map.Rand(2, "") == 0) and ((bdir + 4) % 6) + 1 or ((bdir) % 6) + 1;
+			if inOval(bx, by) and Map.Rand(100, "") < 74 then addTile(allSet, allTiles, bx, by); end
+			if Map.Rand(100, "") < 42 then
+				local near = rotDir(bdir, Map.Rand(2, "") == 0 and 2 or -2);
 				local sx, sy = GetHexNeighbor(bx, by, near, params.iW, params.iH, params.wrapX, params.wrapY);
-				if sx >= 0 and sx < params.iW and sy >= 0 and sy < params.iH and Map.Rand(100, "") < 34 then
+				if sx >= 0 and sx < params.iW and sy >= 0 and sy < params.iH and Map.Rand(100, "") < 36 then
 					if inOval(sx, sy) then addTile(allSet, allTiles, sx, sy); end
 				end
 			end
-			bdir = dirToward(sprayDir);
+			bdir = dirTowardSpray(sprayDir);
 		end
 	end
 
 	local footholdCount = CONFIG.FOOTHOLD_COUNT_MIN + Map.Rand(CONFIG.FOOTHOLD_COUNT_MAX - CONFIG.FOOTHOLD_COUNT_MIN + 1, "");
 	for _ = 1, footholdCount do
 		local seed = allTiles[1 + Map.Rand(#allTiles, "")];
-		local fdir = (Map.Rand(100, "") < CONFIG.FOOTHOLD_ATTACH_PCT) and dirToward(sprayDir) or (Map.Rand(6, "") + 1);
+		local fdir = (Map.Rand(100, "") < CONFIG.FOOTHOLD_ATTACH_PCT) and dirTowardSpray(sprayDir) or (Map.Rand(6, "") + 1);
 		local fx, fy = GetHexNeighbor(seed[1], seed[2], fdir, params.iW, params.iH, params.wrapX, params.wrapY);
-		if fx >= 0 and fx < params.iW and fy >= 0 and fy < params.iH then
-			if inOval(fx, fy) then addTile(allSet, allTiles, fx, fy); end
+		if fx >= 0 and fx < params.iW and fy >= 0 and fy < params.iH and Map.Rand(100, "") < 88 then
+			if Map.Rand(100, "") < CONFIG.FOOTHOLD_GAP_PCT then
+			else
+				if inOval(fx, fy) then addTile(allSet, allTiles, fx, fy); end
+			end
 		end
 	end
 
-	if #allTiles < 14 then return false; end
+	if #allTiles < 10 then return false; end
 	if not footprintClear(plotTypes, allTiles, params.iW, params.iH) then return false; end
 
-	DrawSplinteredCliffsIsland(plotTypes, allTiles, ridgeSet, params.iW);
+	DrawSplinteredCliffsIsland(plotTypes, allTiles, coreSet, ridgeSet, params.iW);
 	if not _island_placed then _island_placed = {}; end
 	_island_placed.splinteredCliffs = true;
 	return true;
-end
-
-function DrawSplinteredCliffsIsland(plotTypes, allTiles, ridgeSet, iW)
-	local count = #allTiles;
-	local mtnPct = CONFIG.MOUNTAIN_PCT_MIN + Map.Rand(CONFIG.MOUNTAIN_PCT_MAX - CONFIG.MOUNTAIN_PCT_MIN + 1, "");
-	local targetMtn = math.max(1, math.floor(count * mtnPct / 100 + 0.5));
-	local mountainSet = {};
-	local mountainCount = 0;
-
-	for _, t in ipairs(allTiles) do
-		local k = kxy(t[1], t[2]);
-		if ridgeSet[k] then
-			mountainSet[k] = true;
-			mountainCount = mountainCount + 1;
-		end
-	end
-
-	local extra = {};
-	for _, t in ipairs(allTiles) do
-		local k = kxy(t[1], t[2]);
-		if not mountainSet[k] then extra[#extra + 1] = t; end
-	end
-	for i = #extra, 2, -1 do
-		local j = 1 + Map.Rand(i, "");
-		extra[i], extra[j] = extra[j], extra[i];
-	end
-	local i = 1;
-	while mountainCount < targetMtn and i <= #extra do
-		local t = extra[i];
-		local k = kxy(t[1], t[2]);
-		mountainSet[k] = true;
-		mountainCount = mountainCount + 1;
-		i = i + 1;
-	end
-
-	for _, t in ipairs(allTiles) do
-		local x, y = t[1], t[2];
-		local idx = y * iW + x;
-		if mountainSet[kxy(x, y)] then
-			plotTypes[idx] = PlotTypes.PLOT_MOUNTAIN;
-		else
-			plotTypes[idx] = (Map.Rand(100, "") < 62) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
-		end
-	end
 end

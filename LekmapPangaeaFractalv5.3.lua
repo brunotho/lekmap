@@ -12,9 +12,9 @@
 -- :9291 call to expand coastal plots
 
 -- _lek_mapgen_log_verbosity: 1=min | 2=tuple phases/bias/dfs/ripple/probe (use while tuning e.g. coastal disk %) | 3=pool/head/spacing + per-runOnce islands
-_lek_mapgen_log_verbosity = 3;
+_lek_mapgen_log_verbosity = 2;
 
--- TEST ONLY: copper on every ocean/lake plot (AssignStartingPlots:LekTestCopperOnAllWater). Vanilla may refuse some tiles.
+-- TEST ONLY: not used in normal maps. When true, PlaceResources ends with LekTestCopperOnAllWater (ocean/lake copper); engine may skip tiles.
 _lek_test_copper_on_all_water = false;
 
 -- Setup UI shows only two map script rows; code still uses legacy indices 1–19 via LekMapGetCustomOption.
@@ -62,7 +62,7 @@ print("### LekmapPangaeaFractal: includes done ###");
 
 -- Lane A: full-map regens when global-six tuple solver rejects (layouts = distinct terrain/plot rolls).
 -- Tuple policy: Map option 13 "Capital Precision" (paired [[PACE SPECS]] in 4a). Fjord menu rows removed — use _lek_fjord_*_fixed if you need non-default fjord math.
--- (1) Fast (Legacy): skip tuple, legacy ChooseLocations only. (2) Slow: tuple + regen then legacy. (3) Very Slow: tuple + regen, fatal if exhausted (no legacy).
+-- (1) Fast (Legacy): skip tuple, legacy HB only (SW-corner force still allowed). (2) Slow: tuple + regen (3 layouts) then legacy; SW-corner force disabled if tuple failed. (3) Very Slow: 11 layouts, fatal if exhausted (no legacy).
 -- _lek_global_six_regen_max_layouts updated from start_plot_database in StartPlotSystem.
 _lek_global_six_regen_max_layouts = 11;
 _lek_fjord_distance_setting_fixed = 1;
@@ -87,11 +87,11 @@ function GetMapScriptInfo()
 	-- Two rows in Advanced Setup; Start Quality (legacy 5) stubbed — see _lek_map_hidden_option_defaults.
 	CustomOptions = {
 			{
-				Name = "Balanced Starts",
+				Name = "Geometric Balance",
 				Values = {
-					"Fast (Legacy Placement Logic)",
-					"Balance (fallback: Legacy)",
-					"Careful Balance (fallback: Death)",
+					"Fast + Wonky (Legacy Logic)",
+					"Medium + Medium (fallback: Legacy)",
+					"Slow + Careful (fallback: dead on load)",
 				},
 				DefaultValue = 3,
 				SortPriority = -100,
@@ -100,8 +100,9 @@ function GetMapScriptInfo()
 				Name = "Coastal Spawns",
 				Values = {
 					"Coastal Civs Only",
-					"Random",
-					"Random+ (~2 coastals)",
+					"Force 2 Coastals",
+					"All Inland",
+					"Pure Random",
 				},
 				DefaultValue = 1,
 				SortPriority = -98,
@@ -184,6 +185,42 @@ function PangaeaFractalWorld.Create(fracXExp, fracYExp)
 	};
 		
 	return data;
+end
+
+------------------------------------------------------------------------------
+-- Before PangaeaIslands: demote mountains with at least one OCEAN neighbor (main + inland-sea mask).
+-- pctRoll: 0-100, fraction to demote (100 = all). Returns count demoted.
+------------------------------------------------------------------------------
+function LekDemoteMountainsTouchingOcean(plotTypes, iW, iH, wrapX, wrapY, pctRoll)
+	if not GetHexNeighbor or not plotTypes or type(pctRoll) ~= "number" then
+		return 0;
+	end
+	if pctRoll <= 0 then
+		return 0;
+	end
+	local n = 0;
+	for y = 0, iH - 1 do
+		for x = 0, iW - 1 do
+			local idx = y * iW + x + 1;
+			if plotTypes[idx] == PlotTypes.PLOT_MOUNTAIN then
+				local touches = false;
+				for d = 1, 6 do
+					local nx, ny = GetHexNeighbor(x, y, d, iW, iH, wrapX, wrapY or false);
+					if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+						if plotTypes[ny * iW + nx + 1] == PlotTypes.PLOT_OCEAN then
+							touches = true;
+							break;
+						end
+					end
+				end
+				if touches and Map.Rand(100, "lek_demote_coast_mtn") < pctRoll then
+					plotTypes[idx] = PlotTypes.PLOT_HILLS;
+					n = n + 1;
+				end
+			end
+		end
+	end
+	return n;
 end
 
 ------------------------------------------------------------------------------
@@ -274,6 +311,9 @@ function RoundInlandSeas(self)
 			end
 		end
 	end
+	if next(inlandSet) == nil then
+		return;
+	end
 
 	local components = {};
 	local used = {};
@@ -304,18 +344,59 @@ function RoundInlandSeas(self)
 		end
 	end
 
-	-- Widen thin inland seas: convert bordering land to ocean so they look rounder.
-	local ASPECT_THRESHOLD = 1.25;   -- round when even mildly elongated
-	local MIN_SIZE = 6;              -- round when >5 tiles
-	local MAX_EXPAND_BODIES = 2;
-	local MAX_ROUND_ITER = 12;
-	local MIN_LAND_NEIGHBORS = 1;
-	local MIN_DIST_FROM_OPEN_OCEAN = 4;  -- only nibble land this many hex steps from open ocean (expand toward center)
-	local numExpanded = 0;
+	-- Thicken inland seas: random ocean seeds, paint ring-1 land→ocean with noise (no touch to open ocean).
+	local MIN_SIZE = 6;
+	local MIN_DIST_FROM_OPEN_OCEAN = 4;
+	local BLOB_PAINT_ITERS = 12;
+	local BLOB_EDGE_PAINT_PCT = 76;
 	for _, comp in ipairs(components) do
 		local tiles = {};
 		for k in pairs(comp) do tiles[#tiles + 1] = inlandSet[k]; end
 		if #tiles >= MIN_SIZE then
+			for _blob = 1, BLOB_PAINT_ITERS do
+				local oceanCells = {};
+				for k in pairs(comp) do
+					local tx = k % iW;
+					local ty = math.floor(k / iW);
+					if isOcean(tx, ty) then
+						oceanCells[#oceanCells + 1] = {tx, ty};
+					end
+				end
+				if #oceanCells == 0 then
+					break;
+				end
+				local seed = oceanCells[1 + Map.Rand(#oceanCells, "inland_blob_center")];
+				local sx, sy = seed[1], seed[2];
+				for d = 1, 6 do
+					local nx, ny = GetHexNeighbor(sx, sy, d, iW, iH, wrapX, wrapY);
+					if nx >= 0 and nx < iW and ny >= 0 and ny < iH and isLand(nx, ny) then
+						if Map.Rand(100, "inland_blob_noise") < BLOB_EDGE_PAINT_PCT then
+							local adjOpenOcean = false;
+							for d2 = 1, 6 do
+								local ax, ay = GetHexNeighbor(nx, ny, d2, iW, iH, wrapX, wrapY);
+								if ax >= 0 and ax < iW and ay >= 0 and ay < iH and openOcean[ay * iW + ax] then
+									adjOpenOcean = true;
+									break;
+								end
+							end
+							local nk = ny * iW + nx;
+							local distO = distToOpenOcean[nk];
+							local farEnough = (distO == nil) or (distO >= MIN_DIST_FROM_OPEN_OCEAN);
+							if not adjOpenOcean and farEnough then
+								plotTypes[pidx(nx, ny)] = PlotTypes.PLOT_OCEAN;
+								comp[nk] = true;
+								inlandSet[nk] = {nx, ny};
+							end
+						end
+					end
+				end
+			end
+			tiles = {};
+			for k in pairs(comp) do
+				local tx = k % iW;
+				local ty = math.floor(k / iW);
+				tiles[#tiles + 1] = {tx, ty};
+			end
 			local minX, maxX, minY, maxY = iW, -1, iH, -1;
 			for _, t in ipairs(tiles) do
 				local x, y = t[1], t[2];
@@ -327,66 +408,6 @@ function RoundInlandSeas(self)
 			local w, h = maxX - minX + 1, maxY - minY + 1;
 			local aspectX = w / math.max(1, h);
 			local aspectY = h / math.max(1, w);
-			if (aspectX >= ASPECT_THRESHOLD or aspectY >= ASPECT_THRESHOLD) and numExpanded < MAX_EXPAND_BODIES then
-				numExpanded = numExpanded + 1;
-				for iter = 1, MAX_ROUND_ITER do
-					local candidateSet = {};
-					for _, t in ipairs(tiles) do
-						local sx, sy = t[1], t[2];
-						for d = 1, 6 do
-							local nx, ny = GetHexNeighbor(sx, sy, d, iW, iH, wrapX, wrapY);
-							if nx >= 0 and nx < iW and ny >= 0 and ny < iH and isLand(nx, ny) then
-								local adjOpenOcean = false;
-								for d2 = 1, 6 do
-									local nnx, nny = GetHexNeighbor(nx, ny, d2, iW, iH, wrapX, wrapY);
-									if nnx >= 0 and nnx < iW and nny >= 0 and nny < iH and openOcean[nny * iW + nnx] then adjOpenOcean = true; break; end
-								end
-								local nk = ny * iW + nx;
-								local distToOcean = distToOpenOcean[nk];
-								local farEnoughFromEdge = (distToOcean == nil) or (distToOcean >= MIN_DIST_FROM_OPEN_OCEAN);
-								if not adjOpenOcean and farEnoughFromEdge then
-									local landNeighbors = 0;
-									for d2 = 1, 6 do
-										local nnx, nny = GetHexNeighbor(nx, ny, d2, iW, iH, wrapX, wrapY);
-										if nnx >= 0 and nnx < iW and nny >= 0 and nny < iH and isLand(nnx, nny) then landNeighbors = landNeighbors + 1; end
-									end
-									if landNeighbors >= MIN_LAND_NEIGHBORS then
-										local key = nx .. "," .. ny;
-										if not candidateSet[key] then candidateSet[key] = {nx, ny}; end
-									end
-								end
-							end
-						end
-					end
-					local candidates = {};
-					for _, v in pairs(candidateSet) do candidates[#candidates + 1] = v; end
-					if #candidates == 0 then break; end
-					local pick = candidates[1 + Map.Rand(#candidates, "RoundInlandSea")];
-					local lx, ly = pick[1], pick[2];
-					plotTypes[pidx(lx, ly)] = PlotTypes.PLOT_OCEAN;
-					tiles[#tiles + 1] = {lx, ly};
-					comp[ly * iW + lx] = true;
-				end
-			end
-			-- Rebuild tiles from comp so spray runs over the full inland sea (original + any newly rounded/enlarged).
-			tiles = {};
-			for k in pairs(comp) do
-				local x = k % iW;
-				local y = math.floor(k / iW);
-				tiles[#tiles + 1] = {x, y};
-			end
-			-- Recompute bbox after rounding for spray gating.
-			minX, maxX, minY, maxY = iW, -1, iH, -1;
-			for _, t in ipairs(tiles) do
-				local x, y = t[1], t[2];
-				if x < minX then minX = x; end
-				if x > maxX then maxX = x; end
-				if y < minY then minY = y; end
-				if y > maxY then maxY = y; end
-			end
-			w, h = maxX - minX + 1, maxY - minY + 1;
-			aspectX = w / math.max(1, h);
-			aspectY = h / math.max(1, w);
 			-- Distance to mainland shore only (land bordering this inland sea). So spray can fill around sprayed islands.
 			local shoreSet = {};
 			for _, t in ipairs(tiles) do
@@ -432,8 +453,8 @@ function RoundInlandSeas(self)
 			local function distFromShore(x, y)
 				return distToShore[y * iW + x] or 99;
 			end
-			-- Spray only in rounder seas (aspect < 2.2) to avoid a straight line of paint down thin channels.
-			local doSpray = (aspectX < 2.2 and aspectY < 2.2);
+			-- Spray inland islands: blob pass widens seas; allow slightly elongated bodies (was 2.2).
+			local doSpray = (aspectX < 2.85 and aspectY < 2.85);
 			if doSpray then
 				local SPRAY_CHANCE = 100;  -- was 90; set to 100 to verify spray logic (eligible = all painted)
 				local MIN_DIST = 2;       -- tiles 2+ from mainland shore eligible (islands don't block)
@@ -1643,6 +1664,12 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 			.. " layoutAttempt=" .. tostring(laProbe)
 			.. " roundInlandSeas_dt=" .. tostring(tAfterRoundInland - tBeforeRoundInland), 2);
 
+		local tM0 = (os and os.clock) and os.clock() or 0;
+		local nDem = LekDemoteMountainsTouchingOcean(self.plotTypes, self.iNumPlotsX, self.iNumPlotsY, Map:IsWrapX(), false, 100);
+		local tM1 = (os and os.clock) and os.clock() or 0;
+		LekPangaeaProbeLog("### LekPangaeaPlotTypesProbe demoteOceanAdjMountains_pct=100 n=" .. tostring(nDem)
+			.. " dt=" .. tostring(tM1 - tM0), 2);
+
 		local islandsOpt = LekMapGetCustomOption(16);
 		local minIslands = (islandsOpt and islandsOpt > 1) and (islandsOpt - 1) or 0;
 		local islandGenOpts = nil;
@@ -1793,7 +1820,7 @@ end
 ------------------------------------------------------------------------------
 function FixGeothermalIslandSnow()
 	if not _geothermal_snow_plot_indices then return; end
-	local iW, _ = Map.GetGridSize();
+	local iW, iH = Map.GetGridSize();
 	for _, idx in ipairs(_geothermal_snow_plot_indices) do
 		local x = (idx - 1) % iW;
 		local y = math.floor((idx - 1) / iW);
@@ -1801,7 +1828,12 @@ function FixGeothermalIslandSnow()
 		if plot and not plot:IsWater() then
 			local pt = plot:GetPlotType();
 			if pt == PlotTypes.PLOT_LAND or pt == PlotTypes.PLOT_HILLS or pt == PlotTypes.PLOT_MOUNTAIN then
-				plot:SetTerrainType(TerrainTypes.TERRAIN_SNOW, false, false);
+				local nearMapEdge = (y <= 4) or (y >= iH - 5);
+				if nearMapEdge and pt ~= PlotTypes.PLOT_MOUNTAIN and Map.Rand(100, "") < 48 then
+					plot:SetTerrainType(TerrainTypes.TERRAIN_TUNDRA, false, false);
+				else
+					plot:SetTerrainType(TerrainTypes.TERRAIN_SNOW, false, false);
+				end
 			end
 		end
 	end
@@ -2072,7 +2104,7 @@ function FixInlandPancakes()
 end
 
 function LekPurgeIceAdjacentMainlandNearPoles(edgeRows)
-	edgeRows = edgeRows or 5;
+	edgeRows = edgeRows or 4;
 	local iW, iH = Map.GetGridSize();
 	if iW < 1 or iH < 1 then
 		return;
@@ -2153,7 +2185,7 @@ function AddFeatures()
 		end
 	end
 
-	LekPurgeIceAdjacentMainlandNearPoles(5);
+	LekPurgeIceAdjacentMainlandNearPoles(4);
 end
 ------------------------------------------------------------------------------
 
@@ -2161,11 +2193,77 @@ end
 function StartPlotSystem()
 	_lek_run_id = tostring(math.floor((os.clock and os.clock() or 0) * 1000));
 	local function appendLekLog(lines)
-		LekMapgenDiagLogAppend(lines);
+		pcall(function()
+			if type(LekMapgenDiagLogAppend) == "function" then
+				LekMapgenDiagLogAppend(lines);
+			end
+		end);
 	end
 	appendLekLog({
 		"### RunStage runId=" .. tostring(_lek_run_id) .. " stage=StartPlotSystem.begin"
 	});
+
+	local function startPlacementSanity(start_plot_database, stageTag, checkPlayerAssign)
+		if not start_plot_database then
+			return;
+		end
+		local runId = tostring(_lek_run_id or "na");
+		local nCiv = start_plot_database.iNumCivs or 0;
+		local tblOk = 0;
+		local bits = {};
+		for loop = 1, nCiv do
+			local tr = start_plot_database.startingPlots and start_plot_database.startingPlots[loop];
+			if tr and type(tr[1]) == "number" and type(tr[2]) == "number" then
+				tblOk = tblOk + 1;
+				bits[#bits + 1] = string.format("r%d_tbl=%d,%d", loop, tr[1], tr[2]);
+			else
+				bits[#bits + 1] = string.format("r%d_tbl=nil", loop);
+			end
+		end
+		local nNilPlayer = 0;
+		local nMismatch = 0;
+		local nWaterStart = 0;
+		if checkPlayerAssign == true then
+			for loop = 1, nCiv do
+				local pid = start_plot_database.player_ID_list[loop];
+				local pl = Players[pid];
+				local ps = pl and pl:GetStartingPlot();
+				local tr = start_plot_database.startingPlots and start_plot_database.startingPlots[loop];
+				local sx, sy = nil, nil;
+				if tr and type(tr[1]) == "number" and type(tr[2]) == "number" then
+					sx, sy = tr[1], tr[2];
+				end
+				if not ps then
+					nNilPlayer = nNilPlayer + 1;
+					bits[#bits + 1] = string.format("r%d_pid%d_PLAYER=nil", loop, pid);
+				else
+					local px, py = ps:GetX(), ps:GetY();
+					if sx and (sx ~= px or sy ~= py) then
+						nMismatch = nMismatch + 1;
+						bits[#bits + 1] = string.format(
+							"r%d_pid%d_MISMATCH_tbl(%d,%d)_player(%d,%d)",
+							loop, pid, sx, sy, px, py);
+					end
+					if ps:IsWater() then
+						nWaterStart = nWaterStart + 1;
+						bits[#bits + 1] = string.format("r%d_pid%d_WATER_START", loop, pid);
+					end
+				end
+			end
+		end
+		local msg = "### StartSanity runId=" .. runId .. " stage=" .. tostring(stageTag)
+			.. " iNumCivs=" .. tostring(nCiv)
+			.. " regionTblCoords=" .. tostring(tblOk) .. "/" .. tostring(nCiv)
+			.. (checkPlayerAssign and (
+				" nilPlayer=" .. tostring(nNilPlayer)
+				.. " mismatchTblVsPlayer=" .. tostring(nMismatch)
+				.. " waterStart=" .. tostring(nWaterStart)
+			) or "")
+			.. " regenReq=" .. tostring(_lek_global_six_request_map_regen == true)
+			.. " | " .. table.concat(bits, " ");
+		print(msg);
+		appendLekLog({ msg });
+	end
 
 	local RegionalMethod = 1;
 
@@ -2252,9 +2350,9 @@ function StartPlotSystem()
 			return ay > by;
 		end);
 
+		--[[ Snow center + coarse rectangle outline per region (keep helper body for later diagnostics).
 		for idx, region in ipairs(regions) do
 			local westX, southY, width, height = region[1], region[2], region[3], region[4];
-			-- Make region markers conspicuous: paint them all as SNOW.
 			local targetTerrain = TerrainTypes.TERRAIN_SNOW;
 
 			local rcx, rcy = regionCenter(region);
@@ -2265,7 +2363,6 @@ function StartPlotSystem()
 				print("### DebugPaintRegionsTerrains: region", tostring(idx), "center approx", tostring(rcx), tostring(rcy), "no land found")
 			end
 
-			-- Outline: draw the outer rectangle boundary (1 tile thick).
 			local stepX = math.max(1, math.floor(width / 25));
 			local stepY = math.max(1, math.floor(height / 25));
 			for localX = 0, width - 1, stepX do
@@ -2283,6 +2380,7 @@ function StartPlotSystem()
 				paintOutlineIfLand(rightX, y, targetTerrain);
 			end
 		end
+		--]]
 	end
 
 	-- Get Resources setting input by user.
@@ -2295,18 +2393,27 @@ function StartPlotSystem()
 
 	-- Handle coastal spawns and start bias
 	MixedBias = false;
+	local IgnoreAllStartBias = false;
+	local BalancedCoastalExactTwo = false;
+	local ForceAllInlandPlayerSpawns = false;
+	-- Option 17 "Coastal Spawns": 1=Civs Only, 2=Force 2, 3=All Inland, 4=Pure Random (must match CustomOptions order).
 	if LekMapGetCustomOption(17) == 1 then
 		OnlyCoastal = true;
 		BalancedCoastal = false;
-	end	
+	end
 	if LekMapGetCustomOption(17) == 2 then
+		OnlyCoastal = false;
+		BalancedCoastal = true;
+		BalancedCoastalExactTwo = true;
+	end
+	if LekMapGetCustomOption(17) == 3 then
 		BalancedCoastal = false;
 		OnlyCoastal = false;
+		ForceAllInlandPlayerSpawns = true;
 	end
-	
-	if LekMapGetCustomOption(17) == 3 then
-		OnlyCoastal = true;
-		BalancedCoastal = true;
+	if LekMapGetCustomOption(17) == 4 then
+		BalancedCoastal = false;
+		OnlyCoastal = false;
 	end
 	
 	if LekMapGetCustomOption(18) == 1 then
@@ -2319,6 +2426,30 @@ function StartPlotSystem()
 
 	print("Creating start plot database.");
 	local start_plot_database = AssignStartingPlots.Create()
+
+	local function shortCircuitStartPlotSystemIfRegen(stageTag)
+		if _lek_global_six_request_map_regen ~= true then
+			return false;
+		end
+		startPlacementSanity(start_plot_database, stageTag, false);
+		local att = _lek_map_layout_attempt or 1;
+		local maxL = _lek_global_six_regen_max_layouts;
+		if type(maxL) ~= "number" or maxL < 1 then
+			maxL = 4;
+		end
+		local msg = "### LekMapGen StartPlotSystem short_circuit runId=" .. tostring(_lek_run_id or "na")
+			.. " layout=" .. tostring(att) .. "/" .. tostring(maxL)
+			.. " skip=BA_rescue_NW_resources stage=" .. tostring(stageTag);
+		if LekPlacementProbeAt then
+			LekPlacementProbeAt(1, msg);
+		elseif LekPlacementProbeLog then
+			LekPlacementProbeLog(msg);
+		else
+			print(msg);
+			appendLekLog({ msg });
+		end
+		return true;
+	end
 
 	do
 		local paceSel = 3;
@@ -2336,10 +2467,20 @@ function StartPlotSystem()
 		start_plot_database._lek_global_six_skip_tuple_use_legacy = (paceSel == 1);
 		if paceSel == 2 then
 			start_plot_database._lek_global_six_pace_fast = true;
-			start_plot_database._lek_global_six_fatal_on_exhausted = false;
+			start_plot_database._lek_global_six_fatal_on_exhausted = true;
 			start_plot_database._lek_global_six_regen_max_layouts = 3;
 			start_plot_database._lek_global_six_tuple_relax_min_layout = 3;
 			start_plot_database._lek_global_six_tuple_minimal_s2_fallback_max_layout = 3;
+			start_plot_database._lek_global_six_max_fail_complete = 700;
+			start_plot_database._lek_global_six_max_leaf_evals = 5500;
+			start_plot_database._lek_global_six_tuple_relaxation_phases = {
+				{ name = "medium_s2p2", max_fail_complete = 700, max_leaf_evals = 5500,
+					s1_min = 9, s1_max = 18, s2_max = 17 },
+				{ name = "medium_s1max", max_fail_complete = 600, max_leaf_evals = 4500,
+					s1_min = 9, s1_max = 19, s2_max = 17 },
+				{ name = "medium_last_resort", max_fail_complete = 900, max_leaf_evals = 7500,
+					s1_min = 9, s1_max = 20, s2_max = 19 },
+			};
 		elseif paceSel == 3 then
 			start_plot_database._lek_global_six_pace_fast = false;
 			start_plot_database._lek_global_six_fatal_on_exhausted = true;
@@ -2382,7 +2523,7 @@ function StartPlotSystem()
 	     -- §2 policy: if dominant fail is pure s2 (not s5-heavy combo), repeat same phase once at 2× max_fail & max_leaf before advancing relax ladder. Disable: _lek_global_six_tuple_s2_pure_budget_extension = false;
 	     -- Layouts 1..N: if all phases fail, accept remembered §2 “minimal +1” tuple (max second-nearest = s2cap+1, ≤2 regions over cap, §1§3–6 OK). nil = use 3; false = off: _lek_global_six_tuple_minimal_s2_fallback_max_layout
 	     -- start_plot_database._lek_global_six_tuple_relaxation_phases = false; -- single phase only: uses max_fail / max_leaf below, no staged S2/S1 loosening
-	     -- Tuple relax vs map layout: option 13 — Very Slow relax_min_layout=6; Slow (tuple) =3; Fast (Legacy) skips tuple.
+	     -- Tuple relax vs map layout: option 13 — Very Slow relax_min_layout=6; Medium =3 (+ last_resort phase); Fast skips tuple (HB only, no tuple fatal).
 	     -- max_fail_complete / max_leaf_evals: per-phase overrides optional; each phase default 1000/8000 from table in 4a if field omitted.
 	     start_plot_database._lek_global_six_max_fail_complete = 1000;
 	     start_plot_database._lek_global_six_max_leaf_evals = 8000;
@@ -2404,6 +2545,7 @@ function StartPlotSystem()
 		-- Interacts with CoastLux, makes that option undefined -- however true/false just marks guarantee/random
 		-- CoastLux = false
 		start_plot_database._lek_coastal_refish = false
+		start_plot_database._lek_regional_lux_require_start_same_area = true
 	if type(start_plot_database._lek_global_six_regen_max_layouts) == "number" and start_plot_database._lek_global_six_regen_max_layouts >= 1 then
 		_lek_global_six_regen_max_layouts = start_plot_database._lek_global_six_regen_max_layouts;
 	end
@@ -2416,9 +2558,12 @@ function StartPlotSystem()
 		resources = res,
 		AllowInlandSea = AllowInlandSea,
 		CoastLux = CoastLux,
-		NoCoastInland = OnlyCoastal,
+		NoCoastInland = (OnlyCoastal == true) or (ForceAllInlandPlayerSpawns == true),
 		BalancedCoastal = BalancedCoastal,
-		MixedBias = MixedBias;
+		BalancedCoastalExactTwo = BalancedCoastalExactTwo,
+		ForceAllInlandPlayerSpawns = ForceAllInlandPlayerSpawns,
+		MixedBias = MixedBias,
+		IgnoreAllStartBias = IgnoreAllStartBias,
 		};
 	do
 		local ok, err = pcall(function() start_plot_database:GenerateRegions(args) end);
@@ -2428,11 +2573,11 @@ function StartPlotSystem()
 		end
 	end
 
-	-- Paint region markers immediately after region creation so we can verify
-	-- region geometry even if later placement logic hangs.
+	--[[ Debug: snow terrain on region centers + rectangle outline (expensive). Re-enable when diagnosing regions.
 	print("### DEBUG region markers paint START")
 	DebugPaintRegionsTerrains(start_plot_database)
 	print("### DEBUG region markers paint END")
+	--]]
 
 	print("Choosing start locations for civilizations.");
 
@@ -2471,25 +2616,11 @@ function StartPlotSystem()
 		end
 	end
 
-	if _lek_global_six_request_map_regen == true then
-		local att = _lek_map_layout_attempt or 1;
-		local maxL = _lek_global_six_regen_max_layouts;
-		if type(maxL) ~= "number" or maxL < 1 then
-			maxL = 4;
-		end
-		local msg = "### LekMapGen StartPlotSystem short_circuit runId=" .. tostring(_lek_run_id or "na")
-			.. " layout=" .. tostring(att) .. "/" .. tostring(maxL)
-			.. " skip=BalanceAndAssign_rescue_spacing_NW_resources";
-		if LekPlacementProbeAt then
-			LekPlacementProbeAt(1, msg);
-		elseif LekPlacementProbeLog then
-			LekPlacementProbeLog(msg);
-		else
-			print(msg);
-			appendLekLog({ msg });
-		end
+	if shortCircuitStartPlotSystemIfRegen("short_circuit_before_BA_table_only") then
 		return;
 	end
+
+	startPlacementSanity(start_plot_database, "after_ChooseLocations", false);
 	
 	print("Normalizing start locations and assigning them to Players.");
 	do
@@ -2501,8 +2632,12 @@ function StartPlotSystem()
 		end
 	end
 
+	if shortCircuitStartPlotSystemIfRegen("after_BalanceAndAssign") then
+		return;
+	end
+
 	-- After BalanceAndAssign, rescue any player still without a starting plot.
-	-- This catches both BalanceAndAssign crashes (pcall above) and mismatch bugs.
+	-- Global-six 6p: only unused region starts; no random land scan; request regen if still missing.
 	do
 		local missing_pids = {};
 		for loop = 1, start_plot_database.iNumCivs do
@@ -2515,7 +2650,8 @@ function StartPlotSystem()
 			end
 		end
 		if #missing_pids > 0 then
-			-- Collect all valid region plots as rescue candidates.
+			local strictSix = (start_plot_database._lek_global_six_solver == true)
+				and ((start_plot_database.iNumCivs or 0) == 6);
 			local rescue_candidates = {};
 			local used_plots = {};
 			for loop = 1, start_plot_database.iNumCivs do
@@ -2535,8 +2671,7 @@ function StartPlotSystem()
 					end
 				end
 			end
-			-- Fallback: scan for any land tile if region pool empty.
-			if #rescue_candidates == 0 then
+			if #rescue_candidates == 0 and not strictSix then
 				local iW, iH = Map.GetGridSize();
 				for y = 1, iH - 2 do
 					for x = 0, iW - 1 do
@@ -2548,6 +2683,11 @@ function StartPlotSystem()
 					end
 					if #rescue_candidates >= 20 then break; end
 				end
+			elseif #rescue_candidates == 0 and strictSix then
+				local zmsg = "### StartPlotSystem RESCUE strict_global_six no_unused_region_start runId="
+					.. tostring(_lek_run_id or "na") .. " missing_majors=" .. tostring(#missing_pids);
+				print(zmsg);
+				appendLekLog({ zmsg });
 			end
 			local rescue_log = {};
 			for i, pid in ipairs(missing_pids) do
@@ -2568,7 +2708,40 @@ function StartPlotSystem()
 				.. " rescued=" .. #missing_pids .. " " .. table.concat(rescue_log, " | ");
 			print(msg);
 			appendLekLog({ msg });
+			if strictSix then
+				local anyNil = false;
+				for _, pid2 in ipairs(missing_pids) do
+					local pl2 = Players[pid2];
+					if pl2 and pl2:GetStartingPlot() == nil then
+						anyNil = true;
+						break;
+					end
+				end
+				if anyNil then
+					local maxRegenL = _lek_global_six_regen_max_layouts;
+					if type(maxRegenL) ~= "number" or maxRegenL < 1 then
+						maxRegenL = 4;
+					end
+					local att = _lek_map_layout_attempt or 1;
+					local canRegen = (_lek_enable_hb_generatemap_regen_loop == true) and (att < maxRegenL);
+					local rmsg = "### StartPlotSystem RESCUE strict_global_six incomplete runId="
+						.. tostring(_lek_run_id or "na")
+						.. " requestRegen=" .. (canRegen and "1" or "0")
+						.. " layout=" .. tostring(att) .. "/" .. tostring(maxRegenL);
+					print(rmsg);
+					appendLekLog({ rmsg });
+					if canRegen then
+						_lek_global_six_request_map_regen = true;
+					else
+						error("Lekmap: global-six majors without starting plots after strict rescue; regen exhausted.");
+					end
+				end
+			end
 		end
+	end
+
+	if shortCircuitStartPlotSystemIfRegen("after_StartPlotSystem_rescue") then
+		return;
 	end
 
 	-- Validation log: report any remaining issues after rescue.
@@ -2589,6 +2762,8 @@ function StartPlotSystem()
 			appendLekLog({ msg });
 		end
 	end
+
+	startPlacementSanity(start_plot_database, "after_BalanceAndAssign_rescue", true);
 
 	-- Post-pass instrumentation: log major start spacing for 6-player games.
 	-- This gives us an objective baseline for "fairness" (nearest-neighbor distance + spread).
@@ -2685,9 +2860,15 @@ function StartPlotSystem()
 						" nearest=" .. tostring(nearest[i]) ..
 						" secondNearest=" .. tostring(secondNearest[i]);
 				end
+				lines[#lines + 1] = "### StartSpacing6P legacy_was_used=" ..
+					tostring(start_plot_database._lek_choose_locations_legacy_start_placement == true) ..
+					" runId=" .. runId;
 				LekMapgenDiagLogAppend(lines);
 			else
-				print("### StartSpacing6P: could not collect 6 start plots, got " .. tostring(#starts));
+				local short = "### StartSpacing6P: could not collect 6 start plots, got " .. tostring(#starts)
+					.. " runId=" .. tostring(_lek_run_id or "na");
+				print(short);
+				appendLekLog({ short });
 			end
 		end
 	end
@@ -2720,6 +2901,28 @@ function StartPlotSystem()
 	appendLekLog({
 		"### RunStage runId=" .. tostring(_lek_run_id or "na") .. " stage=after.PlaceResourcesAndCityStates"
 	});
+
+	startPlacementSanity(start_plot_database, "after_PlaceResourcesAndCityStates", true);
+
+	if _lek_global_six_request_map_regen == true then
+		local att = _lek_map_layout_attempt or 1;
+		local maxL = _lek_global_six_regen_max_layouts;
+		if type(maxL) ~= "number" or maxL < 1 then
+			maxL = 4;
+		end
+		local msg = "### LekMapGen StartPlotSystem short_circuit runId=" .. tostring(_lek_run_id or "na")
+			.. " layout=" .. tostring(att) .. "/" .. tostring(maxL)
+			.. " skip=post_PlaceResources capital_lux_minimum_or_other_regen";
+		if LekPlacementProbeAt then
+			LekPlacementProbeAt(1, msg);
+		elseif LekPlacementProbeLog then
+			LekPlacementProbeLog(msg);
+		else
+			print(msg);
+			appendLekLog({ msg });
+		end
+		return;
+	end
 
 	-- Debug region repaint can be heavy; keep it off while we debug stalls.
 	-- DebugPaintRegionsTerrains(start_plot_database)

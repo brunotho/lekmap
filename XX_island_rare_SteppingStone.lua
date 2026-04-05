@@ -246,6 +246,7 @@ function TryPlaceSteppingStoneIsland(plotTypes, opts)
 
 	local blobSize = 4 + Map.Rand(9, "");
 	if Map.Rand(100, "") < 28 then blobSize = blobSize + 3 + Map.Rand(4, ""); end
+	blobSize = math.max(4, blobSize - 2);
 	drawBlob(plotTypes, centerX, centerY, blobSize, iW, iH, wrapX, wrapY, backX, backY, stepX, stepY);
 
 	if Map.Rand(100, "") < 38 then

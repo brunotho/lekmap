@@ -892,7 +892,10 @@ function GetShuffledCopyOfTable(incoming_table)
 	if incoming_table == nil then
 		return {};
 	end
-	local len = table.maxn(incoming_table);
+	local len = #(incoming_table);
+	if len == 0 then
+		len = table.maxn(incoming_table) or 0;
+	end
 	local copy = {};
 	local shuffledVersion = {};
 	-- Make copy of table.

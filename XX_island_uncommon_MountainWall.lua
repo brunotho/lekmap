@@ -1,4 +1,4 @@
--- Curved wall of mountains with a band of land on one side, sometimes a gap inside the wall.
+-- Narrow mountain spine (single file) with sin-smoothed hex turns; one flanking hills/land band for a natural ridge vs a ruler-straight wall.
 
 include("X_IslandHelpers");
 
@@ -30,95 +30,71 @@ function TryPlaceMountainWallIsland(plotTypes, centerX, centerY, islLandInRing, 
 	local cy = WrapCoord(centerY, params.iH, params.wrapY);
 	if cx < 0 or cx >= params.iW or cy < 0 or cy >= params.iH then return false; end
 
-	local perpDir = Map.Rand(6, "") + 1;
-	local ridgeDir = rotDir(perpDir, Map.Rand(2, "") == 0 and 2 or -2);
+	local baseDir = Map.Rand(6, "") + 1;
+	local phase = Map.Rand(628, "mwallPhase") / 100;
+	local amp = 0.75 + Map.Rand(40, "mwallAmp") / 100;
+	local freq = 0.55 + Map.Rand(30, "mwallFreq") / 100;
+	local ridgeLen = 4 + Map.Rand(5, "mwallLen");
+	local gapPos = (ridgeLen >= 6 and Map.Rand(100, "") < 55) and (2 + Map.Rand(ridgeLen - 3, "mwallGap")) or nil;
 
-	local ridgeLen = 3 + Map.Rand(4, "");
-	local depth = (ridgeLen >= 5) and 1 or (1 + Map.Rand(2, ""));
-
-	local numGaps = 0;
-	if ridgeLen >= 5 then
-		numGaps = 1 + Map.Rand(2, "");
-	elseif ridgeLen >= 3 and Map.Rand(100, "") < 65 then
-		numGaps = 1;
-	end
-	local isGap = {};
-	if numGaps > 0 then
-		local pool = {};
-		for p = 2, ridgeLen - 1 do pool[#pool + 1] = p; end
-		for g = 1, math.min(numGaps, #pool) do
-			local pick = 1 + Map.Rand(#pool, "");
-			isGap[pool[pick]] = true;
-			pool[pick] = pool[#pool];
-			pool[#pool] = nil;
-		end
-	end
-
-	local ridgeTiles = {};
-	local landTiles = {};
+	local spine = {};
+	local flank = {};
 	local used = {};
 
-	local function add(x, y, distFromRidge)
-		if x < 0 or x >= params.iW or y < 0 or y >= params.iH then return; end
-		local key = x .. "," .. y;
-		if used[key] then return; end
-		used[key] = true;
-		landTiles[#landTiles + 1] = {x, y, distFromRidge};
+	local function markFlank(px, py)
+		if px < 0 or px >= params.iW or py < 0 or py >= params.iH then return; end
+		local k = px .. "," .. py;
+		if used[k] then return; end
+		used[k] = true;
+		flank[#flank + 1] = { px, py };
 	end
 
 	local x, y = cx, cy;
-	local curRidgeDir = ridgeDir;
-	local bendFreq = 1 + Map.Rand(2, "");
-	local nextBend = bendFreq;
-	local turnDir = (Map.Rand(2, "") == 0) and 1 or -1;
-
+	local walkDir = baseDir;
 	for i = 1, ridgeLen do
-		add(x, y, 0);
-		if not isGap[i] then
-			ridgeTiles[#ridgeTiles + 1] = {x, y};
+		if i ~= gapPos then
+			spine[#spine + 1] = { x, y };
 		end
-		for d = 1, depth do
-			local px, py = x, y;
-			for _ = 1, d do
-				px, py = GetHexNeighbor(px, py, perpDir, params.iW, params.iH, params.wrapX, params.wrapY);
-				if px < 0 or px >= params.iW or py < 0 or py >= params.iH then break; end
-			end
-			if px >= 0 and px < params.iW and py >= 0 and py < params.iH then
-				add(px, py, d);
-			end
+		local wobble = math.floor(amp * math.sin(i * freq + phase));
+		if wobble > 0 then
+			walkDir = rotDir(walkDir, 1);
+		elseif wobble < 0 then
+			walkDir = rotDir(walkDir, -1);
 		end
-		nextBend = nextBend - 1;
-		if nextBend <= 0 then
-			curRidgeDir = rotDir(curRidgeDir, turnDir);
-			nextBend = bendFreq;
+		local perp = rotDir(walkDir, Map.Rand(2, "") == 0 and 2 or -2);
+		local fx, fy = GetHexNeighbor(x, y, perp, params.iW, params.iH, params.wrapX, params.wrapY);
+		if Map.Rand(100, "mwallFlank") < 78 then
+			markFlank(fx, fy);
 		end
-		local nx, ny = GetHexNeighbor(x, y, curRidgeDir, params.iW, params.iH, params.wrapX, params.wrapY);
+		local nx, ny = GetHexNeighbor(x, y, walkDir, params.iW, params.iH, params.wrapX, params.wrapY);
 		if nx < 0 or nx >= params.iW or ny < 0 or ny >= params.iH then break; end
 		x, y = nx, ny;
 	end
 
-	if #landTiles < 5 then return false; end
-	if not footprintClear(plotTypes, landTiles, params.iW, params.iH) then return false; end
+	if #spine < 3 then return false; end
+
+	local all = {};
+	for _, t in ipairs(spine) do
+		all[#all + 1] = t;
+	end
+	for _, t in ipairs(flank) do
+		all[#all + 1] = t;
+	end
+	if not footprintClear(plotTypes, all, params.iW, params.iH) then return false; end
 
 	local ridgeSet = {};
-	for _, t in ipairs(ridgeTiles) do ridgeSet[t[1] .. "," .. t[2]] = true; end
+	for _, t in ipairs(spine) do
+		ridgeSet[t[1] .. "," .. t[2]] = true;
+	end
 
-	for _, t in ipairs(landTiles) do
-		local x, y = t[1], t[2];
-		local idx = y * params.iW + x;
-		local dist = t[3] or 0;
-		if ridgeSet[x .. "," .. y] then
+	for _, t in ipairs(all) do
+		local px, py = t[1], t[2];
+		local idx = py * params.iW + px;
+		if ridgeSet[px .. "," .. py] then
 			plotTypes[idx] = PlotTypes.PLOT_MOUNTAIN;
 		else
-			local basePct = (dist == 1) and (70 + Map.Rand(21, ""))
-				or (dist == 2) and (55 + Map.Rand(21, ""))
-				or (dist == 3) and (40 + Map.Rand(21, ""))
-				or (25 + Map.Rand(21, ""));
-			local mt = (Map.Rand(100, "") < basePct) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
-			if mt == PlotTypes.PLOT_HILLS and dist <= 2 and Map.Rand(100, "") < 5 then
-				mt = PlotTypes.PLOT_MOUNTAIN;
-			end
-			plotTypes[idx] = mt;
+			local roll = Map.Rand(100, "mwallFoot");
+			plotTypes[idx] = (roll < 62) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
 		end
 	end
 	return true;

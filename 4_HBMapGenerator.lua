@@ -806,6 +806,23 @@ function StartPlotSystem()
 
 	print("Normalizing start locations and assigning them to Players.");
 	start_plot_database:BalanceAndAssign()
+
+	if _lek_global_six_request_map_regen == true then
+		local att = _lek_map_layout_attempt or 1;
+		local maxL = _lek_global_six_regen_max_layouts;
+		if type(maxL) ~= "number" or maxL < 1 then
+			maxL = 4;
+		end
+		local msg = "### LekMapGen StartPlotSystem short_circuit runId=" .. tostring(_lek_run_id or "na")
+			.. " layout=" .. tostring(att) .. "/" .. tostring(maxL)
+			.. " skip=after_BalanceAndAssign_NW_resources mapScript=HB_default";
+		if LekPlacementProbeAt then
+			LekPlacementProbeAt(1, msg);
+		else
+			print(msg);
+		end
+		return;
+	end
 	
 	print("Placing Natural Wonders.");
 	start_plot_database:PlaceNaturalWonders()
@@ -815,6 +832,17 @@ function StartPlotSystem()
 end
 
 function LekHB_GenerateMap_Core()
+	do
+		local la0 = _lek_map_layout_attempt or 0;
+		local coreBoot = "### LekMapGen LekHB_GenerateMap_Core_begin layoutAttempt="
+			.. tostring(la0) .. " t=" .. tostring((os and os.clock) and os.clock() or 0);
+		print(coreBoot);
+		pcall(function()
+			if LekMapgenDiagLogAppend then
+				LekMapgenDiagLogAppend({ coreBoot });
+			end
+		end);
+	end
 	local function stage(s)
 		if LekMapgenLogAtLeast and not LekMapgenLogAtLeast(2) then
 			return;
@@ -936,15 +964,15 @@ end
 
 function GenerateMap()
 	local genEntry = "### LekMapGen GenerateMap_lua_entry t=" .. tostring((os and os.clock) and os.clock() or 0);
+	pcall(function()
+		if LekMapgenDiagLogAppend then
+			LekMapgenDiagLogAppend({ genEntry });
+		end
+	end);
 	if LekPlacementProbeAt then
 		LekPlacementProbeAt(1, genEntry);
 	else
 		print(genEntry);
-		pcall(function()
-			if LekMapgenDiagLogAppend then
-				LekMapgenDiagLogAppend({ "### LekMapGen GenerateMap_lua_entry" });
-			end
-		end);
 	end
 
 	local function logPostCore(layoutAttempt, maxL, req, regenLoopActive)

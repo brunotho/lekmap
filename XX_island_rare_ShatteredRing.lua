@@ -33,7 +33,7 @@ function TryPlaceShatteredRingIsland(plotTypes, centerX, centerY, islLandInRing,
 	local cy = WrapCoord(centerY, params.iH, params.wrapY);
 	if cx < 0 or cx >= params.iW or cy < 0 or cy >= params.iH then return false; end
 
-	local waterRadius = 1 + Map.Rand(2, "");
+	local waterRadius = (Map.Rand(100, "") < 72) and 2 or 1;
 	local ringInner = waterRadius + 1;
 	local innerRing = GetHexRingAtRadius(cx, cy, ringInner, params.iW, params.iH, params.wrapX, params.wrapY);
 	local ringLen = #innerRing;
@@ -79,15 +79,15 @@ function TryPlaceShatteredRingIsland(plotTypes, centerX, centerY, islLandInRing,
 		end
 	end
 
-	local step = 2;
+	local step = 2 + Map.Rand(2, "");
 	local numArcs = math.floor(ringLen / step);
 	local landSet = {};
 	for i = 1, numArcs do
 		local start = (i - 1) * step + 1;
-		local arcLen = 1 + Map.Rand(2, "");
+		local arcLen = (Map.Rand(100, "") < 55) and 1 or 2;
 		if arcLen > step then arcLen = step; end
 		local thick = Map.Rand(10, "");
-		local thickness = (thick < 1) and 3 or ((thick < 2) and 1 or 2);
+		local thickness = (thick < 1) and 2 or ((thick < 3) and 1 or 2);
 		for j = 0, arcLen - 1 do
 			local idx = ((start - 1 + j) % ringLen) + 1;
 			local rt = innerRingRot[idx];
@@ -114,6 +114,12 @@ function TryPlaceShatteredRingIsland(plotTypes, centerX, centerY, islLandInRing,
 
 	local landTiles = {};
 	for _, t in pairs(landSet) do landTiles[#landTiles + 1] = t; end
+	for _ = 1, 5 do
+		if #landTiles <= 10 then break; end
+		local ri = 1 + Map.Rand(#landTiles, "");
+		landTiles[ri] = landTiles[#landTiles];
+		landTiles[#landTiles] = nil;
+	end
 	if #landTiles < 10 then return false; end
 	if not footprintClear(plotTypes, landTiles, params.iW, params.iH) then return false; end
 

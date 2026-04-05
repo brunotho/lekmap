@@ -18,6 +18,38 @@ end
 
 local function key(x, y) return x .. "," .. y; end
 
+local function hexStepsBetween(ax, ay, bx, by, iW, iH, wrapX, wrapY, cap)
+	cap = cap or 32;
+	if ax == bx and ay == by then
+		return 0;
+	end
+	local q = { { ax, ay, 0 } };
+	local qi = 1;
+	local vis = {};
+	vis[key(ax, ay)] = true;
+	while qi <= #q do
+		local x, y, d = q[qi][1], q[qi][2], q[qi][3];
+		qi = qi + 1;
+		if d >= cap then
+		else
+			for dir = 1, 6 do
+				local nx, ny = GetHexNeighbor(x, y, dir, iW, iH, wrapX, wrapY);
+				if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+					local kk = key(nx, ny);
+					if not vis[kk] then
+						vis[kk] = true;
+						if nx == bx and ny == by then
+							return d + 1;
+						end
+						q[#q + 1] = { nx, ny, d + 1 };
+					end
+				end
+			end
+		end
+	end
+	return cap + 1;
+end
+
 local function dirBetween(x1, y1, x2, y2, iW, iH, wrapX, wrapY)
 	for d = 1, 6 do
 		local nx, ny = GetHexNeighbor(x1, y1, d, iW, iH, wrapX, wrapY);
@@ -73,9 +105,18 @@ function TryPlaceLakeRidge(plotTypes, opts)
 	local rightLen = 3 + Map.Rand(3, "");
 	local turnChance = 38;
 
+	local ccx = (type(opts.lakeRidgeCenterX) == "number") and opts.lakeRidgeCenterX or math.floor(iW / 2);
+	local ccy = (type(opts.lakeRidgeCenterY) == "number") and opts.lakeRidgeCenterY or math.floor(iH / 2);
+	local maxHexC = opts.lakeRidgeMaxHexFromCenter;
+
 	for attempt = 1, 25 do
 		local cx = margin + Map.Rand(iW - 2 * margin, "");
 		local cy = margin + Map.Rand(iH - 2 * margin, "");
+		if type(maxHexC) == "number" and maxHexC >= 0 then
+			if hexStepsBetween(cx, cy, ccx, ccy, iW, iH, wrapX, wrapY, maxHexC + 1) > maxHexC then
+				cx = -1;
+			end
+		end
 		if cx >= 0 and cx < iW and cy >= 0 and cy < iH and isLand(plotTypes, cx, cy, iW, iH) then
 			local dir = 1 + Map.Rand(6, "");
 			local leftRidge = {};

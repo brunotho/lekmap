@@ -49,67 +49,106 @@ function TryPlaceJunglePeakIsland(plotTypes, centerX, centerY, islLandInRing, pa
 	for i = ring1End + 1, ring2End do ring2Tiles[#ring2Tiles + 1] = disk[i]; end
 	for i = ring2End + 1, ring3End do ring3Tiles[#ring3Tiles + 1] = disk[i]; end
 
-	local numIslands = 3 + Map.Rand(2, "");
-	numIslands = math.min(numIslands, 4);
-	local r2Count, r3Count = #ring2Tiles, #ring3Tiles;
+	local r2Count = #ring2Tiles;
+	local r3Count = #ring3Tiles;
 	local landTiles = {};
 	local used = {};
-	local allR2R3 = {};
-	for _, t in ipairs(ring2Tiles) do allR2R3[#allR2R3 + 1] = {t[1], t[2], "r2"}; end
-	for _, t in ipairs(ring3Tiles) do allR2R3[#allR2R3 + 1] = {t[1], t[2], "r3"}; end
+	local r2lo = math.max(1, math.floor(r2Count * 0.60 + 0.5));
+	local r2hi = math.min(r2Count - 1, math.floor(r2Count * 0.80 + 0.5));
+	if r2hi < r2lo then r2hi = r2lo; end
+	local targetR2 = r2lo + Map.Rand(r2hi - r2lo + 1, "");
 
-	local function isAdjacentToIsland(tx, ty, island)
-		for _, it in ipairs(island) do
-			if isAdjacentToTile(tx, ty, it[1], it[2]) then return true; end
+	local seeds = {};
+	for _, t in ipairs(ring2Tiles) do
+		for _, c in ipairs(calderaTiles) do
+			if isAdjacentToTile(t[1], t[2], c[1], c[2]) then
+				seeds[#seeds + 1] = t;
+				break;
+			end
 		end
-		return false;
+	end
+	for i = #seeds, 2, -1 do
+		local j = 1 + Map.Rand(i, "");
+		seeds[i], seeds[j] = seeds[j], seeds[i];
 	end
 
-	for isl = 1, numIslands do
-		local loR2 = math.floor((isl - 1) * r2Count / numIslands) + 1;
-		local hiR2 = math.floor(isl * r2Count / numIslands);
-		local loR3 = math.floor((isl - 1) * r3Count / numIslands) + 1;
-		local hiR3 = math.floor(isl * r3Count / numIslands);
-		local r2Pick = loR2 + Map.Rand(math.max(1, hiR2 - loR2 + 1), "");
-		local r2t = ring2Tiles[r2Pick];
-		local r3Cand = {};
-		for _, t in ipairs(ring3Tiles) do
-			if isAdjacentToTile(t[1], t[2], r2t[1], r2t[2]) and not used[t[2] * params.iW + t[1]] then
-				r3Cand[#r3Cand + 1] = t;
-			end
+	local filledR2 = {};
+	local queue = {};
+	for _, t in ipairs(seeds) do
+		local k = t[2] * params.iW + t[1];
+		if not used[k] then
+			used[k] = true;
+			filledR2[#filledR2 + 1] = t;
+			queue[#queue + 1] = t;
 		end
-		if #r3Cand == 0 then
-			for _, t in ipairs(ring3Tiles) do
-				if isAdjacentToTile(t[1], t[2], r2t[1], r2t[2]) then
-					r3Cand[#r3Cand + 1] = t;
-					break;
-				end
-			end
-		end
-		if #r3Cand == 0 then r3Cand[#r3Cand + 1] = ring3Tiles[loR3]; end
-		local r3Pick = r3Cand[1 + Map.Rand(#r3Cand, "")];
-		local island = {{r2t[1], r2t[2], "r2"}, {r3Pick[1], r3Pick[2], "r3"}};
-		used[r2t[2] * params.iW + r2t[1]] = true;
-		used[r3Pick[2] * params.iW + r3Pick[1]] = true;
+	end
 
-		local targetSize = 3 + Map.Rand(4, "");
-		targetSize = math.min(targetSize, 6);
-		while #island < targetSize do
-			local adjCand = {};
-			for _, t in ipairs(allR2R3) do
-				local k = t[2] * params.iW + t[1];
-				if not used[k] and isAdjacentToIsland(t[1], t[2], island) then
-					adjCand[#adjCand + 1] = {t[1], t[2], t[3], k};
+	local qi = 1;
+	while qi <= #queue and #filledR2 < targetR2 do
+		local t = queue[qi];
+		qi = qi + 1;
+		for _, u in ipairs(ring2Tiles) do
+			local ku = u[2] * params.iW + u[1];
+			if not used[ku] and isAdjacentToTile(t[1], t[2], u[1], u[2]) then
+				used[ku] = true;
+				filledR2[#filledR2 + 1] = u;
+				queue[#queue + 1] = u;
+				if #filledR2 >= targetR2 then break; end
+			end
+		end
+	end
+
+	while #filledR2 < targetR2 do
+		local cands = {};
+		for _, u in ipairs(ring2Tiles) do
+			local ku = u[2] * params.iW + u[1];
+			if not used[ku] then
+				for _, f in ipairs(filledR2) do
+					if isAdjacentToTile(u[1], u[2], f[1], f[2]) then
+						cands[#cands + 1] = u;
+						break;
+					end
 				end
 			end
-			if #adjCand == 0 then break; end
-			local pick = adjCand[1 + Map.Rand(#adjCand, "")];
-			island[#island + 1] = {pick[1], pick[2], pick[3]};
-			used[pick[4]] = true;
 		end
-		for _, t in ipairs(island) do
-			landTiles[#landTiles + 1] = {t[1], t[2], t[3]};
+		if #cands == 0 then break; end
+		local pick = cands[1 + Map.Rand(#cands, "")];
+		local k = pick[2] * params.iW + pick[1];
+		used[k] = true;
+		filledR2[#filledR2 + 1] = pick;
+	end
+
+	if #filledR2 >= r2Count and r2Count > 1 then
+		local rip = 1 + Map.Rand(#filledR2, "");
+		local u = filledR2[rip];
+		used[u[2] * params.iW + u[1]] = nil;
+		table.remove(filledR2, rip);
+	end
+
+	local filledR3 = {};
+	for _, t in ipairs(filledR2) do
+		for _, u in ipairs(ring3Tiles) do
+			local ku = u[2] * params.iW + u[1];
+			if not used[ku] and isAdjacentToTile(t[1], t[2], u[1], u[2]) and Map.Rand(100, "") < 15 then
+				used[ku] = true;
+				filledR3[#filledR3 + 1] = u;
+			end
 		end
+	end
+	local capR3 = 2 + Map.Rand(3, "");
+	capR3 = math.min(capR3, math.max(2, math.floor(r3Count * 0.22 + 0.5)));
+	while #filledR3 > capR3 do
+		local rip = 1 + Map.Rand(#filledR3, "");
+		local u = filledR3[rip];
+		used[u[2] * params.iW + u[1]] = nil;
+		table.remove(filledR3, rip);
+	end
+
+	for _, t in ipairs(filledR2) do
+		landTiles[#landTiles + 1] = {t[1], t[2], "r2"};
+	end
+	for _, t in ipairs(filledR3) do
+		landTiles[#landTiles + 1] = {t[1], t[2], "r3"};
 	end
 
 	local footprintTiles = {{cx, cy}};

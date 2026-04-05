@@ -5,7 +5,7 @@ include("XX_island_common_Dot");
 include("XX_island_common_Pebble");
 include("XX_island_common_Strip");
 include("XX_island_common_SplinteredCliffsTiny");
-include("XX_island_uncommon_WaterRift");
+-- include("XX_island_uncommon_WaterRift");
 include("XX_island_uncommon_Chunk");
 include("XX_island_uncommon_Lollipop");
 include("XX_island_uncommon_Barbell");
@@ -19,6 +19,7 @@ include("XX_island_uncommon_RidgePeak");
 include("XX_island_uncommon_LakeRidge");
 include("XX_island_uncommon_ClusterOfTiny");
 include("XX_island_rare_PolarMerge");
+-- include("XX_island_rare_PangaeaBow");
 include("XX_island_rare_Horn");
 include("XX_island_rare_ShatteredRing");
 include("XX_island_rare_SteppingStone");
@@ -42,39 +43,43 @@ include("XX_island_rare_WrapSoftLandbridge");
 -- Equivalent ring bounds:
 --   (pullBack + effMin) <= islLandInRing <= (pullBack + effMax)
 -- lower pullBack/eff* -> generally closer to mainland.
+-- Acceptable nearest-pangea ring: pullBack+effMin .. pullBack+effMax (see tryOneSpot).
+-- Budget guide: ~12 land tiles (mountains count ~0.5) ~= 1 island budget for generic shapes.
+-- Special placers (polarMerge, steppingStone, wrapSoftLandbridge, geothermal, lakeRidge) keep bespoke tuning.
 local CommonIslands = {
-	{ type = "dot",                  odds = 5, pullBack = 1, effMin = 0, effMax = 0, budget = 0.10 },
-	{ type = "pebble",               odds = 2, pullBack = 1, effMin = 0, effMax = 0, budget = 0.38 },
-	{ type = "strip",                odds = 2, pullBack = 1, effMin = 0, effMax = 1, budget = 0.42 },
-	{ type = "splinteredCliffsTiny", odds = 3, pullBack = 1, effMin = 0, effMax = 2, budget = 0.23 },
+	{ type = "dot",                  odds = 5, pullBack = 1, effMin = 0, effMax = 0, budget = 0.09 },
+	{ type = "pebble",               odds = 2, pullBack = 1, effMin = 0, effMax = 0, budget = 0.35 },
+	{ type = "strip",                odds = 2, pullBack = 1, effMin = 0, effMax = 1, budget = 0.39 },
+	{ type = "splinteredCliffsTiny", odds = 3, pullBack = 1, effMin = 0, effMax = 1, budget = 0.21 },
 };
 
 local UncommonIslands = {
-	{ type = "mountainWall",        odds = 2, pullBack = 0, effMin = 0, effMax = 4, budget = 0.60 },
-	{ type = "ridgePeak",           odds = 3, pullBack = 0, effMin = 0, effMax = 3, budget = 1.31 },
-	{ type = "splinteredCliffs",    odds = 2, pullBack = 0, effMin = 2, effMax = 5, budget = 0.72, fragile = true },
-	{ type = "chunk",               odds = 1, pullBack = 1, effMin = 2, effMax = 5, budget = 0.66 },
-	{ type = "barbell",             odds = 4, pullBack = 1, effMin = 0, effMax = 5, budget = 0.67 },
-	{ type = "snake",               odds = 3, pullBack = 1, effMin = 1, effMax = 4, budget = 1.13 },
-	{ type = "lollipop",            odds = 2, pullBack = 2, effMin = 1, effMax = 4, budget = 1.02 },
-	{ type = "wishbone",            odds = 5, pullBack = 1, effMin = 1, effMax = 3, budget = 0.75 },
-	{ type = "twinBay",             odds = 1, pullBack = 1, effMin = 1, effMax = 3, budget = 1.08 },
-	{ type = "shatteredRing",       odds = 3, pullBack = 1, effMin = 2, effMax = 5, budget = 1.67 },
-	{ type = "clusterOfTiny",      	odds = 5, pullBack = 1, effMin = 0, effMax = 3, budget = 0.5, fragile = true },
-	{ type = "waterRift",           odds = 2, pullBack = 0, effMin = 4, effMax = 5, budget = 1.17 },
+	{ type = "mountainWall",        odds = 2, pullBack = 0, effMin = 0, effMax = 1, budget = 0.56 },
+	{ type = "ridgePeak",           odds = 3, pullBack = 0, effMin = 0, effMax = 1, budget = 1.21 },
+	{ type = "splinteredCliffs",    odds = 2, pullBack = 0, effMin = 1, effMax = 2, budget = 0.66, fragile = true },
+	{ type = "chunk",               odds = 1, pullBack = 1, effMin = 0, effMax = 2, budget = 0.61 },
+	{ type = "barbell",             odds = 4, pullBack = 1, effMin = 0, effMax = 2, budget = 0.62 },
+	{ type = "snake",               odds = 4, pullBack = 1, effMin = 0, effMax = 2, budget = 1.04 },
+	{ type = "lollipop",            odds = 2, pullBack = 1, effMin = 0, effMax = 2, budget = 0.94 },
+	{ type = "wishbone",            odds = 5, pullBack = 1, effMin = 0, effMax = 1, budget = 0.69 },
+	{ type = "twinBay",             odds = 1, pullBack = 1, effMin = 0, effMax = 1, budget = 1.00 },
+	{ type = "shatteredRing",       odds = 2, pullBack = 1, effMin = 0, effMax = 2, budget = 1.54 },
+	{ type = "clusterOfTiny",      	odds = 5, pullBack = 1, effMin = 0, effMax = 2, budget = 0.46, fragile = true },
+	-- { type = "waterRift",           odds = 2, pullBack = 1, effMin = 5, effMax = 6, budget = 0.88 },
 };
 
 local RareIslands = {
-	{ type = "polarMerge",         	odds = 6, pullBack = 3, effMin = 3, effMax = 5, budget = 2.5 },
+	{ type = "polarMerge",         	odds = 7, pullBack = 3, effMin = 3, effMax = 5, budget = 2.5 },
 	{ type = "steppingStone",      	odds = 1, pullBack = 2, effMin = 2, effMax = 4, budget = 0.9 },
-	{ type = "crescent",           	odds = 1, pullBack = 2, effMin = 2, effMax = 4, budget = 1.62 },
-	{ type = "volcanicRing",       	odds = 1, pullBack = 1, effMin = 2, effMax = 5, budget = 1.85 },
-	{ type = "solomonsMinesIsland", odds = 1, pullBack = 2, effMin = 2, effMax = 5, budget = 1.67 },
-	{ type = "sinaiIsland",        	odds = 1, pullBack = 2, effMin = 2, effMax = 5, budget = 1.5 },
+	{ type = "crescent",           	odds = 1, pullBack = 1, effMin = 0, effMax = 2, budget = 1.50 },
+	{ type = "volcanicRing",       	odds = 1, pullBack = 1, effMin = 1, effMax = 2, budget = 1.71 },
+	{ type = "solomonsMinesIsland", odds = 1, pullBack = 1, effMin = 0, effMax = 2, budget = 1.54 },
+	{ type = "sinaiIsland",        	odds = 1, pullBack = 1, effMin = 0, effMax = 2, budget = 1.39 },
 	{ type = "geothermalIsland",  	odds = 2, pullBack = 2, effMin = 2, effMax = 5, budget = 1.2 },
-	{ type = "wrapSoftLandbridge",  odds = 2, pullBack = 2, effMin = 2, effMax = 5, budget = 2 },
-	{ type = "junglePeak",         	odds = 2, pullBack = 3, effMin = 2, effMax = 5, budget = 1.65 },
+	{ type = "wrapSoftLandbridge",  odds = 2, pullBack = 2, effMin = 2, effMax = 5, budget = 2.5 },
+	{ type = "junglePeak",         	odds = 2, pullBack = 1, effMin = 2, effMax = 3, budget = 1.52 },
 	{ type = "lakeRidge",          	odds = 2, pullBack = 0, effMin = 0, effMax = 0, budget = 0 },
+	-- { type = "pangaeaBow",         	odds = 9999, pullBack = 1, effMin = 0, effMax = 2, budget = 1.35 },
 	-- { type = "fjordPeninsula",     odds = 1, pullBack = 4, effMin = 4, effMax = 6, budget = 0.65 },
 	-- { type = "BrokenHeart",        odds = 1, pullBack = 2, effMin = 2, effMax = 5, budget = 1 },
 	-- { type = "EdgeOfWorld",        odds = 1, pullBack = 0, effMin = 0, effMax = 7, budget = 1 },
@@ -87,7 +92,7 @@ local IslandTypePlace = {
 	pebble = TryPlacePebbleIsland,
 	strip = TryPlaceStripIsland,
 	splinteredCliffsTiny = TryPlaceSplinteredCliffsTinyIsland,
-	waterRift = TryPlaceWaterRift,
+	-- waterRift = TryPlaceWaterRift,
 	chunk = TryPlaceChunkIsland,
 	lollipop = TryPlaceLollipopIsland,
 	barbell = TryPlaceBarbellIsland,
@@ -107,6 +112,7 @@ local IslandTypePlace = {
 	crescent = TryPlaceCrescentIsland,
 	solomonsMinesIsland = TryPlaceSolomonsMinesIsland,
 	volcanicRing = TryPlaceVolcanicRing,
+	-- pangaeaBow = TryPlacePangaeaBowIsland,
 	geothermalIsland = TryPlaceGeothermalIsland,
 	wrapSoftLandbridge = TryPlaceWrapSoftLandbridge,
 	-- fjordPeninsula = TryPlaceFjordPeninsulaIsland,
@@ -123,6 +129,15 @@ local AllIslandTypeTables = {
 };
 
 local PANGAEA_ISLAND_TOTAL_BUDGET = 9;
+-- Bespoke / anchor placers run first; then ~this much common budget before other drafted rare/uncommon.
+local PANGAEA_ISLAND_SPECIAL_THEN_COMMON_BOOTSTRAP = 1;
+local IslandSpecialPhaseTypes = {
+	polarMerge = true,
+	steppingStone = true,
+	wrapSoftLandbridge = true,
+	lakeRidge = true,
+	geothermalIsland = true,
+};
 local PANGAEA_COMMON_FILL_MAX_PASSES = 10000;
 local PANGAEA_ISLAND_BUDGET_RETRY = true;
 -- If false: only try nominal budget (e.g. 9), then fail so PangaeaFractalWorld outer regen runs (no lowering target).
@@ -135,7 +150,7 @@ local PANGAEA_ISLAND_BUDGET_FLOOR = 5;
 local PANGAEA_SHORE_SMALL_ISLAND_ATTEMPTS = 600;
 local PANGAEA_COMMON_SMALL_ISLAND_TRIES_TIGHT = 500;
 local PANGAEA_COMMON_SMALL_ISLAND_TRIES_LOOSE = 350;
-local PANGAEA_COMMON_FILL_IDLE_BREAK = 800;
+local PANGAEA_COMMON_FILL_IDLE_BREAK = 400;
 -- os.clock() limits; nil/<=0 disables. Safety rail inside one runOnce (common fill / shore).
 local PANGAEA_RUNONCE_MAX_CLOCK = 75;
 -- nil: rely on PANGAEA_ISLAND_MAX_RUNONCE_NOMINAL + outer regen (no tier time budget).
@@ -228,7 +243,7 @@ end
 
 local NAMED_PRIORITY = {
 	polarMerge = 1,
-	wrapSoftLandbridge = 3,
+	wrapSoftLandbridge = 2,
 };
 local TIER_BASE_PRIORITY = {
 	rare        = 5,
@@ -294,7 +309,10 @@ function GeneratePangaeaIslands(self, genOpts)
 
 	local opts = {
 		iW = iW, iH = iH, wrapX = wrapX, wrapY = wrapY,
-		landX = 0, landY = 0
+		landX = 0, landY = 0,
+		lakeRidgeCenterX = math.floor(iW / 2),
+		lakeRidgeCenterY = math.floor(iH / 2),
+		lakeRidgeMaxHexFromCenter = 10,
 	};
 
 	local function resetIslandGlobals()
@@ -381,9 +399,68 @@ function GeneratePangaeaIslands(self, genOpts)
 	table.sort(drafted, function(a, b)
 		return GetDraftPriority(a) < GetDraftPriority(b);
 	end);
+	local draftedSpecials = {};
+	local draftedRest = {};
+	for _, islandType in ipairs(drafted) do
+		if IslandSpecialPhaseTypes[islandType] then
+			draftedSpecials[#draftedSpecials + 1] = islandType;
+		else
+			draftedRest[#draftedRest + 1] = islandType;
+		end
+	end
 	local tAfterDraft = (os and os.clock) and os.clock() or 0;
 
 	local islandsPlaced = 0;
+	local rollIslandSequence = {};
+	local rollIslandCounts = {};
+	local lastTryOceanSeedX, lastTryOceanSeedY;
+	local function recordIslandPlaced(islandType, seedX, seedY)
+		rollIslandSequence[#rollIslandSequence + 1] = islandType;
+		rollIslandCounts[islandType] = (rollIslandCounts[islandType] or 0) + 1;
+		local seedPart = "";
+		if seedX ~= nil and seedY ~= nil then
+			seedPart = " startCell=" .. tostring(seedX) .. "," .. tostring(seedY);
+		end
+		local msg = "### LekIslandPlaced runId=" .. tostring(_lek_run_id or "na")
+			.. " layoutAttempt=" .. tostring(laIsland)
+			.. " outerAttempt=" .. tostring(outerIsland)
+			.. " budgetTry=" .. tostring(islandRunTry)
+			.. " seq=" .. tostring(#rollIslandSequence)
+			.. " type=" .. tostring(islandType)
+			.. seedPart;
+		print(msg);
+		pcall(function()
+			if LekMapgenDiagLogAppend then
+				LekMapgenDiagLogAppend(msg);
+			end
+		end);
+	end
+	local function logRollIslandSummary(spent, target)
+		local keys = {};
+		for k in pairs(rollIslandCounts) do
+			keys[#keys + 1] = k;
+		end
+		table.sort(keys);
+		local countParts = {};
+		for _, k in ipairs(keys) do
+			countParts[#countParts + 1] = tostring(k) .. "=" .. tostring(rollIslandCounts[k]);
+		end
+		local summary = "### LekIslandRollSummary runId=" .. tostring(_lek_run_id or "na")
+			.. " layoutAttempt=" .. tostring(laIsland)
+			.. " outerAttempt=" .. tostring(outerIsland)
+			.. " budgetTry=" .. tostring(islandRunTry)
+			.. " budgetTarget=" .. tostring(target)
+			.. " spent=" .. string.format("%.3f", spent or 0)
+			.. " placedN=" .. tostring(#rollIslandSequence)
+			.. " order=" .. table.concat(rollIslandSequence, ",")
+			.. " countsByType=" .. table.concat(countParts, ";");
+		print(summary);
+		pcall(function()
+			if LekMapgenDiagLogAppend then
+				LekMapgenDiagLogAppend(summary);
+			end
+		end);
+	end
 	local function tryOneSpot(forceType, attempt, overrideSpot)
 		local x, y;
 		if overrideSpot and type(overrideSpot) == "table" and #overrideSpot >= 2 then
@@ -517,6 +594,7 @@ function GeneratePangaeaIslands(self, genOpts)
 		spotOpts.landX = landX;
 		spotOpts.landY = landY;
 		spotOpts.nearPangea = pangeaTiles[landPlot];  -- landPlot is 1-based
+		lastTryOceanSeedX, lastTryOceanSeedY = x, y;
 		return TryPlaceIsland(self.plotTypes, x, y, islLandInRing, spotOpts, forceType);
 	end
 
@@ -533,27 +611,23 @@ function GeneratePangaeaIslands(self, genOpts)
 			attempts = attempts + 1;
 		end
 		if placed then
+			recordIslandPlaced(islandType, lastTryOceanSeedX, lastTryOceanSeedY);
 			spentBudget = spentBudget + GetBudget(islandType);
 			islandsPlaced = islandsPlaced + 1;
 		end
 		return placed;
 	end
 
-	local shoreDots = 12 + Map.Rand(5, "");
-	local shorePebbles = 1 + Map.Rand(4, "");
-	for _ = 1, shoreDots do placeAndCount("dot", PANGAEA_SHORE_SMALL_ISLAND_ATTEMPTS); end
-	for _ = 1, shorePebbles do placeAndCount("pebble", PANGAEA_SHORE_SMALL_ISLAND_ATTEMPTS); end
-	local tAfterShore = (os and os.clock) and os.clock() or 0;
+	dbg2("### GeneratePangaeaIslands: placing special-phase drafted islands ###");
 
-	dbg2("### GeneratePangaeaIslands: placing drafted islands ###");
-
-	for _, islandType in ipairs(drafted) do
+	local function placeDraftedOne(islandType)
 		if runOnceClockExpired() then
-			break;
+			return;
 		end
 		dbg2("### placing: " .. tostring(islandType) .. " ###");
 		if islandType == "polarMerge" then
 			if TryPlacePolarMerge(self.plotTypes, opts) then
+				recordIslandPlaced("polarMerge");
 				spentBudget = spentBudget + GetBudget(islandType);
 				islandsPlaced = islandsPlaced + 1;
 			end
@@ -572,6 +646,7 @@ function GeneratePangaeaIslands(self, genOpts)
 		]]
 		elseif islandType == "steppingStone" then
 			if TryPlaceSteppingStoneIsland(self.plotTypes, opts) then
+				recordIslandPlaced("steppingStone");
 				spentBudget = spentBudget + GetBudget(islandType);
 				islandsPlaced = islandsPlaced + 1;
 			end
@@ -587,16 +662,19 @@ function GeneratePangaeaIslands(self, genOpts)
 				end
 			end
 			if placedBridge then
+				recordIslandPlaced("wrapSoftLandbridge");
 				spentBudget = spentBudget + GetBudget(islandType);
 				islandsPlaced = islandsPlaced + 1;
 			end
 		elseif islandType == "mainlandRidge" then
 			if TryPlaceMainlandRidge(self.plotTypes, opts) then
+				recordIslandPlaced("mainlandRidge");
 				spentBudget = spentBudget + GetBudget(islandType);
 				islandsPlaced = islandsPlaced + 1;
 			end
 		elseif islandType == "lakeRidge" then
 			if TryPlaceLakeRidge(self.plotTypes, opts) then
+				recordIslandPlaced("lakeRidge");
 				spentBudget = spentBudget + GetBudget(islandType);
 				islandsPlaced = islandsPlaced + 1;
 			end
@@ -608,6 +686,50 @@ function GeneratePangaeaIslands(self, genOpts)
 			placeAndCount(islandType, maxAttempts);
 		end
 	end
+
+	for _, islandType in ipairs(draftedSpecials) do
+		placeDraftedOne(islandType);
+	end
+
+	dbg2("### GeneratePangaeaIslands: common bootstrap after specials (target budget "
+		.. tostring(PANGAEA_ISLAND_SPECIAL_THEN_COMMON_BOOTSTRAP or 1) .. ") ###");
+	local bootstrapTarget = PANGAEA_ISLAND_SPECIAL_THEN_COMMON_BOOTSTRAP or 1;
+	local bootstrapSpent = 0;
+	while bootstrapSpent + 0.001 < bootstrapTarget
+		and spentBudget + 0.004 < TOTAL_BUDGET do
+		if runOnceClockExpired() then
+			break;
+		end
+		local islandType = DraftOneFromTier(CommonIslands, {});
+		if not islandType then
+			break;
+		end
+		local placed = false;
+		for i = 1, PANGAEA_COMMON_SMALL_ISLAND_TRIES_LOOSE do
+			if (i % 40 == 0) and runOnceClockExpired() then
+				break;
+			end
+			placed = tryOneSpot(islandType, nil, nil);
+			if placed then
+				break;
+			end
+		end
+		if placed then
+			recordIslandPlaced(islandType, lastTryOceanSeedX, lastTryOceanSeedY);
+			local b = GetBudget(islandType);
+			bootstrapSpent = bootstrapSpent + b;
+			spentBudget = spentBudget + b;
+			islandsPlaced = islandsPlaced + 1;
+		else
+			break;
+		end
+	end
+
+	dbg2("### GeneratePangaeaIslands: placing remaining drafted islands ###");
+	for _, islandType in ipairs(draftedRest) do
+		placeDraftedOne(islandType);
+	end
+
 	local tAfterDraftedPlaced = (os and os.clock) and os.clock() or 0;
 
 	dbg2("### GeneratePangaeaIslands: drafted done, filling commons (until spent >= " .. TOTAL_BUDGET .. ", est at draft was " .. draftEstimate .. ") ###");
@@ -643,6 +765,7 @@ function GeneratePangaeaIslands(self, genOpts)
 				if placed then break; end
 			end
 			if placed then
+				recordIslandPlaced(islandType, lastTryOceanSeedX, lastTryOceanSeedY);
 				spentBudget = spentBudget + GetBudget(islandType);
 				islandsPlaced = islandsPlaced + 1;
 				idleCommonPasses = 0;
@@ -661,8 +784,8 @@ function GeneratePangaeaIslands(self, genOpts)
 			.. " runOnce budgetTarget=" .. tostring(TOTAL_BUDGET)
 			.. " retryTry=" .. tostring(islandRunTry) .. "/" .. tostring(maxTriesPerBudget)
 			.. " draft_dt=" .. tostring(tAfterDraft - tR0)
-			.. " shore_dt=" .. tostring(tAfterShore - tAfterDraft)
-			.. " draftedPlace_dt=" .. tostring(tAfterDraftedPlaced - tAfterShore)
+			.. " shore_dt=0"
+			.. " draftedPlace_dt=" .. tostring(tAfterDraftedPlaced - tAfterDraft)
 			..(" commonFill_dt=" .. tostring(tAfterCommonFill - tAfterDraftedPlaced))
 			.. " commonPasses=" .. tostring(commonPass)
 			.. " islandsPlaced=" .. tostring(islandsPlaced)
@@ -683,6 +806,8 @@ function GeneratePangaeaIslands(self, genOpts)
 		if runOnceAbortReason then
 			tallyRunOnceAborts = tallyRunOnceAborts + 1;
 		end
+
+		logRollIslandSummary(spentBudget, TOTAL_BUDGET);
 
 		return islandsPlaced, spentBudget;
 	end
