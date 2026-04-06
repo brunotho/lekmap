@@ -53,7 +53,7 @@ function LekMapgenDiagLogAppend(lineOrLines)
 end
 
 if _lek_mapgen_log_verbosity == nil then
-	_lek_mapgen_log_verbosity = 2;
+	_lek_mapgen_log_verbosity = 1;
 end
 
 function LekMapgenVerbosity()
@@ -6831,21 +6831,11 @@ function AssignStartingPlots.LekGlobalSix_DefaultTupleRelaxationPhases()
 end
 
 --[[
-	PACE SPECS — mirror LekmapPangaeaFractalv5.3.lua: LekMapGetCustomOption(13) Capital Precision + StartPlotSystem pace block.
-	Update both sides together when changing regen counts, legacy policy, or geometry escalation.
+	Geometry UI — LekMapGetCustomOption(13) in LekmapPangaeaFractalv5.3.lua StartPlotSystem:
 
-	Value 1 Fast (Legacy): _lek_global_six_skip_tuple_use_legacy = true; LekGlobalSixChooseLocations returns immediately with
-	_lek_global_six_tuple_solver_accepted = true so regen does not fire; legacy ChooseLocations runs (no tuple).
-
-	Value 2 Slow: pace_fast = true; regen_max_layouts = 3; fatal_on_exhausted = false; tuple fail on last layout → legacy ChooseLocations.
-	SW-corner forced starts (HB fallback when no plot scores) are blocked if tuple had failed (_lek_legacy_forbid_forced_start_placement).
-
-	Value 3 Very Slow: pace_fast = false; regen_max_layouts = 11; relax_min_layout = 6; fatal_on_exhausted = true;
-	minimal_s2_fallback off; exhausted → error (no legacy).
-
-	Slip-through chain when Slow hits legacy after tuple rejection: LekGlobalSix_RunTupleSearch finds no six-tuple satisfying distance/OK rules for this
-	terrain roll → ChooseLocations runs legacy region-by-region FindStart/FindCoastalStart. If every candidate fails min scores and fallback_plots is
-	empty, vanilla HB forces a 1-tile grass city at the region rectangle SW corner — that last step becomes fatal instead when tuple had failed.
+	1 Legacy: _lek_global_six_skip_tuple_use_legacy = true; tuple skipped; HB legacy placement.
+	2 Global six: tuple search + default relaxation ladder; _lek_global_six_tuple_regen_on_solver_fail = false → no layout regen on
+	solver fail (fall through to legacy). Set flag true to request map regen when tuple fails (needs HB regen loop on).
 ]]
 function AssignStartingPlots.LekGlobalSix_SlowPaceLayoutGeometryBoost(layoutN)
 	if type(layoutN) ~= "number" or layoutN < 6 then
@@ -7688,7 +7678,7 @@ function AssignStartingPlots:LekGlobalSix_RunTupleSearch()
 					" leafEvals=" .. tostring(leafEvals) ..
 					" tiebreak_maxAbsDminus13=" .. tostring(bestTb) ..
 					compositeExtra);
-				LekPlacementProbeAt(1, "### LekGlobalSix tupleSearch runId=" .. rid ..
+				LekPlacementProbeAt(3, "### LekGlobalSix tupleSearch runId=" .. rid ..
 					" status=ok relax_phase=" .. phaseName ..
 					" relax_phaseIndex=" .. tostring(phaseIdx) ..
 					" failComplete=" .. tostring(failComplete) ..
@@ -7730,7 +7720,7 @@ function AssignStartingPlots:LekGlobalSix_RunTupleSearch()
 			" maxD2=" .. tostring(mm.maxD2 or -1) ..
 			" s2cap=" .. tostring(mm.s2cap or -1) ..
 			" tiebreak_maxAbsDminus13=" .. tostring(fb.tb));
-		LekPlacementProbeAt(1, "### LekGlobalSix tupleSearch runId=" .. rid ..
+		LekPlacementProbeAt(3, "### LekGlobalSix tupleSearch runId=" .. rid ..
 			" status=ok_minimal_s2_plus1 relax_phase=" .. tostring(fb.phaseName) ..
 			" relax_phaseIndex=" .. tostring(fb.phaseIdx) ..
 			" layout=" .. tostring(layoutN));
@@ -7743,7 +7733,7 @@ function AssignStartingPlots:LekGlobalSix_RunTupleSearch()
 	self._lek_g6_runtime_s1_min = nil;
 	self._lek_g6_runtime_s1_max = nil;
 	self._lek_g6_runtime_s2_max = nil;
-	LekPlacementProbeAt(1, "### LekGlobalSix tupleSearch runId=" .. rid ..
+	LekPlacementProbeAt(3, "### LekGlobalSix tupleSearch runId=" .. rid ..
 		" status=fail_all_phases last_phase_failComplete=" .. tostring(lastFC) ..
 		" leafEvals=" .. tostring(lastLE) ..
 		" maxFail=" .. tostring(lastMaxF) ..
@@ -7798,7 +7788,7 @@ function AssignStartingPlots:LekGlobalSixChooseLocations(args)
 			self:LekGlobalSix_LogRippleOrderedSampleDryRun();
 		end);
 		if not okDry then
-			LekPlacementProbeAt(1, "### LekGlobalSix rippleOrderDryRun runId=" .. rid .. " pcall_err=" .. tostring(errDry));
+			LekPlacementProbeAt(2, "### LekGlobalSix rippleOrderDryRun runId=" .. rid .. " pcall_err=" .. tostring(errDry));
 		end
 	end
 	if elig ~= 1 then
@@ -7861,12 +7851,17 @@ function AssignStartingPlots:ChooseLocations(args)
 		local rid = tostring(_lek_run_id or "na");
 		local dsbRaw = LekSafeGetDisableStartBiasOption();
 		local dsb = (dsbRaw == nil) and "pcall_err" or tostring(dsbRaw);
+		LekPlacementProbeAt(1, "### ChooseLocations begin runId=" .. rid ..
+			" layout=" .. tostring(_lek_map_layout_attempt or 1) ..
+			" skip_tuple_legacy=" .. tostring(self._lek_global_six_skip_tuple_use_legacy == true) ..
+			" tuple_regen_on_fail=" .. tostring(self._lek_global_six_tuple_regen_on_solver_fail == true));
 		LekPlacementProbeLog("### ChooseLocations begin runId=" .. rid ..
 			" iNumCivs=" .. tostring(self.iNumCivs) ..
 			" mapLayout=" .. tostring(_lek_map_layout_attempt or 1) ..
 			" _lek_global_six_solver=true GAMEOPTION_DISABLE_START_BIAS=" .. dsb ..
 			" pace_fast=" .. tostring(self._lek_global_six_pace_fast == true) ..
 			" skip_tuple_legacy=" .. tostring(self._lek_global_six_skip_tuple_use_legacy == true) ..
+			" tuple_regen_on_fail=" .. tostring(self._lek_global_six_tuple_regen_on_solver_fail == true) ..
 			" fatal_on_exhausted=" .. tostring(self._lek_global_six_fatal_on_exhausted == true) ..
 			" NoCoastInland=" .. tostring(self.NoCoastInland) ..
 			" noCoastInlandEnforcedSix=" .. (AssignStartingPlots.LekGlobalSix_NoCoastInlandEnforced(self) and "1" or "0") ..
@@ -7947,6 +7942,7 @@ function AssignStartingPlots:ChooseLocations(args)
 			end
 			local att = _lek_map_layout_attempt or 1;
 			if _lek_enable_hb_generatemap_regen_loop == true
+				and self._lek_global_six_tuple_regen_on_solver_fail == true
 				and self.iNumCivs == 6
 				and self._lek_global_six_tuple_solver_accepted == false
 				and att < maxRegenL then
@@ -8281,6 +8277,7 @@ function AssignStartingPlots:ChooseLocations(args)
 	end
 	local att = _lek_map_layout_attempt or 1;
 	if self._lek_global_six_solver == true and not lekSixBiasSkipsGlobalSolver and self.iNumCivs == 6
+		and self._lek_global_six_tuple_regen_on_solver_fail == true
 		and self._lek_global_six_tuple_solver_accepted == false and att < maxRegenL then
 		_lek_global_six_request_map_regen = true;
 		LekPlacementProbeAt(1, "### LekGlobalSix mapRegen request runId=" .. tostring(_lek_run_id or "na") ..
@@ -8303,6 +8300,8 @@ function AssignStartingPlots:ChooseLocations(args)
 				parts[#parts + 1] = string.format("r%d=nil", r);
 			end
 		end
+		LekPlacementProbeAt(1, "### ChooseLocations end runId=" .. rid ..
+			" legacy_path=1 starts_placed=" .. tostring(n));
 		LekPlacementProbeLog("### ChooseLocations end runId=" .. rid ..
 			" legacy_path_completed=1 starts=" .. table.concat(parts, ";"));
 		self:LekGlobalSix_OK_LogDiagnostics();

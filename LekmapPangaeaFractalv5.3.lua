@@ -11,8 +11,8 @@
 -- :2863 using Hax function if coastal
 -- :9291 call to expand coastal plots
 
--- _lek_mapgen_log_verbosity: 1=min | 2=tuple phases/bias/dfs/ripple/probe (use while tuning e.g. coastal disk %) | 3=pool/head/spacing + per-runOnce islands
-_lek_mapgen_log_verbosity = 2;
+-- 1=progress milestones (tuple vs legacy, outcomes) | 2=+ ChooseLocations / feasibility | 3=tuple phases, pools, DFS detail
+_lek_mapgen_log_verbosity = 1;
 
 -- TEST ONLY: not used in normal maps. When true, PlaceResources ends with LekTestCopperOnAllWater (ocean/lake copper); engine may skip tiles.
 _lek_test_copper_on_all_water = false;
@@ -29,7 +29,7 @@ _lek_map_hidden_option_defaults = {
 	[11] = 6, [12] = 6, [14] = 5, [15] = 1, [16] = 9,
 	[18] = 2, [19] = 2,
 }
-_lek_map_visible_option_defaults = { [13] = 3, [17] = 1 }
+_lek_map_visible_option_defaults = { [13] = 2, [17] = 1 }
 
 function LekMapGetCustomOption(oldindex)
 	for ui_slot = 1, #_lek_map_visible_ui_order do
@@ -60,9 +60,7 @@ include("3_PangaeaIslands");
 include("X_IslandHelpers");
 print("### LekmapPangaeaFractal: includes done ###");
 
--- Lane A: full-map regens when global-six tuple solver rejects (layouts = distinct terrain/plot rolls).
--- Tuple policy: Map option 13 "Capital Precision" (paired [[PACE SPECS]] in 4a). Fjord menu rows removed — use _lek_fjord_*_fixed if you need non-default fjord math.
--- (1) Fast (Legacy): skip tuple, legacy HB only (SW-corner force still allowed). (2) Slow: tuple + regen (3 layouts) then legacy; SW-corner force disabled if tuple failed. (3) Very Slow: 11 layouts, fatal if exhausted (no legacy).
+-- Option 13 "Geometric Balance" (two modes): Legacy = HB only. Global six = tuple (default 4a phase ladder) then legacy if tuple finds no tuple — no regen loop for tuple-fail alone (see _lek_global_six_tuple_regen_on_solver_fail). Layout regen remains for post-placement asserts when enabled.
 -- _lek_global_six_regen_max_layouts updated from start_plot_database in StartPlotSystem.
 _lek_global_six_regen_max_layouts = 11;
 _lek_fjord_distance_setting_fixed = 1;
@@ -89,11 +87,10 @@ function GetMapScriptInfo()
 			{
 				Name = "Geometric Balance",
 				Values = {
-					"Fast + Wonky (Legacy Logic)",
-					"Medium + Medium (fallback: Legacy)",
-					"Slow + Careful (fallback: dead on load)",
+					"Legacy (HB placement only)",
+					"Global six (tuple, then legacy if needed)",
 				},
-				DefaultValue = 3,
+				DefaultValue = 2,
 				SortPriority = -100,
 			},
 			{
@@ -2452,7 +2449,8 @@ function StartPlotSystem()
 	end
 
 	do
-		local paceSel = 3;
+		-- UI: 1 = Legacy, 2 = Global six. Older saves with value 3 map to 2.
+		local paceSel = 2;
 		local okP, vP = pcall(function()
 			return LekMapGetCustomOption(13);
 		end);
@@ -2460,71 +2458,36 @@ function StartPlotSystem()
 			paceSel = math.floor(vP + 0.5);
 		end
 		if paceSel < 1 then
-			paceSel = 3;
-		elseif paceSel > 3 then
-			paceSel = 3;
+			paceSel = 2;
+		elseif paceSel > 2 then
+			paceSel = 2;
 		end
 		start_plot_database._lek_global_six_skip_tuple_use_legacy = (paceSel == 1);
-		if paceSel == 2 then
-			start_plot_database._lek_global_six_pace_fast = true;
-			start_plot_database._lek_global_six_fatal_on_exhausted = true;
-			start_plot_database._lek_global_six_regen_max_layouts = 3;
-			start_plot_database._lek_global_six_tuple_relax_min_layout = 3;
-			start_plot_database._lek_global_six_tuple_minimal_s2_fallback_max_layout = 3;
-			start_plot_database._lek_global_six_max_fail_complete = 700;
-			start_plot_database._lek_global_six_max_leaf_evals = 5500;
-			start_plot_database._lek_global_six_tuple_relaxation_phases = {
-				{ name = "medium_s2p2", max_fail_complete = 700, max_leaf_evals = 5500,
-					s1_min = 9, s1_max = 18, s2_max = 17 },
-				{ name = "medium_s1max", max_fail_complete = 600, max_leaf_evals = 4500,
-					s1_min = 9, s1_max = 19, s2_max = 17 },
-				{ name = "medium_last_resort", max_fail_complete = 900, max_leaf_evals = 7500,
-					s1_min = 9, s1_max = 20, s2_max = 19 },
-			};
-		elseif paceSel == 3 then
+		start_plot_database._lek_global_six_tuple_regen_on_solver_fail = false;
+		if paceSel == 1 then
 			start_plot_database._lek_global_six_pace_fast = false;
-			start_plot_database._lek_global_six_fatal_on_exhausted = true;
-			start_plot_database._lek_global_six_regen_max_layouts = 11;
-			start_plot_database._lek_global_six_tuple_relax_min_layout = 6;
+			start_plot_database._lek_global_six_fatal_on_exhausted = false;
+			start_plot_database._lek_global_six_regen_max_layouts = 1;
+			start_plot_database._lek_global_six_tuple_relax_min_layout = false;
 			start_plot_database._lek_global_six_tuple_minimal_s2_fallback_max_layout = false;
 		else
 			start_plot_database._lek_global_six_pace_fast = false;
 			start_plot_database._lek_global_six_fatal_on_exhausted = false;
-			start_plot_database._lek_global_six_regen_max_layouts = 1;
-			start_plot_database._lek_global_six_tuple_relax_min_layout = 6;
+			start_plot_database._lek_global_six_regen_max_layouts = 11;
+			start_plot_database._lek_global_six_tuple_relax_min_layout = false;
 			start_plot_database._lek_global_six_tuple_minimal_s2_fallback_max_layout = false;
+			-- nil relaxation_phases → 4a LekGlobalSix_DefaultTupleRelaxationPhases()
 		end
 	end
 
-	     -- Lane A: global-six hook + OK diag logs. false = quiet maps; true = probe (set true when testing).
 	     start_plot_database._lek_global_six_solver = true;
-	     start_plot_database._lek_global_six_ripple_dry_run = true;
-	     start_plot_database._lek_tuple_pool_diag = true;
-	     -- Per rejected leaf, OK already runs §1–§6; logs add failAnyHist (counts per § when that § failed, sums can exceed failComplete) and failComboHist_top (common multi-§ patterns). Disable: _lek_global_six_tuple_ok_composite_fail_hist = false.
-	     -- §5 start bias: coastal/river stay hard. Vanilla-like: avoid is preference-only for injective §5 (all-t1 Pangaea vs avoid-grass civs). Re-enable hard avoid: _lek_global_six_s5_avoid_hard = true;
+	     start_plot_database._lek_global_six_ripple_dry_run = false;
+	     start_plot_database._lek_tuple_pool_diag = false;
 	     start_plot_database._lek_global_six_s5_avoid_hard = false;
-	     -- start_plot_database._lek_global_six_s5_prim_hard = false; -- optional: soften multi-region priority only
-	     -- Coastal start bias: true = only salt-water adjacency (plotDataIsCoastal / alongOcean), not lake coast — vanillaHB tuple gate used alongOcean|nextToLake.
 	     start_plot_database._lek_global_six_coastal_bias_requires_salt = true;
 	     start_plot_database._lek_global_six_coastal_disk3_max_salt_water_pct = 40;
 	     start_plot_database._lek_global_six_coastal_salt_water_disk_radius = 3;
-	     -- tuple pool salt-disk counterfactual (verbosity≥2): ### LekGlobalSix coastalSaltDiskPoolDiag. Silence: _lek_global_six_coastal_disk3_pool_diag = false;
-	     -- tupleBiasFeasibility: necessary check — §5-style injective matching on “region r can satisfy coastal/river if some pool plot matches MeasureBiasConditionsAtXY”. skip_impossible skips DFS for that phase (log decision=). Disable: _lek_global_six_tuple_bias_feasibility_gate = false.
-	     -- tupleSpacingReorder: at depth≥2, try candidates with larger min hex distance to already-placed starts first. Logs: ### LekGlobalSix tupleSpacingReorder sample (when _lek_tuple_pool_diag) + spacingDepthCalls / spacingNontrivialPerm on phase end. Disable: _lek_global_six_tuple_spacing_reorder = false.
-	     -- Tuple DFS: thin_first (default) = ascending pool size; constraint_weighted (default) = tie-break by fewer coastal plots in capped pool first (§4/§5 slack). Logs: dfsOrderMode + sortKeys on ### LekGlobalSix tupleDfsOrder.
-	     -- Layouts 1–3: DFS region order prefers regions that can place coastal/river in the §1 band nearest ideal ring (before thin/coastal-count). Disable: _lek_global_six_tuple_coastal_ring_first_dfs = false
-	     -- start_plot_database._lek_global_six_dfs_constraint_weighted = false; -- legacy: pool size only
-	     -- start_plot_database._lek_global_six_dfs_thin_first = false;
-	     -- Global-six §1/§2 (4a): default tuple annulus 9–18 and second-nearest 15; final relax phase raises §1 ceiling to 19 (LEK_G6_S1_RELAX_MAX). §4: two coastals in angle order — no longer requires non-adjacent cycle slots.
-	     -- Tuple relaxation: default in 4a = 4×1000 fail budgets (base s1/s2 → s2+1 → s2+2 → s2+2 & s1 relax max). Logs: ### LekGlobalSix tuplePhase begin/end/success.
-	     -- Optional: skip DFS when rank-1 head cells alone already break s2 (may skip valid tuples that need non-head picks — default off in 4a).
-	     -- start_plot_database._lek_global_six_tuple_skip_dfs_rank1_head_s2 = true;
-	     -- §2 policy: prev phase failCombo s5-weight > pure s2 → skip s2-only relax phases (until s1 band changes). Disable: _lek_global_six_tuple_skip_s2_relax_when_s5_heavy_failcombo = false;
-	     -- §2 policy: if dominant fail is pure s2 (not s5-heavy combo), repeat same phase once at 2× max_fail & max_leaf before advancing relax ladder. Disable: _lek_global_six_tuple_s2_pure_budget_extension = false;
-	     -- Layouts 1..N: if all phases fail, accept remembered §2 “minimal +1” tuple (max second-nearest = s2cap+1, ≤2 regions over cap, §1§3–6 OK). nil = use 3; false = off: _lek_global_six_tuple_minimal_s2_fallback_max_layout
-	     -- start_plot_database._lek_global_six_tuple_relaxation_phases = false; -- single phase only: uses max_fail / max_leaf below, no staged S2/S1 loosening
-	     -- Tuple relax vs map layout: option 13 — Very Slow relax_min_layout=6; Medium =3 (+ last_resort phase); Fast skips tuple (HB only, no tuple fatal).
-	     -- max_fail_complete / max_leaf_evals: per-phase overrides optional; each phase default 1000/8000 from table in 4a if field omitted.
+	     -- Per-phase defaults from 4a unless _lek_global_six_tuple_relaxation_phases is set.
 	     start_plot_database._lek_global_six_max_fail_complete = 1000;
 	     start_plot_database._lek_global_six_max_leaf_evals = 8000;
 	     -- start_plot_database._lek_global_six_max_fail_complete = 12000;
