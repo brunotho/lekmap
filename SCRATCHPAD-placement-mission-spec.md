@@ -68,7 +68,7 @@ Past failure mode: escape phases used **`skip_min_pairwise` / `proof_ok_soft`** 
 |------|--------|--------|
 | **G0 / G1** | `4a_HBAssignStartingPlots.lua`: `LekGlobalSix_RunTupleSearch` + `LekGlobalSix_DefaultTupleRelaxationPhases` (and per-phase `s1_*` / `s2_*`) | Geometry relaxes across phase rows; no separate logged **`biasMode` / G2** tier yet. |
 | **G2** (*spec*) | legacy-soft non-coastal biases | **Not** a distinct switch in code yet → **E4**. |
-| **G3** | **(a)** Map opt 13 Legacy → `_lek_global_six_skip_tuple_use_legacy`, tuple skipped. **(b)** Global six + tuple `solver_return=false` → `ChooseLocations` falls through to HB legacy (`legacy_after_tuple_fail` probe). | Both land here without layout regen from tuple alone. |
+| **G3** | **(a)** Map opt 13 Legacy → `_lek_global_six_skip_tuple_use_legacy`, tuple skipped (`placement_tier=legacy_menu_skip_tuple`). **(b)** Global six + tuple `solver_return=false` → `ChooseLocations` falls through to HB legacy (`placement_tier=legacy_after_tuple_fail`). | Both land here without layout regen from tuple alone. |
 | **G4** | `_lek_global_six_request_map_regen` set in `4a` (tuple fail **only if** `_lek_global_six_tuple_regen_on_solver_fail` and HB regen loop) and in **`LekmapPangaeaFractalv5.3.lua`** StartPlotSystem (e.g. post-`PlaceResources` regional lux shortfall gate, other asserts). | Live logs: **`LEK REGIONAL LUX POST-FALLBACK SHORTFALL GATE`** is G4 independent of tuple. |
 
 **Parked (idea):** §1 “distance to ideal ring” could be softened when **§2 / pairwise** neighborhoods are already strong — more shape flexibility; not implemented.
@@ -94,7 +94,7 @@ UI is **two values:** **Legacy** (tuple skipped) and **Global six** (tuple ladde
 | # | Task | Done when |
 |---|------|-----------|
 | **E1** | Map **G0→G4** to existing flags / hooks (`ChooseLocations` early return, `requestRegen`, tuple skip). Document which step runs today vs missing. | Short table in code comment or this doc §4 **Implementation map**. |
-| **E2** | **Assert/tuple alignment:** tuple `proof_ok_soft` / `skip_min_pairwise` **either** re-add min-pair + §4 (and any other post-tuple asserts) in `LekGlobalSix_OK_RunAll` **or** gate asserts on tier — no silent mismatch. | No “tupleOK → LEK MAJOR MIN PAIRWISE → regen” on same tier without `finalTier` tag. |
+| **E2** | **Assert/tuple alignment:** tuple `proof_ok_soft` / `skip_min_pairwise` **either** re-add min-pair + §4 (and any other post-tuple asserts) in `LekGlobalSix_OK_RunAll` **or** gate asserts on tier — no silent mismatch. | **Progress:** `_lek_global_six_placement_tier` on `ChooseLocations` / `LekGlobalSixChooseLocations`; tuple leaves use full `LekGlobalSix_OK_RunAll` (no soft OK path today). If `tuple_ok` but `LekAssertGlobalSixPlayerMinPairwiseOrRegen` fails → `### E2 tuple_OK_vs_player_minPairwise_MISMATCH` at v1 + `placement_tier` on min-pair line. Further: gate other post-steps on tier if new soft phases appear. |
 | **E3** | **P0 coastal:** `N_coastal` helper; feasibility coastal block; remove Medium-only coastal-soft that drops quota; optional log `nCoastalRequired=`. | Coastal doc success criteria (+ archived §8). |
 | **E4** | **P1 `biasMode`:** log `biasMode=strict|legacySoft` per phase; switch **S→L** for non-coastal only when appeasability says so. | Phase begin lines show mode; Medium ≡ Slow on **H**. |
 | **E5** | **P2 fail-fast** (optional): order cheap **G** checks in legacySoft when logs show s2-dominated waste. | Wall time down on bad maps without wrong accepts. |
@@ -124,3 +124,4 @@ UI is **two values:** **Legacy** (tuple skipped) and **Global six** (tuple ladde
 |------|--|
 | 2026-04-05 | Initial mission spec: north star single-map + ladder G0–G4, tier table H/S/L/G, execution E1–E6, parked list; consolidates prior scratchpads into actionable order. |
 | 2026-04-05 | **E1** §4.1 implementation map; note lux-shortfall G4 vs tuple; parked §1-vs-§2 flexibility note. |
+| 2026-04-05 | **E2 (partial):** `placement_tier` telemetry + explicit **E2** log if tuple-accepted layout fails player min-pairwise after B&A. |

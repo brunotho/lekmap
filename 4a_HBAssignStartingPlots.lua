@@ -7779,6 +7779,7 @@ function AssignStartingPlots:LekGlobalSixChooseLocations(args)
 		" eligible_iNumCivs_eq_6=" .. tostring(elig) .. snap);
 	if elig == 1 and self._lek_global_six_skip_tuple_use_legacy == true then
 		self._lek_global_six_tuple_solver_accepted = true;
+		self._lek_global_six_placement_tier = "legacy_menu_skip_tuple";
 		LekPlacementProbeAt(1, "### LekGlobalSixChooseLocations runId=" .. rid ..
 			" path=skip_tuple_use_legacy tuple_not_run=1");
 		return false;
@@ -7793,6 +7794,7 @@ function AssignStartingPlots:LekGlobalSixChooseLocations(args)
 	end
 	if elig ~= 1 then
 		self._lek_global_six_tuple_solver_accepted = true;
+		self._lek_global_six_placement_tier = "legacy_not_six_civs";
 		return false;
 	end
 	local okSolve, fComplete, leafE, maxF, why = self:LekGlobalSix_RunTupleSearch();
@@ -7817,6 +7819,11 @@ function AssignStartingPlots:LekGlobalSixChooseLocations(args)
 		" leafEvals=" .. tostring(leafE) ..
 		" maxFailComplete=" .. tostring(maxF) .. whyExtra .. relaxExtra);
 	self._lek_global_six_tuple_solver_accepted = (okSolve == true);
+	if okSolve then
+		self._lek_global_six_placement_tier = "tuple_ok";
+	else
+		self._lek_global_six_placement_tier = "legacy_after_tuple_fail";
+	end
 	return okSolve == true;
 end
 
@@ -7825,6 +7832,7 @@ function AssignStartingPlots:ChooseLocations(args)
 	local args = args or {};
 	self._lek_choose_locations_legacy_start_placement = false;
 	self._lek_legacy_forbid_forced_start_placement = false;
+	self._lek_global_six_placement_tier = "legacy_pending";
 	local iW, iH = Map.GetGridSize();
 	local mustBeCoast = args.mustBeCoast or false; -- if true, will force all starts on salt water coast if possible
 	
@@ -7932,7 +7940,8 @@ function AssignStartingPlots:ChooseLocations(args)
 				maxL0 = 4;
 			end
 			LekPlacementProbeAt(1, "### LekGlobalSix runId=" .. rid .. " path=solver_finished ChooseLocations_early_return=1"
-				.. " layout=" .. tostring(att0) .. "/" .. tostring(maxL0));
+				.. " layout=" .. tostring(att0) .. "/" .. tostring(maxL0)
+				.. " placement_tier=" .. tostring(self._lek_global_six_placement_tier or "?"));
 			self:LekAssertBalancedCoastalExactTwoOrRegen();
 			return;
 		else
@@ -7970,6 +7979,12 @@ function AssignStartingPlots:ChooseLocations(args)
 				LekPlacementProbeAt(1, "### LekGlobalSix runId=" .. rid ..
 					" legacy_after_tuple_fail=1 HB_SW_corner_force_disabled_if_triggered");
 			end
+		end
+	else
+		if lekSixBiasSkipsGlobalSolver then
+			self._lek_global_six_placement_tier = "legacy_start_bias_disabled";
+		elseif self._lek_global_six_solver ~= true then
+			self._lek_global_six_placement_tier = "legacy_no_solver_hook";
 		end
 	end
 
@@ -8301,7 +8316,8 @@ function AssignStartingPlots:ChooseLocations(args)
 			end
 		end
 		LekPlacementProbeAt(1, "### ChooseLocations end runId=" .. rid ..
-			" legacy_path=1 starts_placed=" .. tostring(n));
+			" legacy_path=1 starts_placed=" .. tostring(n)
+			.. " placement_tier=" .. tostring(self._lek_global_six_placement_tier or "?"));
 		LekPlacementProbeLog("### ChooseLocations end runId=" .. rid ..
 			" legacy_path_completed=1 starts=" .. table.concat(parts, ";"));
 		self:LekGlobalSix_OK_LogDiagnostics();
@@ -16594,6 +16610,12 @@ function AssignStartingPlots:LekAssertGlobalSixPlayerMinPairwiseOrRegen()
 	if not bad then
 		return;
 	end
+	local ptier = tostring(self._lek_global_six_placement_tier or "?");
+	if ptier == "tuple_ok" then
+		LekPlacementProbeAt(1, "### E2 tuple_OK_vs_player_minPairwise_MISMATCH runId=" .. tostring(_lek_run_id or "na")
+			.. " " .. reason .. " placement_tier=" .. ptier
+			.. " hint=B&A_rescue_or_order_bug");
+	end
 	local maxRegenL = _lek_global_six_regen_max_layouts;
 	if type(maxRegenL) ~= "number" or maxRegenL < 1 then
 		maxRegenL = 4;
@@ -16602,6 +16624,7 @@ function AssignStartingPlots:LekAssertGlobalSixPlayerMinPairwiseOrRegen()
 	local canRegen = (_lek_enable_hb_generatemap_regen_loop == true) and (att < maxRegenL);
 	local fs = "### LEK MAJOR MIN PAIRWISE runId=" .. tostring(_lek_run_id or "na")
 		.. " " .. reason
+		.. " placement_tier=" .. ptier
 		.. " layout=" .. tostring(att) .. "/" .. tostring(maxRegenL)
 		.. " canRegen=" .. (canRegen and "1" or "0") .. " ###";
 	print(fs);
