@@ -19248,7 +19248,7 @@ function AssignStartingPlots:PlaceCoastalBonusIslands()
 			local sa = math.min(hexDirDistIsland(a, tan1), hexDirDistIsland(a, tan2));
 			local sb = math.min(hexDirDistIsland(b, tan1), hexDirDistIsland(b, tan2));
 			if sa ~= sb then return sa < sb; end
-			return Map.Rand(2, "") == 0;
+			return a < b;
 		end);
 		local islandTiles = { {seed[1], seed[2]} };
 		local used = {};
