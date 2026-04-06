@@ -329,6 +329,8 @@ function AssignStartingPlots.Create()
 		LekSortPlotIndicesMainlandFirst = AssignStartingPlots.LekSortPlotIndicesMainlandFirst,
 		LekVisitPlotsHexRingsFromCenter = AssignStartingPlots.LekVisitPlotsHexRingsFromCenter,
 		LekCountLuxuriesNearCapital = AssignStartingPlots.LekCountLuxuriesNearCapital,
+		LekPlotXYInRegionRectangle = AssignStartingPlots.LekPlotXYInRegionRectangle,
+		LekSyncStartingPlotsFromMajorPlayersByRegionRect = AssignStartingPlots.LekSyncStartingPlotsFromMajorPlayersByRegionRect,
 		LekStripLuxuryResourcesNearStart = AssignStartingPlots.LekStripLuxuryResourcesNearStart,
 		LekCountLandLuxuriesNearCapital = AssignStartingPlots.LekCountLandLuxuriesNearCapital,
 		LekPlaceFishForCoastalLuxPackage = AssignStartingPlots.LekPlaceFishForCoastalLuxPackage,
@@ -16391,6 +16393,80 @@ function AssignStartingPlots:LekStripLuxuryResourcesNearStart(x, y, max_ring, us
 	end);
 end
 ------------------------------------------------------------------------------
+function AssignStartingPlots:LekPlotXYInRegionRectangle(x, y, iWestX, iSouthY, iWidth, iHeight, iW, iH)
+	if type(x) ~= "number" or type(y) ~= "number"
+		or type(iWestX) ~= "number" or type(iSouthY) ~= "number"
+		or type(iWidth) ~= "number" or type(iHeight) ~= "number"
+		or type(iW) ~= "number" or type(iH) ~= "number"
+		or iWidth < 1 or iHeight < 1
+	then
+		return false;
+	end
+	for ox = 0, iWidth - 1 do
+		for oy = 0, iHeight - 1 do
+			local px = (iWestX + ox) % iW;
+			local py = (iSouthY + oy) % iH;
+			if px == x and py == y then
+				return true;
+			end
+		end
+	end
+	return false;
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekSyncStartingPlotsFromMajorPlayersByRegionRect()
+	local n = self.iNumCivs or 0;
+	if n < 1 or self.regionData == nil or self.player_ID_list == nil then
+		return;
+	end
+	local iW, iH = Map.GetGridSize();
+	local majors = {};
+	for _, pid in ipairs(self.player_ID_list) do
+		local pl = LekSafeMajorPlayer(pid);
+		local sp = pl and pl:GetStartingPlot();
+		if sp then
+			majors[#majors + 1] = { x = sp:GetX(), y = sp:GetY() };
+		end
+	end
+	for r = 1, n do
+		local rd = self.regionData[r];
+		if type(rd) == "table" and type(rd[1]) == "number" and type(rd[2]) == "number"
+			and type(rd[3]) == "number" and type(rd[4]) == "number"
+		then
+			local iWestX, iSouthY, iWidth, iHeight = rd[1], rd[2], rd[3], rd[4];
+			local bestx, besty, bestD = nil, nil, nil;
+			local cx = (iWestX + math.floor(math.max(0, iWidth - 1) / 2)) % iW;
+			local cy = (iSouthY + math.floor(math.max(0, iHeight - 1) / 2)) % iH;
+			for _, e in ipairs(majors) do
+				if self:LekPlotXYInRegionRectangle(e.x, e.y, iWestX, iSouthY, iWidth, iHeight, iW, iH) then
+					local d = 9999;
+					if Map.PlotDistance then
+						d = Map.PlotDistance(e.x, e.y, cx, cy);
+					elseif PlotDistance then
+						d = PlotDistance(e.x, e.y, cx, cy);
+					end
+					if type(d) == "number" and (bestD == nil or d < bestD) then
+						bestD = d;
+						bestx, besty = e.x, e.y;
+					elseif bestD == nil then
+						bestx, besty = e.x, e.y;
+						bestD = 0;
+					end
+				end
+			end
+			if bestx ~= nil and besty ~= nil then
+				local old = self.startingPlots[r];
+				local sc = 0;
+				if type(old) == "table" and type(old[3]) == "number" then
+					sc = old[3];
+				end
+				self.startingPlots[r] = { bestx, besty, sc };
+				self:LekStripLuxuryResourcesNearStart(bestx, besty, 0, nil);
+			end
+		end
+	end
+end
+------------------------------------------------------------------------------
 function AssignStartingPlots:LekCountLuxuriesNearCapital(x, y, max_ring)
 	local n = 0;
 	local pc = Map.GetPlot(x, y);
@@ -20873,6 +20949,7 @@ function AssignStartingPlots:PlaceResourcesAndCityStates()
 	-- system as accessible and powerful as any ever before offered.
 
 	LekMapgenFileTrace("Map Generation - Assigning Luxury Resource Distribution");
+	self:LekSyncStartingPlotsFromMajorPlayersByRegionRect();
 	do
 		local ok, err = pcall(function() self:PlaceCoastalBonusIslands() end);
 		if not ok then
