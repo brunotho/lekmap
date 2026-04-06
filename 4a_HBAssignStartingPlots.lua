@@ -4401,6 +4401,7 @@ function AssignStartingPlots:FindCoastalStart(region_number)
 	local bSuccessFlag = false; -- Returns true when a start is placed, false when process fails.
 	local bForcedPlacementFlag = false; -- Returns true if this region had no eligible starts and one was forced to occur.
 	local AllowInlandSea = self.AllowInlandSea;
+	local exactTwoInlandFallback = (self.BalancedCoastalExactTwo == true and self.ForceAllInlandPlayerSpawns ~= true);
 
 	-- Obtain data needed to process this region.
 	local iW, iH = Map.GetGridSize();
@@ -4424,7 +4425,7 @@ function AssignStartingPlots:FindCoastalStart(region_number)
 	-- Check region for AlongOcean eligibility.
 	if coastalLandCount < 3 then
 		-- This region cannot support an Along Ocean start. Try instead to find an inland start for it.
-		bSuccessFlag, bForcedPlacementFlag = self:FindStart(region_number, false)
+		bSuccessFlag, bForcedPlacementFlag = self:FindStart(region_number, exactTwoInlandFallback)
 		if bSuccessFlag == false then
 			self:LekErrorIfLegacyForbidForcedCorner(region_number, "FindCoastalStart_lowCoastalCount");
 			local forcePlot = Map.GetPlot(iWestX, iSouthY);
@@ -4712,7 +4713,7 @@ function AssignStartingPlots:FindCoastalStart(region_number)
 		bSuccessFlag = true;
 	else
 		-- This region cannot support an Along Ocean start. Try instead to find an Inland start for it.
-		bSuccessFlag, bForcedPlacementFlag = self:FindStart(region_number, false)
+		bSuccessFlag, bForcedPlacementFlag = self:FindStart(region_number, exactTwoInlandFallback)
 		if bSuccessFlag == false then
 			self:LekErrorIfLegacyForbidForcedCorner(region_number, "FindCoastalStart_afterFindStart");
 			local forcePlot = Map.GetPlot(iWestX, iSouthY);
@@ -8122,7 +8123,7 @@ function AssignStartingPlots:ChooseLocations(args)
 	if self.BalancedCoastal and self.BalancedCoastalExactTwo and iNumRegions >= 2 then
 		local cap = math.min(2, iNumRegions);
 		local iNumCoastStart = iNumCoastNeeded;
-		iNumCoastNeeded = (iNumCoastStart > cap) and iNumCoastStart or cap;
+		iNumCoastNeeded = math.min(math.max(iNumCoastStart, cap), cap);
 	elseif self.BalancedCoastal then
 		iRoll = Map.Rand(100, "Roll for extra coast");
 		local iNumCoastStart = iNumCoastNeeded;
@@ -16543,9 +16544,9 @@ function AssignStartingPlots:LekAssertBalancedCoastalExactTwoOrRegen()
 		_lek_global_six_request_map_regen = true;
 		return;
 	end
-	error("Lekmap: Force-2 coastals unmet - " .. tostring(nSalt)
-		.. " major capitals salt-adjacent (need exactly " .. tostring(needExact) .. "). "
-		.. "Map regen exhausted or disabled.");
+	LekPlacementProbeAt(1, "### LEK FORCE2 COAST exhausted_no_regen runId=" .. tostring(_lek_run_id or "na")
+		.. " saltAdj=" .. tostring(nSalt) .. " need_exact=" .. tostring(needExact)
+		.. " proceed=1");
 end
 ------------------------------------------------------------------------------
 function AssignStartingPlots:LekGlobalSix_MinPairwiseAmongMajorPlayers()
