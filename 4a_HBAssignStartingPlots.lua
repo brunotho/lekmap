@@ -19182,6 +19182,9 @@ function AssignStartingPlots:PlaceCoastalBonusIslands()
 		return ((d - 1 + delta) % 6 + 6) % 6 + 1;
 	end
 	local function hexDirDistIsland(a, b)
+		if type(a) ~= "number" or type(b) ~= "number" then
+			return 3;
+		end
 		local d = math.abs(a - b);
 		return math.min(d, 6 - d);
 	end
