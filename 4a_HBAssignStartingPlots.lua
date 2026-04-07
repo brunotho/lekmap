@@ -10077,14 +10077,8 @@ function AssignStartingPlots:BalanceAndAssign(args)
 		for r = 1, self.iNumCivs or 0 do
 			self.startingPlots[r] = nil;
 		end
-		for loop = 1, self.iNumCivs or 0 do
-			local player_ID = self.player_ID_list[loop];
-			local player = LekSafeMajorPlayer(player_ID);
-			if player then
-				player:SetStartingPlot(nil);
-			end
-		end
-		print("### LEKMAP: Pangaea max-inner-redraws failure — majors left without starting plots.");
+		_lek_global_six_request_map_regen = true;
+		print("### LEKMAP: Pangaea max-inner-redraws failure — request regen, skip nil SetStartingPlot.");
 		_lek_pangaea_max_outer_failed = false;
 		return;
 	end
