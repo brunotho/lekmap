@@ -354,6 +354,7 @@ function AssignStartingPlots.Create()
 		GetCityStateLuxuriesTargetNumber = AssignStartingPlots.GetCityStateLuxuriesTargetNumber,	-- New for Expansion
 		GetDisabledLuxuriesTargetNumber = AssignStartingPlots.GetDisabledLuxuriesTargetNumber,
 		AssignLuxuryRoles = AssignStartingPlots.AssignLuxuryRoles,
+		LekLocIsCoastalForLuxAllowAtXY = AssignStartingPlots.LekLocIsCoastalForLuxAllowAtXY,
 		GetListOfAllowableLuxuriesAtCitySite = AssignStartingPlots.GetListOfAllowableLuxuriesAtCitySite,
 		GetRandomLuxuriesTargetNumber = AssignStartingPlots.GetRandomLuxuriesTargetNumber,	-- MOD.Barathor: New
 		GetListOfAllowableLuxuriesNearCitySite = AssignStartingPlots.GetListOfAllowableLuxuriesNearCitySite,
@@ -15089,6 +15090,15 @@ function AssignStartingPlots:AssignLuxuryRoles()
 	--	
 end
 ------------------------------------------------------------------------------
+function AssignStartingPlots:LekLocIsCoastalForLuxAllowAtXY(x, y)
+	if type(x) ~= "number" or type(y) ~= "number" or not self.plotDataIsCoastal then
+		return false;
+	end
+	local iW = select(1, Map.GetGridSize());
+	local idx = y * iW + x + 1;
+	return self.plotDataIsCoastal[idx] == true;
+end
+------------------------------------------------------------------------------
 function AssignStartingPlots:GetListOfAllowableLuxuriesAtCitySite(x, y, radius, loc_is_coastal)
 	--print("-"); print("- -"); print("Getting list of luxuries allowable at city state site:", x, y, "Radius:", radius);
 	local iW, iH = Map.GetGridSize();
@@ -16274,7 +16284,7 @@ function AssignStartingPlots:LekSecondLuxUnfilteredPool(region_number, allowRing
 		return {};
 	end
 	local x, y = sp[1], sp[2];
-	local allow = self:GetListOfAllowableLuxuriesAtCitySite(x, y, allowRing);
+	local allow = self:GetListOfAllowableLuxuriesAtCitySite(x, y, allowRing, self:LekLocIsCoastalForLuxAllowAtXY(x, y));
 	local pool = {};
 	local function tryAdd(res_ID)
 		if res_ID ~= nil and allow[res_ID] == true and used_randoms_as_secondaries[res_ID] ~= true then
@@ -16822,6 +16832,16 @@ function AssignStartingPlots:LekPlaceStartingRegionalLuxBundleForRegion(region_n
 	local x = self.startingPlots[region_number][1];
 	local y = self.startingPlots[region_number][2];
 	LekMapgenFileTrace("-", "LEK redo: regional Luxury#", this_region_luxury, "at start", x, y, "Region#", region_number);
+	local capCoast = self:LekLocIsCoastalForLuxAllowAtXY(x, y);
+	local function orderPlotsForStartLux(lst, resId)
+		if lst == nil or #lst == 0 then
+			return lst;
+		end
+		if capCoast and resId ~= nil and self:LekIsSeaLuxuryResourceId(resId) then
+			return GetShuffledCopyOfTable(lst);
+		end
+		return self:LekSortPlotIndicesMainlandFirst(lst, x, y);
+	end
 	local iNumToPlace = 2;
 	if self.start_locations == 1 or self.start_locations == 2 then
 		iNumToPlace = 3;
@@ -16832,54 +16852,54 @@ function AssignStartingPlots:LekPlaceStartingRegionalLuxBundleForRegion(region_n
 	if this_region_luxury == self.marble_ID or this_region_luxury == self.perfume_ID then
 		luxury_plot_lists = self:GenerateLuxuryPlotListsAtCitySite(x, y, 3, false);
 		local ring3hills = self:LekBuildMarblePerfumeStartPlotListRing3Hill(luxury_plot_lists, x, y, primary, secondary, tertiary, quaternary, quinary, senary);
-		shuf_list = self:LekSortPlotIndicesMainlandFirst(ring3hills, x, y);
+		shuf_list = orderPlotsForStartLux(ring3hills, this_region_luxury);
 		iNumLeftToPlace = self:PlaceSpecificNumberOfResources(this_region_luxury, 1, iNumToPlace, 1, -1, 0, 0, shuf_list);
 	else
 		luxury_plot_lists = self:GenerateLuxuryPlotListsAtCitySite(x, y, 2, false);
-		shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[primary], x, y);
+		shuf_list = orderPlotsForStartLux(luxury_plot_lists[primary], this_region_luxury);
 		iNumLeftToPlace = self:PlaceSpecificNumberOfResources(this_region_luxury, 1, iNumToPlace, 0.5, -1, 0, 0, shuf_list);
 		if iNumLeftToPlace > 0 and secondary > 0 then
-			shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[secondary], x, y);
+			shuf_list = orderPlotsForStartLux(luxury_plot_lists[secondary], this_region_luxury);
 			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(this_region_luxury, 1, iNumLeftToPlace, 0.5, -1, 0, 0, shuf_list);
 		end
 		if iNumLeftToPlace > 0 and tertiary > 0 then
-			shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[tertiary], x, y);
+			shuf_list = orderPlotsForStartLux(luxury_plot_lists[tertiary], this_region_luxury);
 			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(this_region_luxury, 1, iNumLeftToPlace, 0.5, -1, 0, 0, shuf_list);
 		end
 		if iNumLeftToPlace > 0 and quaternary > 0 then
-			shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[quaternary], x, y);
+			shuf_list = orderPlotsForStartLux(luxury_plot_lists[quaternary], this_region_luxury);
 			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(this_region_luxury, 1, iNumLeftToPlace, 0.5, -1, 0, 0, shuf_list);
 		end
 		if iNumLeftToPlace > 0 and quinary > 0 then
-			shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[quinary], x, y);
+			shuf_list = orderPlotsForStartLux(luxury_plot_lists[quinary], this_region_luxury);
 			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(this_region_luxury, 1, iNumLeftToPlace, 0.5, -1, 0, 0, shuf_list);
 		end
 		if iNumLeftToPlace > 0 and senary > 0 then
-			shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[senary], x, y);
+			shuf_list = orderPlotsForStartLux(luxury_plot_lists[senary], this_region_luxury);
 			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(this_region_luxury, 1, iNumLeftToPlace, 0.5, -1, 0, 0, shuf_list);
 		end
 		if iNumLeftToPlace > 0 then
 			luxury_plot_lists = self:GenerateLuxuryPlotListsAtCitySite(x, y, 3, false);
-			shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[primary], x, y);
+			shuf_list = orderPlotsForStartLux(luxury_plot_lists[primary], this_region_luxury);
 			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(this_region_luxury, 1, iNumLeftToPlace, 1, -1, 0, 0, shuf_list);
 			if iNumLeftToPlace > 0 and secondary > 0 then
-				shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[secondary], x, y);
+				shuf_list = orderPlotsForStartLux(luxury_plot_lists[secondary], this_region_luxury);
 				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(this_region_luxury, 1, iNumLeftToPlace, 1, -1, 0, 0, shuf_list);
 			end
 			if iNumLeftToPlace > 0 and tertiary > 0 then
-				shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[tertiary], x, y);
+				shuf_list = orderPlotsForStartLux(luxury_plot_lists[tertiary], this_region_luxury);
 				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(this_region_luxury, 1, iNumLeftToPlace, 1, -1, 0, 0, shuf_list);
 			end
 			if iNumLeftToPlace > 0 and quaternary > 0 then
-				shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[quaternary], x, y);
+				shuf_list = orderPlotsForStartLux(luxury_plot_lists[quaternary], this_region_luxury);
 				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(this_region_luxury, 1, iNumLeftToPlace, 1, -1, 0, 0, shuf_list);
 			end
 			if iNumLeftToPlace > 0 and quinary > 0 then
-				shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[quinary], x, y);
+				shuf_list = orderPlotsForStartLux(luxury_plot_lists[quinary], this_region_luxury);
 				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(this_region_luxury, 1, iNumLeftToPlace, 1, -1, 0, 0, shuf_list);
 			end
 			if iNumLeftToPlace > 0 and senary > 0 then
-				shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[senary], x, y);
+				shuf_list = orderPlotsForStartLux(luxury_plot_lists[senary], this_region_luxury);
 				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(this_region_luxury, 1, iNumLeftToPlace, 1, -1, 0, 0, shuf_list);
 			end
 		end
@@ -16895,27 +16915,27 @@ function AssignStartingPlots:LekPlaceStartingRegionalLuxBundleForRegion(region_n
 		for loop, random_res in ipairs(self.resourceIDs_assigned_to_random) do
 			primary, secondary, tertiary, quaternary, quinary, senary = self:GetIndicesForLuxuryType(random_res);
 			if randoms_to_place > 0 then
-				shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[primary], x, y);
+				shuf_list = orderPlotsForStartLux(luxury_plot_lists[primary], random_res);
 				randoms_to_place = self:PlaceSpecificNumberOfResources(random_res, 1, 1, 1, -1, 0, 0, shuf_list);
 			end
 			if randoms_to_place > 0 and secondary > 0 then
-				shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[secondary], x, y);
+				shuf_list = orderPlotsForStartLux(luxury_plot_lists[secondary], random_res);
 				randoms_to_place = self:PlaceSpecificNumberOfResources(random_res, 1, 1, 1, -1, 0, 0, shuf_list);
 			end
 			if randoms_to_place > 0 and tertiary > 0 then
-				shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[tertiary], x, y);
+				shuf_list = orderPlotsForStartLux(luxury_plot_lists[tertiary], random_res);
 				randoms_to_place = self:PlaceSpecificNumberOfResources(random_res, 1, 1, 1, -1, 0, 0, shuf_list);
 			end
 			if randoms_to_place > 0 and quaternary > 0 then
-				shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[quaternary], x, y);
+				shuf_list = orderPlotsForStartLux(luxury_plot_lists[quaternary], random_res);
 				randoms_to_place = self:PlaceSpecificNumberOfResources(random_res, 1, 1, 1, -1, 0, 0, shuf_list);
 			end
 			if randoms_to_place > 0 and quinary > 0 then
-				shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[quinary], x, y);
+				shuf_list = orderPlotsForStartLux(luxury_plot_lists[quinary], random_res);
 				randoms_to_place = self:PlaceSpecificNumberOfResources(random_res, 1, 1, 1, -1, 0, 0, shuf_list);
 			end
 			if randoms_to_place > 0 and senary > 0 then
-				shuf_list = self:LekSortPlotIndicesMainlandFirst(luxury_plot_lists[senary], x, y);
+				shuf_list = orderPlotsForStartLux(luxury_plot_lists[senary], random_res);
 				randoms_to_place = self:PlaceSpecificNumberOfResources(random_res, 1, 1, 1, -1, 0, 0, shuf_list);
 			end
 		end
@@ -16927,7 +16947,7 @@ function AssignStartingPlots:LekRunSecondaryLuxuryForSingleRegion(region_number,
 	local y = self.startingPlots[region_number][2];
 	local use_this_ID;
 	local candidate_types, iNumTypesAllowed = {}, 0;
-	local allowed_luxuries = self:GetListOfAllowableLuxuriesAtCitySite(x, y, allow_lux_list_ring);
+	local allowed_luxuries = self:GetListOfAllowableLuxuriesAtCitySite(x, y, allow_lux_list_ring, self:LekLocIsCoastalForLuxAllowAtXY(x, y));
 	LekMapgenFileTrace("-", "--- LEK redo: Second Luxury Region#", region_number, "allowRing=", allow_lux_list_ring, "---");
 	for loop, res_ID in ipairs(self.resourceIDs_assigned_to_random) do
 		if allowed_luxuries[res_ID] == true and used_randoms_as_secondaries[res_ID] ~= true then
@@ -17216,7 +17236,7 @@ function AssignStartingPlots:PlaceLuxuries()
 			local region_number = self.city_state_region_assignments[city_state];
 			local x = self.cityStatePlots[city_state][1];
 			local y = self.cityStatePlots[city_state][2];
-			local allowed_luxuries = self:GetListOfAllowableLuxuriesAtCitySite(x, y, 2)
+			local allowed_luxuries = self:GetListOfAllowableLuxuriesAtCitySite(x, y, 2, self:LekLocIsCoastalForLuxAllowAtXY(x, y))
 			local lux_possible_for_cs = {}; -- Recorded with ID as key, weighting as data entry
 			-- Identify Allowable Luxuries assigned to City States.
 			-- If any CS-Only types are eligible, then all combined will have a weighting of 80%
@@ -17533,7 +17553,8 @@ function AssignStartingPlots:PlaceLuxuries()
 			else
 			local use_this_ID;
 			local candidate_types, iNumTypesAllowed = {}, 0;
-			local allowed_luxuries = self:GetListOfAllowableLuxuriesAtCitySite(x, y, 3)
+			local coastal2 = self:LekLocIsCoastalForLuxAllowAtXY(x, y);
+			local allowed_luxuries = self:GetListOfAllowableLuxuriesAtCitySite(x, y, 3, coastal2)
 			LekMapgenFileTrace("-", "--- Eligible Types List for Second Luxury in Region#", region_number, "---");
 			-- See if any Random types are eligible.
 			for loop, res_ID in ipairs(self.resourceIDs_assigned_to_random) do
