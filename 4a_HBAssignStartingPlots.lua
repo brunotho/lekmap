@@ -374,6 +374,8 @@ function AssignStartingPlots.Create()
 		PlaceMarble = AssignStartingPlots.PlaceMarble,
 		PlaceLuxuries = AssignStartingPlots.PlaceLuxuries,
 		LekPlaceRegionalLuxuryShortfallFallback = AssignStartingPlots.LekPlaceRegionalLuxuryShortfallFallback,
+		LekBuildRegionalLuxuryRepairPoolInBand = AssignStartingPlots.LekBuildRegionalLuxuryRepairPoolInBand,
+		LekCollectCoastSeaPlotIndicesInBandFromXY = AssignStartingPlots.LekCollectCoastSeaPlotIndicesInBandFromXY,
 		PlaceSmallQuantitiesOfStrategics = AssignStartingPlots.PlaceSmallQuantitiesOfStrategics,
 		PlaceFish = AssignStartingPlots.PlaceFish,
 		PlaceFishMainland = AssignStartingPlots.PlaceFishMainland,
@@ -14782,20 +14784,10 @@ function AssignStartingPlots:LekShouldExcludeLuxuryFromRegionalAssignment(res_ID
 end
 ------------------------------------------------------------------------------
 function AssignStartingPlots:GetLuxuriesSplitCap()
-	-- This data was separated out to allow easy replacement in map scripts.
 	local split_cap = 1;
-	-- MOD.Barathor: New -- With a new regional luxury cap of 16, there's no need for a split cap higher than 2 to cover the maximum civ count of 22 (16 x 2 = 32)
-	--			   In fact, a split cap of 3 isn't needed in the default game until you pass a civ count of 16 (8 x 2 = 16), not 12.  Split caps higher than 2 are not ideal, and are more random and uneven.
-	if self.iNumCivs > 16 then	
+	if self.iNumCivs > 16 then
 		split_cap = 2
 	end
-	--[[	MOD.Barathor: Disabled
-	if self.iNumCivs > 12 then
-		split_cap = 3;
-	elseif self.iNumCivs > 8 then
-		split_cap = 2;
-	end
-	]]--
 	return split_cap
 end
 ------------------------------------------------------------------------------
@@ -16189,51 +16181,115 @@ function AssignStartingPlots:GetWorldLuxuryTargetNumbers()
 end
 
 ------------------------------------------------------------------------------
+function AssignStartingPlots:LekCollectCoastSeaPlotIndicesInBandFromXY(sx, sy, dmin, dmax)
+	if type(sx) ~= "number" or type(sy) ~= "number" or type(dmin) ~= "number" or type(dmax) ~= "number" or dmax < dmin then
+		return {};
+	end
+	local iW, iH = Map.GetGridSize();
+	local pool = {};
+	local seen = {};
+	for y = 0, iH - 1 do
+		for x = 0, iW - 1 do
+			local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, sx, sy, x, y);
+			if type(d) == "number" and d >= dmin and d <= dmax then
+				local plot = Map.GetPlot(x, y);
+				if plot
+					and plot:GetPlotType() == PlotTypes.PLOT_OCEAN
+					and plot:GetTerrainType() == TerrainTypes.TERRAIN_COAST
+					and plot:IsLake() == false
+					and plot:GetFeatureType() ~= FeatureTypes.FEATURE_ICE
+					and plot:GetFeatureType() ~= self.feature_atoll
+					and plot:IsAdjacentToLand() == true
+					and plot:GetResourceType(-1) == -1
+				then
+					local plotIndex = y * iW + x + 1;
+					if not seen[plotIndex] then
+						seen[plotIndex] = true;
+						pool[#pool + 1] = plotIndex;
+					end
+				end
+			end
+		end
+	end
+	return pool;
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekBuildRegionalLuxuryRepairPoolInBand(region_number, res_ID, dmin, dmax)
+	local sp = self.startingPlots[region_number];
+	if sp == nil or type(sp[1]) ~= "number" or type(sp[2]) ~= "number" or type(dmin) ~= "number" or type(dmax) ~= "number" then
+		return {};
+	end
+	if dmax < dmin then
+		return {};
+	end
+	local sx, sy = sp[1], sp[2];
+	if self:LekIsSeaLuxuryResourceId(res_ID) then
+		return self:LekCollectCoastSeaPlotIndicesInBandFromXY(sx, sy, dmin, dmax);
+	end
+	local iW = select(1, Map.GetGridSize());
+	local primary, secondary, tertiary, quaternary, quinary, senary = self:GetIndicesForLuxuryType(res_ID);
+	local luxury_plot_lists = self:GenerateLuxuryPlotListsInRegion(region_number);
+	local seen = {};
+	local pool = {};
+	local function addFromList(li)
+		if type(li) ~= "number" or li <= 0 or luxury_plot_lists[li] == nil then
+			return;
+		end
+		for _, plotIndex in ipairs(luxury_plot_lists[li]) do
+			if not seen[plotIndex] then
+				local x = math.floor((plotIndex - 1) % iW);
+				local y = math.floor((plotIndex - x - 1) / iW);
+				local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, sx, sy, x, y);
+				if type(d) == "number" and d >= dmin and d <= dmax then
+					seen[plotIndex] = true;
+					pool[#pool + 1] = plotIndex;
+				end
+			end
+		end
+	end
+	addFromList(primary);
+	addFromList(secondary);
+	addFromList(tertiary);
+	addFromList(quaternary);
+	addFromList(quinary);
+	addFromList(senary);
+	return pool;
+end
+------------------------------------------------------------------------------
 function AssignStartingPlots:LekPlaceRegionalLuxuryShortfallFallback()
 	self._lek_regional_lux_shortfall_after_fallback = {};
 	local q = self._lek_regional_lux_fallback_queue;
 	if q == nil or #q == 0 then
 		return;
 	end
-	LekMapgenFileTrace("Map Generation - Regional luxury shortfall fallback (within 8 of major; terrain + empty tile; luxury impact bypass)");
+	LekMapgenFileTrace("Map Generation - Regional luxury shortfall repair (after all resources; dist 4-8 then 1-8; sea = coast-ocean ring from capital; impact/strategic spacing bypass via impact=-1)");
 	for _, ent in ipairs(q) do
 		local region_number = ent.region_number;
 		local res_ID = ent.res_id;
 		local amount = ent.amount;
 		if type(region_number) == "number" and region_number >= 1 and type(res_ID) == "number" and type(amount) == "number" and amount > 0 then
-			local primary, secondary, tertiary, quaternary, quinary, senary = self:GetIndicesForLuxuryType(res_ID);
-			local luxury_plot_lists = self:GenerateLuxuryPlotListsInRegion(region_number);
-			luxury_plot_lists = self:FilterLuxuryPlotListsWithinPlotDistanceOfMajorStart(luxury_plot_lists, region_number, 8);
-			local pool = {};
-			local seen = {};
-			local function addFromList(li)
-				if type(li) == "number" and li > 0 and luxury_plot_lists[li] then
-					for _, plotIndex in ipairs(luxury_plot_lists[li]) do
-						if not seen[plotIndex] then
-							seen[plotIndex] = true;
-							table.insert(pool, plotIndex);
-						end
-					end
+			local left = amount;
+			local pool48 = self:LekBuildRegionalLuxuryRepairPoolInBand(region_number, res_ID, 4, 8);
+			local pool18 = {};
+			if #pool48 > 0 then
+				left = self:PlaceSpecificNumberOfResources(res_ID, 1, left, 1, -1, 0, 0, GetShuffledCopyOfTable(pool48));
+			end
+			if left > 0 then
+				pool18 = self:LekBuildRegionalLuxuryRepairPoolInBand(region_number, res_ID, 1, 8);
+				if #pool18 > 0 then
+					left = self:PlaceSpecificNumberOfResources(res_ID, 1, left, 1, -1, 0, 0, GetShuffledCopyOfTable(pool18));
 				end
 			end
-			addFromList(primary);
-			addFromList(secondary);
-			addFromList(tertiary);
-			addFromList(quaternary);
-			addFromList(quinary);
-			addFromList(senary);
-			local shuf_list = GetShuffledCopyOfTable(pool);
-			local left = self:PlaceSpecificNumberOfResources(res_ID, 1, amount, 1, -1, 0, 0, shuf_list);
 			if left > 0 then
-				LekMapgenFileTrace("-", "LEK regional fallback still short Region#", region_number, "res", res_ID, "left", left, "poolSize", #pool);
+				LekMapgenFileTrace("-", "LEK regional repair still short Region#", region_number, "res", res_ID, "left", left, "pool48", #pool48, "pool18", #pool18);
 				table.insert(self._lek_regional_lux_shortfall_after_fallback, {
 					region_number = region_number,
 					res_id = res_ID,
 					left = left,
-					pool_size = #pool,
+					pool_size = #pool18,
 				});
 			else
-				LekMapgenFileTrace("-", "LEK regional fallback cleared", amount, "x res", res_ID, "Region#", region_number);
+				LekMapgenFileTrace("-", "LEK regional repair cleared", amount, "x res", res_ID, "Region#", region_number);
 			end
 		end
 	end
@@ -17468,7 +17524,7 @@ function AssignStartingPlots:PlaceLuxuries()
 			end
 			LekMapgenFileTrace("-", "Number of LuxuryID", res_ID, "not placed in Region#", region_number, "is", iNumLeftToPlace);
 			if iNumLeftToPlace > 0 and self:LekIsSeaLuxuryResourceId(res_ID) then
-				LekMapgenFileTrace("-", "LEK_DIAG sea lux regional shortfall Region#", region_number, "res", res_ID, "left", iNumLeftToPlace, "candidates often zero after within-8-start filter or luxuryData impact");
+				LekMapgenFileTrace("-", "LEK_DIAG sea lux regional shortfall Region#", region_number, "res", res_ID, "left", iNumLeftToPlace, "queued for dist-4-8/1-8 repair after resource pass");
 			end
 		end
 		if iNumLeftToPlace > 0 then
@@ -21064,17 +21120,6 @@ function AssignStartingPlots:PlaceResourcesAndCityStates()
 			error(err);
 		end
 	end
-	do
-		local ok, err = pcall(function() self:LekPlaceRegionalLuxuryShortfallFallback() end);
-		if not ok then
-			local msg = "### PlaceResources_err runId=" .. ridRes .. " stage=LekPlaceRegionalLuxuryShortfallFallback err=" .. tostring(err);
-			print(msg);
-			LekMapgenDiagLogAppend(msg);
-		end
-	end
-	if _lek_global_six_request_map_regen ~= true then
-		self:LekAssertRegionalLuxuryNoShortfallAfterFallbackOrRegen();
-	end
 	-- LekMapgenDiagLogAppend("### LekBuildPing PlaceResources_after_StrategicBonus runId=" .. ridRes);
 	-- LekMapgenDiagLogAppend("### LekBuildPing PlaceResources_before_NormalizeCS runId=" .. ridRes);
 	do
@@ -21206,6 +21251,18 @@ function AssignStartingPlots:PlaceResourcesAndCityStates()
 	-- This operation must be saved for last, as it invalidates all regional data by resetting Area IDs.
 	Map.RecalculateAreas();
 	-- LekMapgenDiagLogAppend("### LekBuildPing PlaceResources_end runId=" .. tostring(_lek_run_id or "na"));
+
+	do
+		local ok, err = pcall(function() self:LekPlaceRegionalLuxuryShortfallFallback() end);
+		if not ok then
+			local msg = "### PlaceResources_err runId=" .. tostring(_lek_run_id or "na") .. " stage=LekPlaceRegionalLuxuryShortfallFallback err=" .. tostring(err);
+			print(msg);
+			LekMapgenDiagLogAppend(msg);
+		end
+	end
+	if _lek_global_six_request_map_regen ~= true then
+		self:LekAssertRegionalLuxuryNoShortfallAfterFallbackOrRegen();
+	end
 
 	do
 		local ok, err = pcall(function() self:PrintFinalResourceTotalsToLog(); end);
