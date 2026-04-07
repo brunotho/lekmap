@@ -4403,7 +4403,6 @@ function AssignStartingPlots:FindCoastalStart(region_number)
 	local bSuccessFlag = false; -- Returns true when a start is placed, false when process fails.
 	local bForcedPlacementFlag = false; -- Returns true if this region had no eligible starts and one was forced to occur.
 	local AllowInlandSea = self.AllowInlandSea;
-	local exactTwoInlandFallback = (self.BalancedCoastalExactTwo == true and self.ForceAllInlandPlayerSpawns ~= true);
 
 	-- Obtain data needed to process this region.
 	local iW, iH = Map.GetGridSize();
@@ -4423,22 +4422,43 @@ function AssignStartingPlots:FindCoastalStart(region_number)
 	-- Done setting up region data.
 	-- Set up contingency.
 	local fallback_plots = {};
+	local function placeBestEffortCoastalInRegion()
+		local bestPlotIndex = nil;
+		local bestScore = -math.huge;
+		for region_y = 0, iHeight - 1 do
+			for region_x = 0, iWidth - 1 do
+				local x = (region_x + iWestX) % iW;
+				local y = (region_y + iSouthY) % iH;
+				local plotIndex = y * iW + x + 1;
+				if self.plotDataIsCoastal[plotIndex] == true then
+					local plot = Map.GetPlot(x, y);
+					if plot and plot:GetPlotType() ~= PlotTypes.PLOT_MOUNTAIN and (AllowInlandSea == 1 or plot:IsCoastalLand(300)) then
+						local area_of_plot = plot:GetArea();
+						if area_of_plot == iAreaID or iAreaID == -1 then
+							local score = select(1, self:EvaluateCandidatePlot(plotIndex, region_type));
+							if score ~= nil and score > bestScore then
+								bestScore = score;
+								bestPlotIndex = plotIndex;
+							end
+						end
+					end
+				end
+			end
+		end
+		if bestPlotIndex == nil then
+			return false;
+		end
+		local x = (bestPlotIndex - 1) % iW;
+		local y = (bestPlotIndex - x - 1) / iW;
+		self.startingPlots[region_number] = {x, y, bestScore};
+		self:PlaceImpactAndRipples(x, y);
+		return true;
+	end
 	
 	-- Check region for AlongOcean eligibility.
 	if coastalLandCount < 3 then
-		-- This region cannot support an Along Ocean start. Try instead to find an inland start for it.
-		bSuccessFlag, bForcedPlacementFlag = self:FindStart(region_number, exactTwoInlandFallback)
-		if bSuccessFlag == false then
-			self:LekErrorIfLegacyForbidForcedCorner(region_number, "FindCoastalStart_lowCoastalCount");
-			local forcePlot = Map.GetPlot(iWestX, iSouthY);
-			bForcedPlacementFlag = true;
-			forcePlot:SetPlotType(PlotTypes.PLOT_LAND, false, true);
-			forcePlot:SetTerrainType(TerrainTypes.TERRAIN_GRASS, false, true);
-			forcePlot:SetFeatureType(FeatureTypes.NO_FEATURE, -1);
-			self.startingPlots[region_number] = {iWestX, iSouthY, 0};
-			self:PlaceImpactAndRipples(iWestX, iSouthY)
-			bSuccessFlag = true;
-		end
+		-- Coastal assignment is a hard requirement: do not fall back inland.
+		bSuccessFlag = placeBestEffortCoastalInRegion();
 		return bSuccessFlag, bForcedPlacementFlag
 	end
 
@@ -4714,19 +4734,8 @@ function AssignStartingPlots:FindCoastalStart(region_number)
 		self:PlaceImpactAndRipples(best_fallback_x, best_fallback_y)
 		bSuccessFlag = true;
 	else
-		-- This region cannot support an Along Ocean start. Try instead to find an Inland start for it.
-		bSuccessFlag, bForcedPlacementFlag = self:FindStart(region_number, exactTwoInlandFallback)
-		if bSuccessFlag == false then
-			self:LekErrorIfLegacyForbidForcedCorner(region_number, "FindCoastalStart_afterFindStart");
-			local forcePlot = Map.GetPlot(iWestX, iSouthY);
-			bForcedPlacementFlag = true;
-			forcePlot:SetPlotType(PlotTypes.PLOT_LAND, false, true);
-			forcePlot:SetTerrainType(TerrainTypes.TERRAIN_GRASS, false, true);
-			forcePlot:SetFeatureType(FeatureTypes.NO_FEATURE, -1);
-			self.startingPlots[region_number] = {iWestX, iSouthY, 0};
-			self:PlaceImpactAndRipples(iWestX, iSouthY)
-			bSuccessFlag = true;
-		end
+		-- Coastal assignment is a hard requirement: do not fall back inland.
+		bSuccessFlag = placeBestEffortCoastalInRegion();
 	end
 
 	return bSuccessFlag, bForcedPlacementFlag
