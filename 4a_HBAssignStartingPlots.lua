@@ -356,6 +356,7 @@ function AssignStartingPlots.Create()
 		GetDisabledLuxuriesTargetNumber = AssignStartingPlots.GetDisabledLuxuriesTargetNumber,
 		AssignLuxuryRoles = AssignStartingPlots.AssignLuxuryRoles,
 		LekLocIsCoastalForLuxAllowAtXY = AssignStartingPlots.LekLocIsCoastalForLuxAllowAtXY,
+		LekRegionHasCoastalMajorStartForLux = AssignStartingPlots.LekRegionHasCoastalMajorStartForLux,
 		GetListOfAllowableLuxuriesAtCitySite = AssignStartingPlots.GetListOfAllowableLuxuriesAtCitySite,
 		GetRandomLuxuriesTargetNumber = AssignStartingPlots.GetRandomLuxuriesTargetNumber,	-- MOD.Barathor: New
 		GetListOfAllowableLuxuriesNearCitySite = AssignStartingPlots.GetListOfAllowableLuxuriesNearCitySite,
@@ -14569,8 +14570,7 @@ function AssignStartingPlots:AssignLuxuryToRegion(region_number)
 				-- Water-based resources need to run a series of permission checks: coastal start in region, not a disallowed regions type, enough water, etc.
 				if res_ID == self.whale_ID or res_ID == self.pearls_ID or res_ID == self.crab_ID or self.bModLuxes and res_ID == self.coral_ID then
 					if not self._lek_coastal_refish then
-						local slc_w = self.startLocationConditions[region_number];
-						if slc_w ~= nil and slc_w[1] == true then -- This region's start is along an ocean, so water-based luxuries are allowed.
+						if self:LekRegionHasCoastalMajorStartForLux(region_number) then -- Coastal major (synced plot or Normalize along-ocean).
 							-- MOD.Barathor: Start
 							-- MOD.Barathor: Base required coastal water total off of the target number of regional luxuries to place.
 							local target_list = self:GetRegionLuxuryTargetNumbers()
@@ -14604,8 +14604,7 @@ function AssignStartingPlots:AssignLuxuryToRegion(region_number)
 				if self.iNumTypesAssignedToRegions < self.iNumMaxAllowedForRegions or test == true then -- Won't exceed allowed types.
 					if res_ID == self.whale_ID or res_ID == self.pearls_ID or res_ID == self.crab_ID or self.bModLuxes and res_ID == self.coral_ID then
 						if not self._lek_coastal_refish then
-							local slc_fb = self.startLocationConditions[region_number];
-							if slc_fb ~= nil and slc_fb[1] == true then
+							if self:LekRegionHasCoastalMajorStartForLux(region_number) then
 								local target_list = self:GetRegionLuxuryTargetNumbers()
 								local target = target_list[self.iNumCivs]
 								local water_needed = 8
@@ -14702,8 +14701,7 @@ function AssignStartingPlots:AssignLuxuryToRegion(region_number)
 
 	print("");
 	print("");
-	local slc_coast = self.startLocationConditions[region_number];
-	local is_coastal_start = (slc_coast ~= nil and slc_coast[1] == true);
+	local is_coastal_start = self:LekRegionHasCoastalMajorStartForLux(region_number);
 	print("Coast Start: " .. tostring(is_coastal_start));
 	print("Coast Lux option (true=Guaranteed sea when eligible): " .. tostring(CoastLux));
 
@@ -15098,6 +15096,17 @@ function AssignStartingPlots:LekLocIsCoastalForLuxAllowAtXY(x, y)
 	local iW = select(1, Map.GetGridSize());
 	local idx = y * iW + x + 1;
 	return self.plotDataIsCoastal[idx] == true;
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekRegionHasCoastalMajorStartForLux(region_number)
+	local sp = self.startingPlots and self.startingPlots[region_number];
+	if sp and type(sp[1]) == "number" and type(sp[2]) == "number" then
+		if self:LekLocIsCoastalForLuxAllowAtXY(sp[1], sp[2]) then
+			return true;
+		end
+	end
+	local slc = self.startLocationConditions and self.startLocationConditions[region_number];
+	return slc ~= nil and slc[1] == true;
 end
 ------------------------------------------------------------------------------
 function AssignStartingPlots:GetListOfAllowableLuxuriesAtCitySite(x, y, radius, loc_is_coastal)
