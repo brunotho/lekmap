@@ -336,6 +336,7 @@ function AssignStartingPlots.Create()
 		LekPlaceFishForCoastalLuxPackage = AssignStartingPlots.LekPlaceFishForCoastalLuxPackage,
 		LekSanitizeFishNearMajorLakeCells = AssignStartingPlots.LekSanitizeFishNearMajorLakeCells,
 		LekCascadePlaceSecondLuxAtStart = AssignStartingPlots.LekCascadePlaceSecondLuxAtStart,
+		LekPickSecondLuxCandidateWithCoastalBias = AssignStartingPlots.LekPickSecondLuxCandidateWithCoastalBias,
 		LekEnsureCapitalLuxuryMinimumNearStart = AssignStartingPlots.LekEnsureCapitalLuxuryMinimumNearStart,
 		LekAssertCapitalLuxuryTilesMinimumOrRegen = AssignStartingPlots.LekAssertCapitalLuxuryTilesMinimumOrRegen,
 		LekAssertRegionalLuxuryNoShortfallAfterFallbackOrRegen = AssignStartingPlots.LekAssertRegionalLuxuryNoShortfallAfterFallbackOrRegen,
@@ -16406,6 +16407,34 @@ function AssignStartingPlots:LekStripLuxuryResourcesNearStart(x, y, max_ring, us
 	end);
 end
 ------------------------------------------------------------------------------
+function AssignStartingPlots:LekPickSecondLuxCandidateWithCoastalBias(candidate_types, x, y, randTag)
+	if candidate_types == nil or #candidate_types == 0 then
+		return nil;
+	end
+	local coastal = self:LekLocIsCoastalForLuxAllowAtXY(x, y);
+	if not coastal then
+		return candidate_types[1 + Map.Rand(#candidate_types, randTag or "Lek2ndLuxPick")];
+	end
+	local sea, land = {}, {};
+	for _, rid in ipairs(candidate_types) do
+		if self:LekIsSeaLuxuryResourceId(rid) then
+			sea[#sea + 1] = rid;
+		else
+			land[#land + 1] = rid;
+		end
+	end
+	if #sea > 0 and #land > 0 then
+		if Map.Rand(2, (randTag or "Lek2ndLuxPick") .. "_coast5050") == 0 then
+			return sea[1 + Map.Rand(#sea, (randTag or "Lek2ndLuxPick") .. "_sea")];
+		end
+		return land[1 + Map.Rand(#land, (randTag or "Lek2ndLuxPick") .. "_land")];
+	end
+	if #sea > 0 then
+		return sea[1 + Map.Rand(#sea, (randTag or "Lek2ndLuxPick") .. "_seaOnly")];
+	end
+	return land[1 + Map.Rand(#land, (randTag or "Lek2ndLuxPick") .. "_landOnly")];
+end
+------------------------------------------------------------------------------
 function AssignStartingPlots:LekPlotXYInRegionRectangle(x, y, iWestX, iSouthY, iWidth, iHeight, iW, iH)
 	if type(x) ~= "number" or type(y) ~= "number"
 		or type(iWestX) ~= "number" or type(iSouthY) ~= "number"
@@ -16964,7 +16993,7 @@ function AssignStartingPlots:LekRunSecondaryLuxuryForSingleRegion(region_number,
 		end
 	end
 	if iNumTypesAllowed > 0 then
-		use_this_ID = candidate_types[1 + Map.Rand(iNumTypesAllowed, "LekRedo2ndLux")];
+		use_this_ID = self:LekPickSecondLuxCandidateWithCoastalBias(candidate_types, x, y, "LekRedo2ndLux");
 	else
 		for loop, res_ID in ipairs(self.resourceIDs_assigned_to_cs) do
 			if allowed_luxuries[res_ID] == true and used_randoms_as_secondaries[res_ID] ~= true then
@@ -16973,7 +17002,7 @@ function AssignStartingPlots:LekRunSecondaryLuxuryForSingleRegion(region_number,
 			end
 		end
 		if iNumTypesAllowed > 0 then
-			use_this_ID = candidate_types[1 + Map.Rand(iNumTypesAllowed, "LekRedo2ndLuxCS")];
+			use_this_ID = self:LekPickSecondLuxCandidateWithCoastalBias(candidate_types, x, y, "LekRedo2ndLuxCS");
 		else
 			local region_lux_ID = self.region_luxury_assignment[region_number];
 			for loop, res_ID in ipairs(self.resourceIDs_assigned_to_regions) do
@@ -16985,7 +17014,7 @@ function AssignStartingPlots:LekRunSecondaryLuxuryForSingleRegion(region_number,
 				end
 			end
 			if iNumTypesAllowed > 0 then
-				use_this_ID = candidate_types[1 + Map.Rand(iNumTypesAllowed, "LekRedo2ndLuxOtherReg")];
+				use_this_ID = self:LekPickSecondLuxCandidateWithCoastalBias(candidate_types, x, y, "LekRedo2ndLuxOtherReg");
 			else
 				if placed2ndLux_ref then placed2ndLux_ref[1] = false; end
 			end
@@ -17576,9 +17605,8 @@ function AssignStartingPlots:PlaceLuxuries()
 			end
 
 			if iNumTypesAllowed > 0 then
-				local diceroll = 1 + Map.Rand(iNumTypesAllowed, "Choosing second luxury type at a start location - LUA");
 				LekMapgenFileTrace("sapht: rolling lux dice")
-				use_this_ID = candidate_types[diceroll];
+				use_this_ID = self:LekPickSecondLuxCandidateWithCoastalBias(candidate_types, x, y, "Lek2ndLuxMainRand");
 			else
 				-- See if any City State types are eligible.
 				for loop, res_ID in ipairs(self.resourceIDs_assigned_to_cs) do
@@ -17589,8 +17617,7 @@ function AssignStartingPlots:PlaceLuxuries()
 					end
 				end
 				if iNumTypesAllowed > 0 then
-					local diceroll = 1 + Map.Rand(iNumTypesAllowed, "Choosing second luxury type at a start location - LUA");
-					use_this_ID = candidate_types[diceroll];
+					use_this_ID = self:LekPickSecondLuxCandidateWithCoastalBias(candidate_types, x, y, "Lek2ndLuxMainCS");
 				else
 					local rla = self.region_luxury_assignment;
 					local region_lux_ID = rla and rla[region_number];
@@ -17604,8 +17631,7 @@ function AssignStartingPlots:PlaceLuxuries()
 						end
 					end
 					if iNumTypesAllowed > 0 then
-						local diceroll = 1 + Map.Rand(iNumTypesAllowed, "Choosing second luxury type at a start location - LUA");
-						use_this_ID = candidate_types[diceroll];
+						use_this_ID = self:LekPickSecondLuxCandidateWithCoastalBias(candidate_types, x, y, "Lek2ndLuxMainOtherReg");
 					else
 						LekMapgenFileTrace("-", "Failed to place second Luxury type in 2nd ring at start in Region#", region_number, "-- no eligible types!", "-");
 						placed2ndLux = false;
