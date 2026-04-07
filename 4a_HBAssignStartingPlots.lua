@@ -16869,7 +16869,7 @@ function AssignStartingPlots:LekSortPlotIndicesMainlandFirst(plotIndices, capX, 
 		if a.s ~= b.s then
 			return a.s > b.s;
 		end
-		return Map.Rand(2, "") == 0;
+		return a.idx < b.idx;
 	end);
 	local out = {};
 	for i = 1, #scored do
