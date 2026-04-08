@@ -161,6 +161,9 @@ local PANGAEA_BUDGET_FAST_FAIL_SPENT_FRAC = 0.68;
 
 local function LekIslandProbeLog(msg, minVerb)
 	minVerb = minVerb or 2;
+	if _lek_mapgen_world_is_small == true and minVerb < 3 then
+		minVerb = 3;
+	end
 	if LekMapgenLogAtLeast and not LekMapgenLogAtLeast(minVerb) then
 		return;
 	end
@@ -428,12 +431,14 @@ function GeneratePangaeaIslands(self, genOpts)
 			.. " seq=" .. tostring(#rollIslandSequence)
 			.. " type=" .. tostring(islandType)
 			.. seedPart;
-		print(msg);
-		pcall(function()
-			if LekMapgenDiagLogAppend then
-				LekMapgenDiagLogAppend(msg);
-			end
-		end);
+		if _lek_mapgen_world_is_small ~= true then
+			print(msg);
+			pcall(function()
+				if LekMapgenDiagLogAppend then
+					LekMapgenDiagLogAppend(msg);
+				end
+			end);
+		end
 	end
 	local function logRollIslandSummary(spent, target)
 		local keys = {};
@@ -454,12 +459,14 @@ function GeneratePangaeaIslands(self, genOpts)
 			.. " placedN=" .. tostring(#rollIslandSequence)
 			.. " order=" .. table.concat(rollIslandSequence, ",")
 			.. " countsByType=" .. table.concat(countParts, ";");
-		print(summary);
-		pcall(function()
-			if LekMapgenDiagLogAppend then
-				LekMapgenDiagLogAppend(summary);
-			end
-		end);
+		if _lek_mapgen_world_is_small ~= true then
+			print(summary);
+			pcall(function()
+				if LekMapgenDiagLogAppend then
+					LekMapgenDiagLogAppend(summary);
+				end
+			end);
+		end
 	end
 	local function tryOneSpot(forceType, attempt, overrideSpot)
 		local x, y;

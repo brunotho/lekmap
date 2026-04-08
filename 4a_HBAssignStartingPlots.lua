@@ -56,6 +56,93 @@ if _lek_mapgen_log_verbosity == nil then
 	_lek_mapgen_log_verbosity = 1;
 end
 
+if _lek_mapgen_world_is_small == nil then
+	_lek_mapgen_world_is_small = false;
+end
+if _lek_mapgen_tuple_benchmark_mode == nil then
+	_lek_mapgen_tuple_benchmark_mode = false;
+end
+
+function LekMapgenTupleBenchmarkMode()
+	return _lek_mapgen_tuple_benchmark_mode == true;
+end
+
+function LekMapgenEmitBench6OneLine(line)
+	if not LekMapgenTupleBenchmarkMode() then
+		return;
+	end
+	print(line);
+	pcall(function()
+		LekMapgenDiagLogAppend(line);
+	end);
+end
+
+function LekMapgenFormatBench6SummaryLine(startDb)
+	if not LekMapgenTupleBenchmarkMode() or startDb == nil then
+		return nil;
+	end
+	local rid = tostring(_lek_run_id or "na");
+	local la = tostring(_lek_map_layout_attempt or 1);
+	local maxL = tonumber(_lek_global_six_regen_max_layouts) or 11;
+	local outer = tostring(_lek_pangaea_outer_attempt or "?");
+	local po = (_lek_pangaea_max_outer_failed == true) and "1" or "0";
+	local tup = tostring(_lek_bench_tuple_ok or "?");
+	local why = tostring(_lek_bench_tuple_why or "");
+	local leaf = tostring(_lek_bench_tuple_leaf or "?");
+	local fc = tostring(_lek_bench_tuple_fail_complete or "?");
+	local tier = tostring(_lek_bench_tuple_tier or "");
+	local leg = (tier == "legacy_after_tuple_fail" or tier == "legacy_menu_skip_tuple") and "1" or "0";
+	local rlx = tostring(_lek_bench_tuple_relax or "");
+	if rlx == "" then
+		rlx = "na";
+	end
+	local iso = tostring(_lek_bench_islands_dt or "?");
+	local fdt = tostring(_lek_bench_fractal_world_dt or "?");
+	local gpt = tostring(_lek_bench_generate_plot_types_lua_total_dt or "?");
+	local mn = tostring(_lek_bench_spacing_min_nearest or "?");
+	local an = tostring(_lek_bench_spacing_avg_nearest or "?");
+	local m2 = tostring(_lek_bench_spacing_median_second or "?");
+	local x2 = tostring(_lek_bench_spacing_max_second or "?");
+	local mc = tostring(_lek_bench_spacing_min_center or "?");
+	local cc = tostring(_lek_bench_spacing_coastal_n or "?");
+	local rpair = tostring(_lek_bench_regional_lux_repair_cleared or 0);
+	local rsht = "0";
+	if startDb._lek_regional_lux_shortfall_after_fallback and #startDb._lek_regional_lux_shortfall_after_fallback > 0 then
+		rsht = tostring(#startDb._lek_regional_lux_shortfall_after_fallback);
+	end
+	local csd = tostring(startDb.iNumCityStatesDiscarded or 0);
+	local one_map = (startDb._lek_global_six_one_map_placement_mode == true) and "1" or "0";
+	local regenReq = (_lek_global_six_request_map_regen == true) and "1" or "0";
+	local scs = tostring(_lek_bench_short_circuit_stage or "na");
+	return "### LekBench6 runId=" .. rid
+		.. " layout=" .. la .. "/" .. tostring(maxL)
+		.. " pangaeaOuter=" .. outer
+		.. " pangaeaOuterFail=" .. po
+		.. " one_map=" .. one_map
+		.. " regenReq=" .. regenReq
+		.. " shortCircuitStage=" .. scs
+		.. " tuple_ok=" .. tup
+		.. " why=" .. why
+		.. " failComplete=" .. fc
+		.. " leafEvals=" .. leaf
+		.. " relax_phase=" .. rlx
+		.. " placement_tier=" .. tier
+		.. " legacy_path=" .. leg
+		.. " dt_islands=" .. iso
+		.. " dt_fractalWorld=" .. fdt
+		.. " dt_generatePlotTypesLua=" .. gpt
+		.. " spacing_minNearest=" .. mn
+		.. " spacing_avgNearest=" .. an
+		.. " spacing_medianSecondNearest=" .. m2
+		.. " spacing_maxSecondNearest=" .. x2
+		.. " spacing_minCenter=" .. mc
+		.. " coastal_starts=" .. cc
+		.. " lux_regional_repair_batches=" .. rpair
+		.. " lux_regional_shortfall_queued=" .. tostring(_lek_bench_lux_regional_shortfall_queued or 0)
+		.. " lux_regional_shortfall_after_repair=" .. rsht
+		.. " cs_discarded=" .. csd;
+end
+
 function LekMapgenVerbosity()
 	local v = tonumber(_lek_mapgen_log_verbosity);
 	if v == nil then
@@ -96,6 +183,9 @@ function LekMapgenDiagAt(minLevel, lineOrLines)
 end
 
 function LekMapgenFileTrace(...)
+	if LekMapgenTupleBenchmarkMode() then
+		return;
+	end
 	local n = select("#", ...);
 	if n == 0 then
 		return;
@@ -481,6 +571,7 @@ function AssignStartingPlots.Create()
 		realtotalLuxPlacedSoFar = 0,
 		_lek_coastal_lux_package = {},
 		_lek_regional_lux_require_start_same_area = false,
+		_lek_global_six_one_map_placement_mode = false,
 
 		-- Plot lists for use with global distribution of Luxuries.
 		--
@@ -2075,7 +2166,9 @@ end
 -- 		};
 
 function AssignStartingPlots:GenerateRegions(args)
-	print("Map Generation - Dividing the map in to Regions");
+	if not LekMapgenTupleBenchmarkMode() then
+		print("Map Generation - Dividing the map in to Regions");
+	end
 	-- This function stores its data in the instance (self) data table.
 	--
 	-- The "Three Methods" of regional division:
@@ -2103,7 +2196,9 @@ function AssignStartingPlots:GenerateRegions(args)
 	-- Determine number of civilizations and city states present in this game.
 	self.iNumCivs, self.iNumCityStates, self.player_ID_list, self.bTeamGame, self.teams_with_major_civs, self.number_civs_per_team = GetPlayerAndTeamInfo()
 	self.iNumCityStatesUnassigned = self.iNumCityStates;
-	print("-"); print("Civs:", self.iNumCivs); print("City States:", self.iNumCityStates);
+	if not LekMapgenTupleBenchmarkMode() then
+		print("-"); print("Civs:", self.iNumCivs); print("City States:", self.iNumCityStates);
+	end
 
 	if self.method == 1 then -- Biggest Landmass
 		-- Identify the biggest landmass.
@@ -6853,7 +6948,22 @@ end
 	1 Legacy: _lek_global_six_skip_tuple_use_legacy = true; tuple skipped; HB legacy placement.
 	2 Global six: tuple search + default relaxation ladder; _lek_global_six_tuple_regen_on_solver_fail = false → no layout regen on
 	solver fail (fall through to legacy). Set flag true to request map regen when tuple fails (needs HB regen loop on).
+
+	_one_map_placement_mode_: fractal/island outer redraws unchanged; on a fixed land mask, extra tuple phases hunt harder on the
+	same geometry and AssignStartingPlots.LekGlobalSix_CanRequestLayoutRegenForPlacementGate suppresses HB layout regen from
+	placement/resource asserts (Pangaea max-outer failure in BalanceAndAssign still may request regen).
 ]]
+function AssignStartingPlots.LekGlobalSix_CanRequestLayoutRegenForPlacementGate(startDb)
+	local db = startDb;
+	if _lek_enable_hb_generatemap_regen_loop ~= true then
+		return false;
+	end
+	if db ~= nil and db._lek_global_six_one_map_placement_mode == true then
+		return false;
+	end
+	return true;
+end
+
 function AssignStartingPlots.LekGlobalSix_SlowPaceLayoutGeometryBoost(layoutN)
 	if type(layoutN) ~= "number" or layoutN < 6 then
 		return 0, 0;
@@ -7055,6 +7165,33 @@ function AssignStartingPlots:LekGlobalSix_RunTupleSearch()
 		phases = { phases[1] };
 	end
 
+	if self._lek_global_six_one_map_placement_mode == true and type(phases) == "table" then
+		local mf0 = self._lek_global_six_max_fail_complete;
+		if type(mf0) ~= "number" or mf0 < 1 then
+			mf0 = 1000;
+		end
+		local ml0 = self._lek_global_six_max_leaf_evals;
+		if type(ml0) ~= "number" or ml0 < 1 then
+			ml0 = 8000;
+		end
+		phases[#phases + 1] = {
+			name = "one_map_finale_s2p6",
+			max_fail_complete = math.max(mf0 * 2, 2000),
+			max_leaf_evals = math.max(ml0 * 2, 16000),
+			s1_min = LEK_G6_S1_D_MIN,
+			s1_max = LEK_G6_S1_RELAX_MAX,
+			s2_max = LEK_G6_S2_SECOND_NEAREST_MAX + 6,
+		};
+		phases[#phases + 1] = {
+			name = "one_map_finale_ultra",
+			max_fail_complete = math.max(mf0 * 4, 4000),
+			max_leaf_evals = math.max(ml0 * 4, 32000),
+			s1_min = LEK_G6_S1_D_MIN,
+			s1_max = math.min(LEK_G6_S1_RELAX_MAX + 3, 22),
+			s2_max = LEK_G6_S2_SECOND_NEAREST_MAX + 10,
+		};
+	end
+
 	if forceHardOnly then
 		LekPlacementProbeLog("### LekGlobalSix tupleRelaxGate hard_only runId=" .. rid ..
 			" map_layout_attempt=" .. tostring(layoutN) ..
@@ -7100,7 +7237,7 @@ function AssignStartingPlots:LekGlobalSix_RunTupleSearch()
 				geomNote = " slowPace_geom=+" .. tostring(g1) .. "s1_+" .. tostring(g2) .. "s2";
 			end
 		end
-		if self._lek_global_six_pace_fast == true then
+		if self._lek_global_six_pace_fast == true and self._lek_global_six_one_map_placement_mode ~= true then
 			local maxL = self._lek_global_six_regen_max_layouts;
 			if type(maxL) ~= "number" or maxL < 1 then
 				maxL = 3;
@@ -7799,6 +7936,15 @@ function AssignStartingPlots:LekGlobalSixChooseLocations(args)
 		self._lek_global_six_placement_tier = "legacy_menu_skip_tuple";
 		LekPlacementProbeAt(1, "### LekGlobalSixChooseLocations runId=" .. rid ..
 			" path=skip_tuple_use_legacy tuple_not_run=1");
+		if LekMapgenTupleBenchmarkMode() then
+			_lek_bench_tuple_ok = 0;
+			_lek_bench_tuple_why = "menu_skip_tuple";
+			_lek_bench_tuple_leaf = 0;
+			_lek_bench_tuple_fail_complete = 0;
+			_lek_bench_tuple_max_fail = 0;
+			_lek_bench_tuple_relax = "";
+			_lek_bench_tuple_tier = "legacy_menu_skip_tuple";
+		end
 		return false;
 	end
 	if elig == 1 and self._lek_global_six_ripple_dry_run == true then
@@ -7841,11 +7987,22 @@ function AssignStartingPlots:LekGlobalSixChooseLocations(args)
 	else
 		self._lek_global_six_placement_tier = "legacy_after_tuple_fail";
 	end
+	if LekMapgenTupleBenchmarkMode() then
+		_lek_bench_tuple_ok = okSolve and 1 or 0;
+		_lek_bench_tuple_why = tostring(why or "");
+		_lek_bench_tuple_leaf = leafE;
+		_lek_bench_tuple_fail_complete = fComplete;
+		_lek_bench_tuple_max_fail = maxF;
+		_lek_bench_tuple_relax = (okSolve == true) and tostring(self._lek_tuple_search_success_phase_name or "") or "";
+		_lek_bench_tuple_tier = tostring(self._lek_global_six_placement_tier or "");
+	end
 	return okSolve == true;
 end
 
 function AssignStartingPlots:ChooseLocations(args)
-	print("Map Generation - Choosing Start Locations for Civilizations");
+	if not LekMapgenTupleBenchmarkMode() then
+		print("Map Generation - Choosing Start Locations for Civilizations");
+	end
 	local args = args or {};
 	self._lek_choose_locations_legacy_start_placement = false;
 	self._lek_legacy_forbid_forced_start_placement = false;
@@ -7858,7 +8015,9 @@ function AssignStartingPlots:ChooseLocations(args)
 	-- these assignments will keep the default values in place.
 	self.centerBias = args.centerBias or self.centerBias; -- % of radius from region center to examine first
 	self.middleBias = args.middleBias or self.middleBias; -- % of radius from region center to check second
-	print(string.format("DEV/SAPHT Center bias %d, %d", self.centerBias, self.middleBias))
+	if not LekMapgenTupleBenchmarkMode() then
+		print(string.format("DEV/SAPHT Center bias %d, %d", self.centerBias, self.middleBias));
+	end
 	self.minFoodInner = args.minFoodInner or self.minFoodInner;
 	self.minProdInner = args.minProdInner or self.minProdInner;
 	self.minGoodInner = args.minGoodInner or self.minGoodInner;
@@ -12861,12 +13020,16 @@ function AssignStartingPlots:PlaceCityStateInRegion(city_state_number, region_nu
 end
 ------------------------------------------------------------------------------
 function AssignStartingPlots:PlaceCityStates()
-	print("Map Generation - Choosing sites for City States");
+	if not LekMapgenTupleBenchmarkMode() then
+		print("Map Generation - Choosing sites for City States");
+	end
 	-- This function is dependent on AssignLuxuryRoles() having been executed first.
 	-- This is because some city state placements are made in compensation for drawing
 	-- the short straw in regard to multiple regions being assigned the same luxury type.
 
-	LekMapgenDiagLogAppend("### CS begin: runId=" .. tostring(_lek_run_id or "na") .. " iNumCityStates=" .. tostring(self.iNumCityStates or "nil"));
+	if not LekMapgenTupleBenchmarkMode() then
+		LekMapgenDiagLogAppend("### CS begin: runId=" .. tostring(_lek_run_id or "na") .. " iNumCityStates=" .. tostring(self.iNumCityStates or "nil"));
+	end
 
 	self._lek_cs_place_calls = 0;
 	self._lek_cs_refine_reached = 0;
@@ -12939,10 +13102,12 @@ function AssignStartingPlots:PlaceCityStates()
 				placed = placed + 1;
 			end
 		end
-		LekMapgenDiagLogAppend("### CS placement status: runId=" .. tostring(_lek_run_id or "na") ..
-			" assigned=" .. tostring(self.iNumCityStates) ..
-			" placed=" .. tostring(placed) ..
-			" discarded=" .. tostring(self.iNumCityStatesDiscarded));
+		if not LekMapgenTupleBenchmarkMode() then
+			LekMapgenDiagLogAppend("### CS placement status: runId=" .. tostring(_lek_run_id or "na") ..
+				" assigned=" .. tostring(self.iNumCityStates) ..
+				" placed=" .. tostring(placed) ..
+				" discarded=" .. tostring(self.iNumCityStatesDiscarded));
+		end
 	end
 	
 	-- Last chance method to place city states that didn't fit where they were supposed to go.
@@ -12964,14 +13129,18 @@ function AssignStartingPlots:PlaceCityStates()
 			end
 		end
 		local iNumLastChanceCandidates = table.maxn(cs_last_chance_plot_list);
-		LekMapgenDiagLogAppend("### CS last-chance candidates: runId=" .. tostring(_lek_run_id or "na") ..
-			" strict=" .. tostring(strictLastChanceCount) ..
-			" proximityRelaxed=" .. tostring(relaxedProximityCount) ..
-			" discardedIncoming=" .. tostring(self.iNumCityStatesDiscarded));
+		if not LekMapgenTupleBenchmarkMode() then
+			LekMapgenDiagLogAppend("### CS last-chance candidates: runId=" .. tostring(_lek_run_id or "na") ..
+				" strict=" .. tostring(strictLastChanceCount) ..
+				" proximityRelaxed=" .. tostring(relaxedProximityCount) ..
+				" discardedIncoming=" .. tostring(self.iNumCityStatesDiscarded));
+		end
 		-- If any eligible sites were found anywhere on the map, place as many of the remaining CS as possible.
 		if iNumLastChanceCandidates > 0 then
-			print("-"); print("-"); print("ALERT: Some City States failed to be placed due to overcrowding. Attempting 'last chance' placement method.");
-			print("Total number of remaining eligible candidate plots:", iNumLastChanceCandidates);
+			if not LekMapgenTupleBenchmarkMode() then
+				print("-"); print("-"); print("ALERT: Some City States failed to be placed due to overcrowding. Attempting 'last chance' placement method.");
+				print("Total number of remaining eligible candidate plots:", iNumLastChanceCandidates);
+			end
 			local last_chance_shuffled = GetShuffledCopyOfTable(cs_last_chance_plot_list)
 			local cs_list = {};
 			for cs_num = 1, self.iNumCityStates do
@@ -13007,10 +13176,10 @@ function AssignStartingPlots:PlaceCityStates()
 					break
 				end
 			end
-			if self.iNumCityStatesDiscarded > 0 then
+			if self.iNumCityStatesDiscarded > 0 and not LekMapgenTupleBenchmarkMode() then
 				print("-"); print("ALERT: No eligible city state sites remain. DISCARDING", self.iNumCityStatesDiscarded, "city states. BYE BYE!"); print("-");
 			end
-		else
+		elseif not LekMapgenTupleBenchmarkMode() then
 			print("-"); print("-"); print("ALERT: No eligible city state sites remain. DISCARDING", self.iNumCityStatesDiscarded, "city states. BYE BYE!"); print("-");
 		end
 	end
@@ -13049,7 +13218,9 @@ function AssignStartingPlots:PlaceCityStates()
 			" placeSuccess=" .. tostring(self._lek_cs_place_success or 0) ..
 			" selectedNil=" .. tostring(self._lek_cs_selected_nil or 0);
 		local line3 = "### LekBuildPing after_CS_refine_debug repo=v5.2";
-		LekMapgenDiagLogAppend({ line, line2, line3 });
+		if not LekMapgenTupleBenchmarkMode() then
+			LekMapgenDiagLogAppend({ line, line2, line3 });
+		end
 	end
 end
 ------------------------------------------------------------------------------
@@ -16289,6 +16460,9 @@ function AssignStartingPlots:LekPlaceRegionalLuxuryShortfallFallback()
 					pool_size = #pool18,
 				});
 			else
+				if LekMapgenTupleBenchmarkMode() then
+					_lek_bench_regional_lux_repair_cleared = (_lek_bench_regional_lux_repair_cleared or 0) + 1;
+				end
 				LekMapgenFileTrace("-", "LEK regional repair cleared", amount, "x res", res_ID, "Region#", region_number);
 			end
 		end
@@ -16619,7 +16793,7 @@ function AssignStartingPlots:LekAssertRegionalLuxuryNoShortfallAfterFallbackOrRe
 		maxRegenL = 4;
 	end
 	local att = _lek_map_layout_attempt or 1;
-	local canRegen = (_lek_enable_hb_generatemap_regen_loop == true) and (att < maxRegenL);
+	local canRegen = AssignStartingPlots.LekGlobalSix_CanRequestLayoutRegenForPlacementGate(self) and (att < maxRegenL);
 	local fs = "### LEK REGIONAL LUX POST-FALLBACK SHORTFALL GATE runId=" .. tostring(_lek_run_id or "na")
 		.. " nShort=" .. tostring(#t)
 		.. " detail=[" .. brief .. "]"
@@ -16629,6 +16803,10 @@ function AssignStartingPlots:LekAssertRegionalLuxuryNoShortfallAfterFallbackOrRe
 	LekMapgenFileTrace(fs);
 	if canRegen then
 		_lek_global_six_request_map_regen = true;
+		return;
+	end
+	if self._lek_global_six_one_map_placement_mode == true then
+		LekMapgenFileTrace("### LEK REGIONAL LUX shortfall one_map_mode proceed Detail:", brief);
 		return;
 	end
 	error("Lekmap: regional luxury shortage remains after fallback repair (n=" .. tostring(#t) .. "). Detail: " .. brief);
@@ -16654,7 +16832,7 @@ function AssignStartingPlots:LekAssertCapitalLuxuryTilesMinimumOrRegen(minLux, c
 					maxRegenL = 4;
 				end
 				local att = _lek_map_layout_attempt or 1;
-				local canRegen = (_lek_enable_hb_generatemap_regen_loop == true) and (att < maxRegenL);
+				local canRegen = AssignStartingPlots.LekGlobalSix_CanRequestLayoutRegenForPlacementGate(self) and (att < maxRegenL);
 				local fs = "### LEK CAPITAL LUX TILE GATE runId=" .. tostring(_lek_run_id or "na")
 					.. " Region#=" .. tostring(rn) .. " luxuryTilesNearCapital=" .. tostring(nLux)
 					.. " need>=" .. tostring(minLux) .. " ring<=" .. tostring(countRing)
@@ -16664,6 +16842,11 @@ function AssignStartingPlots:LekAssertCapitalLuxuryTilesMinimumOrRegen(minLux, c
 				LekMapgenFileTrace(fs);
 				if canRegen then
 					_lek_global_six_request_map_regen = true;
+					return;
+				end
+				if self._lek_global_six_one_map_placement_mode == true then
+					LekMapgenFileTrace("### LEK CAPITAL LUX GATE one_map_mode proceed Region#", rn,
+						" nLux=", nLux, " need=", minLux);
 					return;
 				end
 				error("Lekmap: could not reach " .. tostring(minLux)
@@ -16716,7 +16899,7 @@ function AssignStartingPlots:LekAssertBalancedCoastalExactTwoOrRegen()
 		maxRegenL = 4;
 	end
 	local att = _lek_map_layout_attempt or 1;
-	local canRegen = (_lek_enable_hb_generatemap_regen_loop == true) and (att < maxRegenL);
+	local canRegen = AssignStartingPlots.LekGlobalSix_CanRequestLayoutRegenForPlacementGate(self) and (att < maxRegenL);
 	local fs = "### LEK FORCE2 COAST runId=" .. tostring(_lek_run_id or "na")
 		.. " saltAdjMajorStarts=" .. tostring(nSalt) .. " need_exact=" .. tostring(needExact)
 		.. " layout=" .. tostring(att) .. "/" .. tostring(maxRegenL)
@@ -16805,7 +16988,7 @@ function AssignStartingPlots:LekAssertGlobalSixPlayerMinPairwiseOrRegen()
 		maxRegenL = 4;
 	end
 	local att = _lek_map_layout_attempt or 1;
-	local canRegen = (_lek_enable_hb_generatemap_regen_loop == true) and (att < maxRegenL);
+	local canRegen = AssignStartingPlots.LekGlobalSix_CanRequestLayoutRegenForPlacementGate(self) and (att < maxRegenL);
 	local fs = "### LEK MAJOR MIN PAIRWISE runId=" .. tostring(_lek_run_id or "na")
 		.. " " .. reason
 		.. " placement_tier=" .. ptier
@@ -16822,6 +17005,11 @@ function AssignStartingPlots:LekAssertGlobalSixPlayerMinPairwiseOrRegen()
 	end);
 	if canRegen then
 		_lek_global_six_request_map_regen = true;
+		return;
+	end
+	if self._lek_global_six_one_map_placement_mode == true then
+		LekPlacementProbeAt(1, "### LEK MAJOR MIN PAIRWISE one_map_mode proceed runId=" .. tostring(_lek_run_id or "na")
+			.. " " .. reason .. " placement_tier=" .. ptier);
 		return;
 	end
 	error("Lekmap: capital spacing failed - " .. reason
@@ -17524,6 +17712,9 @@ function AssignStartingPlots:PlaceLuxuries()
 			end
 			LekMapgenFileTrace("-", "Number of LuxuryID", res_ID, "not placed in Region#", region_number, "is", iNumLeftToPlace);
 			if iNumLeftToPlace > 0 and self:LekIsSeaLuxuryResourceId(res_ID) then
+				if LekMapgenTupleBenchmarkMode() then
+					_lek_bench_lux_regional_shortfall_queued = (_lek_bench_lux_regional_shortfall_queued or 0) + 1;
+				end
 				LekMapgenFileTrace("-", "LEK_DIAG sea lux regional shortfall Region#", region_number, "res", res_ID, "left", iNumLeftToPlace, "queued for dist-4-8/1-8 repair after resource pass");
 			end
 		end

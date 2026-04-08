@@ -964,13 +964,24 @@ end
 
 function GenerateMap()
 	local genEntry = "### LekMapGen GenerateMap_lua_entry t=" .. tostring((os and os.clock) and os.clock() or 0);
-	pcall(function()
-		if LekMapgenDiagLogAppend then
-			LekMapgenDiagLogAppend({ genEntry });
+	local function benchRegenNoiseProbeLevel(msg)
+		if not _lek_mapgen_tuple_benchmark_mode then
+			return 1;
 		end
-	end);
+		if type(msg) ~= "string" then
+			return 1;
+		end
+		if string.find(msg, "GenerateMap_lua_entry", 1, true)
+			or string.find(msg, "mapRegen MARKER", 1, true)
+			or string.find(msg, "attempt_begin layout=", 1, true)
+			or string.find(msg, "layout_result layout=", 1, true)
+			or string.find(msg, "postCoreGenerateMap", 1, true) then
+			return 2;
+		end
+		return 1;
+	end
 	if LekPlacementProbeAt then
-		LekPlacementProbeAt(1, genEntry);
+		LekPlacementProbeAt(benchRegenNoiseProbeLevel(genEntry), genEntry);
 	else
 		print(genEntry);
 	end
@@ -980,7 +991,7 @@ function GenerateMap()
 			" requestRegen=" .. (req and "1" or "0") .. " runId=" .. tostring(_lek_run_id or "na") ..
 			" regenLoopActive=" .. (regenLoopActive and "1" or "0");
 		if LekPlacementProbeAt then
-			LekPlacementProbeAt(1, pc);
+			LekPlacementProbeAt(benchRegenNoiseProbeLevel(pc), pc);
 		else
 			if LekMapgenDiagLogAppend then
 				LekMapgenDiagLogAppend({ pc });
@@ -990,8 +1001,9 @@ function GenerateMap()
 	end
 
 	local function markGenerateMap(msg)
+		local lvl = benchRegenNoiseProbeLevel(msg);
 		if LekPlacementProbeAt then
-			LekPlacementProbeAt(1, msg);
+			LekPlacementProbeAt(lvl, msg);
 		elseif LekPlacementProbeLog then
 			LekPlacementProbeLog(msg);
 		else
