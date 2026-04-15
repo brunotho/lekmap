@@ -128,7 +128,7 @@ local AllIslandTypeTables = {
 	{ tier = "rare", pool = RareIslands },
 };
 
-local PANGAEA_ISLAND_TOTAL_BUDGET = 9;
+local PANGAEA_ISLAND_TOTAL_BUDGET = 8;
 -- Bespoke / anchor placers run first; then ~this much common budget before other drafted rare/uncommon.
 local PANGAEA_ISLAND_SPECIAL_THEN_COMMON_BOOTSTRAP = 1;
 local IslandSpecialPhaseTypes = {

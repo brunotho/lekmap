@@ -83,6 +83,8 @@ local CONFIG = {
 	ARM_RIDGE_INLAND_DEPTH_START = 10,
 	ARM_RIDGE_MTN_PCT_INLAND_MIN = 22,
 	ARM_RIDGE_MTN_INLAND_LERP_DEPTH = 12,
+	ARM_RIDGE_MTN_PCT_THIN_ROW_MIN = 20,
+	ARM_RIDGE_MTN_PCT_THIN_ROW_MAX = 30,
 
 	GAP_POLICY = "always",
 	GAP_OPTIONAL_PCT = 60,
@@ -855,6 +857,28 @@ local function drawPangaeaEmbrace(plotTypes, iW, iH, wrapX, wrapY)
 	local eastRiftTileSet = splinteredRidge and buildSplinteredGapTileSet(eastTiles, isRidgeEast) or buildRiftTileSet(eastTiles, eastRiftClusterBands, isRidgeEast);
 	local centerRiftTileSet = splinteredRidge and (drawCenter and buildSplinteredGapTileSet(centerTiles, isRidgeCenter) or {}) or (drawCenter and buildRiftTileSet(centerTiles, centerRiftClusterBands, isRidgeCenter) or {});
 
+	local westRowSpan = {};
+	for y, lo in pairs(westMinX) do
+		local hi = westMaxX[y];
+		if hi then
+			westRowSpan[y] = hi - lo + 1;
+		end
+	end
+	local eastRowSpan = {};
+	for y, lo in pairs(eastMinX) do
+		local hi = eastMaxX[y];
+		if hi then
+			eastRowSpan[y] = hi - lo + 1;
+		end
+	end
+	local centerRowSpan = {};
+	for y, lo in pairs(centerMinX) do
+		local hi = centerMaxX[y];
+		if hi then
+			centerRowSpan[y] = hi - lo + 1;
+		end
+	end
+
 	local function armDepthFromPolarEdge(tileY)
 		if southEdge then
 			return tileY;
@@ -878,9 +902,19 @@ local function drawPangaeaEmbrace(plotTypes, iW, iH, wrapX, wrapY)
 		return math.floor(hi * (1 - tt) + lo * tt + 0.5);
 	end
 
-	local function armRidgeClusterHillsPct(tileY)
-		local m = armRidgeMountainPct(tileY);
-		local clusterMtn = math.floor(18 * m / 68 + 0.5);
+	local function effectiveArmRidgeMountainPct(tileY, rowSpan)
+		if rowSpan and rowSpan >= 1 and rowSpan <= 2 then
+			local lo = CONFIG.ARM_RIDGE_MTN_PCT_THIN_ROW_MIN or 20;
+			local hi = CONFIG.ARM_RIDGE_MTN_PCT_THIN_ROW_MAX or 30;
+			return lo + Map.Rand(math.max(0, hi - lo) + 1, "thinArmMtn");
+		end
+		return armRidgeMountainPct(tileY);
+	end
+
+	local function armRidgeClusterHillsPct(tileY, rowSpan)
+		local m = effectiveArmRidgeMountainPct(tileY, rowSpan);
+		local norm = math.max(1, CONFIG.ARM_RIDGE_MTN_PCT_NEAR_POLE or 68);
+		local clusterMtn = math.floor(18 * m / norm + 0.5);
 		if clusterMtn < 5 then
 			clusterMtn = 5;
 		end
@@ -901,9 +935,9 @@ local function drawPangaeaEmbrace(plotTypes, iW, iH, wrapX, wrapY)
 				plotTypes[idx] = CONFIG.RIDGE_RIFT_IS_WATER and PlotTypes.PLOT_OCEAN
 					or ((Map.Rand(100, "") < CONFIG.RIDGE_RIFT_HILLS_PCT) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND);
 			elseif isInClusterBand(t[2], westRiftClusterBands) then
-				plotTypes[idx] = (Map.Rand(100, "") < armRidgeClusterHillsPct(t[2])) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_MOUNTAIN;
+				plotTypes[idx] = (Map.Rand(100, "") < armRidgeClusterHillsPct(t[2], westRowSpan[t[2]])) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_MOUNTAIN;
 			else
-				plotTypes[idx] = (Map.Rand(100, "") < armRidgeMountainPct(t[2])) and PlotTypes.PLOT_MOUNTAIN or PlotTypes.PLOT_HILLS;
+				plotTypes[idx] = (Map.Rand(100, "") < effectiveArmRidgeMountainPct(t[2], westRowSpan[t[2]])) and PlotTypes.PLOT_MOUNTAIN or PlotTypes.PLOT_HILLS;
 			end
 		end
 	end
@@ -918,9 +952,9 @@ local function drawPangaeaEmbrace(plotTypes, iW, iH, wrapX, wrapY)
 				plotTypes[idx] = CONFIG.RIDGE_RIFT_IS_WATER and PlotTypes.PLOT_OCEAN
 					or ((Map.Rand(100, "") < CONFIG.RIDGE_RIFT_HILLS_PCT) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND);
 			elseif isInClusterBand(t[2], eastRiftClusterBands) then
-				plotTypes[idx] = (Map.Rand(100, "") < armRidgeClusterHillsPct(t[2])) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_MOUNTAIN;
+				plotTypes[idx] = (Map.Rand(100, "") < armRidgeClusterHillsPct(t[2], eastRowSpan[t[2]])) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_MOUNTAIN;
 			else
-				plotTypes[idx] = (Map.Rand(100, "") < armRidgeMountainPct(t[2])) and PlotTypes.PLOT_MOUNTAIN or PlotTypes.PLOT_HILLS;
+				plotTypes[idx] = (Map.Rand(100, "") < effectiveArmRidgeMountainPct(t[2], eastRowSpan[t[2]])) and PlotTypes.PLOT_MOUNTAIN or PlotTypes.PLOT_HILLS;
 			end
 		end
 	end
@@ -935,9 +969,9 @@ local function drawPangaeaEmbrace(plotTypes, iW, iH, wrapX, wrapY)
 				plotTypes[idx] = CONFIG.RIDGE_RIFT_IS_WATER and PlotTypes.PLOT_OCEAN
 					or ((Map.Rand(100, "") < CONFIG.RIDGE_RIFT_HILLS_PCT) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND);
 			elseif isInClusterBand(t[2], centerRiftClusterBands) then
-				plotTypes[idx] = (Map.Rand(100, "") < armRidgeClusterHillsPct(t[2])) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_MOUNTAIN;
+				plotTypes[idx] = (Map.Rand(100, "") < armRidgeClusterHillsPct(t[2], centerRowSpan[t[2]])) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_MOUNTAIN;
 			else
-				plotTypes[idx] = (Map.Rand(100, "") < armRidgeMountainPct(t[2])) and PlotTypes.PLOT_MOUNTAIN or PlotTypes.PLOT_HILLS;
+				plotTypes[idx] = (Map.Rand(100, "") < effectiveArmRidgeMountainPct(t[2], centerRowSpan[t[2]])) and PlotTypes.PLOT_MOUNTAIN or PlotTypes.PLOT_HILLS;
 			end
 		end
 	end

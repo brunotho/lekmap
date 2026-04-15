@@ -1,0 +1,116 @@
+Lekmap v5.2 - Handoff for external review (Claude Code)
+Date: 2026-04-15
+
+Context and objective
+- This branch is focused on Global Six start placement behavior and reliability, with emphasis on:
+  - tuple solver acceptance vs legacy fallback
+  - coastal fairness and coastal-capital quality
+  - sea regional luxury sanity around city states and major starts
+  - practical instrumentation for understanding why a run accepted or relaxed
+- The practical quality target is not "fast always"; it is "consistent starts with understandable reasons when constraints relax or fail."
+
+High-level desired behavior
+- Keep tuple solver as primary path on Global Six.
+- Avoid silent quality regressions where tuple only succeeds after heavy relaxation and we cannot tell why.
+- Preserve coastal start quality without allowing pathological placements:
+  - avoid weak coastal starts with poor workable land
+  - avoid sea regionals too close to city states
+  - avoid problematic coastal major-to-major closeness that causes regional overlap pressure
+- Keep instrumentation concise enough for iterative testing, but rich enough to diagnose pressure points.
+
+Current mapgen diagnosis model used by this branch
+- We distinguish four layers:
+  1) outcome layer: tuple_ok vs legacy path vs regen request
+  2) failure-kind layer: first hard section failures (s1..s6) and fail histograms
+  3) relaxation layer: which phase accepted (base / s2+1 / s2+2 / one_map finale)
+  4) geometry outcome layer: realized spacing numbers after final assignment (e.g., spacing_maxSecondNearest)
+- Important nuance:
+  - spacing_maxSecondNearest is an observed output metric, not a cap.
+  - s2 cap is the constraint used during search and can be much higher in late phases.
+
+What changed in this working version
+
+1) Timing and map-level instrumentation
+- Added explicit run-end timing logs for both:
+  - GenerateMap lua wrapper
+  - LekHB_GenerateMap_Core
+- These produce dt_os_clock values that make "entry-to-exit" duration visible in logs.
+
+2) Tuple benchmark/summary stream
+- Bench mode is now enabled for Global Six pace (option 13 = 2), disabled for legacy pace.
+- This keeps LekBench6 one-liners available during tuple-focused testing instead of small-map-only gating.
+
+3) Sea regional luxury safety filters
+- Coastal sea-regional candidate filters were tightened:
+  - enforce workable-land-in-radius rule near sea-regional tile candidates
+  - city-state exclusion radius expanded to PlotDistance <= 2 (was <= 1)
+- Applied in regional placement and repair/fallback pools where sea-regional candidates are built.
+
+4) Coastal major pairwise distance strengthening
+- Added coastal pair override on pairwise minimum:
+  - baseline min pair still comes from Start Distance option mapping
+  - if both candidates are alongOcean, required min is raised to 11 when baseline is lower
+- Implemented consistently in:
+  - tuple Section2 pairwise checks
+  - tuple DFS pruning and forward-check logic
+  - post-tuple and post-player pairwise audit paths
+  - regen assertion path for final major placements
+
+5) Coastal fish package gating fix (today's target)
+- Problem observed:
+  - cases where coastal-biased civ ended effectively inland-for-lux path, and fish goodies appeared as suspicious clumps farther away.
+- Root cause:
+  - fish package gate used IsCoastalLand() in some call sites / package function,
+    while second-lux coastal logic uses stricter LekLocIsCoastalForLuxAllowAtXY() (salt-ocean aware).
+  - mismatch could trigger fish package in starts that do not qualify under lux-coastal semantics.
+- Fix:
+  - fish package and fallback triggers now gate on LekLocIsCoastalForLuxAllowAtXY(x,y), matching second-lux logic.
+
+6) Crash/path consistency hardening in lux code
+- Method dispatch around coastal regional tile rule was normalized to class-style calls where needed.
+- Export table wiring was updated for helper methods used by instance-like call paths.
+
+What we explicitly tried / learned
+- Increasing tuple search budgets can increase tuple_ok rate, but often pushes acceptance into late relax phases and does not by itself explain quality pressure source.
+- Single-line bench metrics are useful for broad trends but insufficient to attribute where core runtime goes; they do reveal:
+  - acceptance phase
+  - leaf/fail pressure
+  - resulting spacing geometry
+- Sea-regional quality issues were not solved by one rule only; they needed combined land-workability and CS-distance filters.
+- Coastal-start fish/lux quality is sensitive to predicate mismatch; "coastal" needs a single semantic gate when tied to sea resources.
+
+Where we are now (status)
+- Tuple path remains primary on Global Six.
+- Instrumentation now reports map wrapper/core timing and tuple bench outcomes.
+- Coastal/sea luxury guardrails are stronger than baseline:
+  - CS proximity for sea regional candidates tightened to <=2 exclusion
+  - coastal pairwise minimum tightened for coastal-coastal major pairs
+  - fish package now aligned with lux coastal predicate
+- Remaining concern is analysis quality:
+  - we still need clearer, low-noise tracking of "why this seed needed phase X relaxation" without turning logs into unreadable spam.
+
+Known open questions for external review
+- Is the current phase ladder too permissive in one_map finales relative to intended quality?
+- Should s2 relax amounts be reduced if other constraints (s5 injective feasibility, s6 quality) are the real bottleneck?
+- Is there a better decomposition for diagnostics:
+  - separate true geometric scarcity from algorithmic search-order artifacts?
+- Is there a cleaner way to enforce coastal quality package consistency (lux + fish + goodies) with one unified predicate/policy object?
+
+Suggested immediate review tasks for Claude Code
+1) Evaluate whether spacing outcome metrics are being over-interpreted versus actual runtime caps.
+2) Review tuple DFS ordering/pruning for cases where acceptance only occurs in late phases despite moderate observed spacing.
+3) Audit all coastal-resource decisions for predicate consistency:
+   - IsCoastalLand
+   - plotDataIsCoastal
+   - salt-water adjacency (non-lake ocean)
+4) Propose a minimal "diagnostic contract" log format:
+   - one line for outcome
+   - one line for active caps at success/failure
+   - one compact line for dominant fail combos.
+
+If reviewing this file with code, prioritize these files
+- 4a_HBAssignStartingPlots.lua
+- 4_HBMapGenerator.lua
+- LekmapPangaeaFractalv5.3.lua
+
+End of handoff.

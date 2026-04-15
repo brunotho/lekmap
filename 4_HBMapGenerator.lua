@@ -832,6 +832,7 @@ function StartPlotSystem()
 end
 
 function LekHB_GenerateMap_Core()
+	local tCore0 = (os and os.clock) and os.clock() or 0;
 	do
 		local la0 = _lek_map_layout_attempt or 0;
 		local coreBoot = "### LekMapGen LekHB_GenerateMap_Core_begin layoutAttempt="
@@ -959,11 +960,25 @@ function LekHB_GenerateMap_Core()
 		print("### LekGlobalSix mapRegen MARKER core_full_return runId=" .. tostring(_lek_run_id or "na")
 			.. " requestRegen=" .. ((_lek_global_six_request_map_regen == true) and "1" or "0"));
 	end
+	do
+		local la1 = _lek_map_layout_attempt or 0;
+		local tCore1 = (os and os.clock) and os.clock() or 0;
+		local coreEnd = "### LekMapGen LekHB_GenerateMap_Core_end layoutAttempt="
+			.. tostring(la1) .. " t=" .. tostring(tCore1)
+			.. " dt_os_clock=" .. tostring(tCore1 - tCore0);
+		print(coreEnd);
+		pcall(function()
+			if LekMapgenDiagLogAppend then
+				LekMapgenDiagLogAppend({ coreEnd });
+			end
+		end);
+	end
 	stage("core_end");
 end
 
 function GenerateMap()
-	local genEntry = "### LekMapGen GenerateMap_lua_entry t=" .. tostring((os and os.clock) and os.clock() or 0);
+	local tGen0 = (os and os.clock) and os.clock() or 0;
+	local genEntry = "### LekMapGen GenerateMap_lua_entry t=" .. tostring(tGen0);
 	local function benchRegenNoiseProbeLevel(msg)
 		if not _lek_mapgen_tuple_benchmark_mode then
 			return 1;
@@ -1013,6 +1028,13 @@ function GenerateMap()
 			end
 		end
 	end
+	local function markGenerateMapEnd(outcome, layouts)
+		local tEnd = (os and os.clock) and os.clock() or 0;
+		markGenerateMap("### LekMapGen GenerateMap_lua_exit t=" .. tostring(tEnd)
+			.. " dt_os_clock=" .. tostring(tEnd - tGen0)
+			.. " outcome=" .. tostring(outcome or "na")
+			.. " layouts=" .. tostring(layouts or 0));
+	end
 	markGenerateMap("### LekGlobalSix mapRegen MARKER GenerateMap_entry regenLoop="
 		.. tostring(_lek_enable_hb_generatemap_regen_loop == true));
 
@@ -1024,6 +1046,7 @@ function GenerateMap()
 		local oc0 = rq0 and "need_regen_but_loop_off" or "accepted";
 		markGenerateMap("### LekGlobalSix mapRegen layout_result layout=1/1 runId=" .. tostring(_lek_run_id or "na")
 			.. " outcome=" .. oc0 .. " requestRegen=" .. (rq0 and "1" or "0") .. " regenLoop=0");
+		markGenerateMapEnd(oc0, 1);
 		return;
 	end
 	local layoutAttempt = 0;
@@ -1092,5 +1115,6 @@ function GenerateMap()
 	markGenerateMap("### LekGlobalSix mapRegen summary total_layouts_tried=" .. tostring(layoutAttempt)
 		.. " final_outcome=" .. tostring(lastOutcome)
 		.. " last_runId=" .. tostring(_lek_run_id or "na"));
+	markGenerateMapEnd(lastOutcome, layoutAttempt);
 	_lek_map_layout_attempt = nil;
 end

@@ -118,11 +118,20 @@ function TryPlaceJunglePeakIsland(plotTypes, centerX, centerY, islLandInRing, pa
 		filledR2[#filledR2 + 1] = pick;
 	end
 
-	if #filledR2 >= r2Count and r2Count > 1 then
+	local function ripOneRing2()
+		if #filledR2 < 2 then
+			return;
+		end
 		local rip = 1 + Map.Rand(#filledR2, "");
 		local u = filledR2[rip];
 		used[u[2] * params.iW + u[1]] = nil;
 		table.remove(filledR2, rip);
+	end
+	if #filledR2 >= r2Count and r2Count > 1 then
+		ripOneRing2();
+	end
+	if #filledR2 >= 4 then
+		ripOneRing2();
 	end
 
 	local filledR3 = {};

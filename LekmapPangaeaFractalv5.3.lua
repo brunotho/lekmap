@@ -13,7 +13,7 @@
 
 -- 1=progress milestones (tuple vs legacy, outcomes) | 2=+ ChooseLocations / feasibility | 3=tuple phases, pools, DFS detail
 _lek_mapgen_log_verbosity = 1;
--- Small map: softer Pangaea/island tracing (outer loop + per-island spam). Full tuple bench line: Small + 6 majors + Global six only (_lek_mapgen_tuple_benchmark_mode in StartPlotSystem).
+-- Small map: softer Pangaea/island tracing (outer loop + per-island spam). Tuple bench line (`LekBench6`): on for Global six pace (option 13 = 2), off for Legacy pace (13 = 1).
 _lek_mapgen_world_is_small = false;
 
 -- TEST ONLY: not used in normal maps. When true, PlaceResources ends with LekTestCopperOnAllWater (ocean/lake copper); engine may skip tiles.
@@ -89,10 +89,10 @@ function GetMapScriptInfo()
 	-- Two rows in Advanced Setup; Start Quality (legacy 5) stubbed — see _lek_map_hidden_option_defaults.
 	CustomOptions = {
 			{
-				Name = "Geometric Balance",
+				Name = "Starting Locations",
 				Values = {
-					"Legacy (HB placement only)",
-					"Global six (tuple, then legacy if needed)",
+					"Legacy (fast)",
+					"Geometric Balance (slow)",
 				},
 				DefaultValue = 2,
 				SortPriority = -100,
@@ -219,6 +219,75 @@ function LekDemoteMountainsTouchingOcean(plotTypes, iW, iH, wrapX, wrapY, pctRol
 				if touches and Map.Rand(100, "lek_demote_coast_mtn") < pctRoll then
 					plotTypes[idx] = PlotTypes.PLOT_HILLS;
 					n = n + 1;
+				end
+			end
+		end
+	end
+	return n;
+end
+
+------------------------------------------------------------------------------
+-- After majors are placed: demote only mountains that touch ocean, are PlotDistance 4 from a coastal
+-- major start, and are still mountains on the live map. Replaces broad LekDemoteMountainsTouchingOcean(100).
+------------------------------------------------------------------------------
+function LekDemoteRing4CoastalMountainsNearCoastalMajors(start_plot_database)
+	if not start_plot_database or not GetHexNeighbor then
+		return 0;
+	end
+	local iW, iH = Map.GetGridSize();
+	if not iW or not iH then
+		return 0;
+	end
+	local wrapX = Map.IsWrapX and Map:IsWrapX() or false;
+	local wrapY = Map.IsWrapY and Map:IsWrapY() or false;
+	local function pd(x1, y1, x2, y2)
+		if Map.PlotDistance then
+			return Map.PlotDistance(x1, y1, x2, y2);
+		end
+		if PlotDistance then
+			return PlotDistance(x1, y1, x2, y2);
+		end
+		return nil;
+	end
+	local starts = {};
+	for loop = 1, start_plot_database.iNumCivs or 0 do
+		local pid = start_plot_database.player_ID_list[loop];
+		local pl = pid and Players[pid];
+		if pl and pl:IsEverAlive() and not pl:IsMinorCiv() then
+			local sp = pl:GetStartingPlot();
+			if sp and sp:IsCoastalLand() then
+				starts[#starts + 1] = { sp:GetX(), sp:GetY() };
+			end
+		end
+	end
+	if #starts == 0 then
+		return 0;
+	end
+	local n = 0;
+	for y = 0, iH - 1 do
+		for x = 0, iW - 1 do
+			local plot = Map.GetPlot(x, y);
+			if plot and plot:GetPlotType() == PlotTypes.PLOT_MOUNTAIN then
+				local touchesOcean = false;
+				for d = 1, 6 do
+					local nx, ny = GetHexNeighbor(x, y, d, iW, iH, wrapX, wrapY);
+					if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+						local np = Map.GetPlot(nx, ny);
+						if np and np:GetPlotType() == PlotTypes.PLOT_OCEAN then
+							touchesOcean = true;
+							break;
+						end
+					end
+				end
+				if touchesOcean then
+					for si = 1, #starts do
+						local st = starts[si];
+						if pd(x, y, st[1], st[2]) == 4 then
+							plot:SetPlotType(PlotTypes.PLOT_HILLS, false, true);
+							n = n + 1;
+							break;
+						end
+					end
 				end
 			end
 		end
@@ -1673,9 +1742,9 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 			.. " roundInlandSeas_dt=" .. tostring(tAfterRoundInland - tBeforeRoundInland), 2);
 
 		local tM0 = (os and os.clock) and os.clock() or 0;
-		local nDem = LekDemoteMountainsTouchingOcean(self.plotTypes, self.iNumPlotsX, self.iNumPlotsY, Map:IsWrapX(), false, 100);
+		local nDem = LekDemoteMountainsTouchingOcean(self.plotTypes, self.iNumPlotsX, self.iNumPlotsY, Map:IsWrapX(), false, 0);
 		local tM1 = (os and os.clock) and os.clock() or 0;
-		LekPangaeaProbeLog("### LekPangaeaPlotTypesProbe demoteOceanAdjMountains_pct=100 n=" .. tostring(nDem)
+		LekPangaeaProbeLog("### LekPangaeaPlotTypesProbe demoteOceanAdjMountains_pct=0 n=" .. tostring(nDem)
 			.. " dt=" .. tostring(tM1 - tM0), 2);
 
 		local islandsOpt = LekMapGetCustomOption(16);
@@ -2472,7 +2541,9 @@ function StartPlotSystem()
 		end
 		local msg = "### LekMapGen StartPlotSystem short_circuit runId=" .. tostring(_lek_run_id or "na")
 			.. " layout=" .. tostring(att) .. "/" .. tostring(maxL)
-			.. " skip=BA_rescue_NW_resources stage=" .. tostring(stageTag);
+			.. " reason=_lek_global_six_request_map_regen"
+			.. " regenReason=" .. tostring(_lek_global_six_request_map_regen_reason or "na")
+			.. " stage=" .. tostring(stageTag);
 		if LekPlacementProbeAt then
 			LekPlacementProbeAt(1, msg);
 		elseif LekPlacementProbeLog then
@@ -2507,6 +2578,7 @@ function StartPlotSystem()
 		start_plot_database._lek_global_six_skip_tuple_use_legacy = (paceSel == 1);
 		start_plot_database._lek_global_six_tuple_regen_on_solver_fail = false;
 		start_plot_database._lek_global_six_one_map_placement_mode = (paceSel == 2);
+		start_plot_database._lek_global_six_tuple_skip_dfs_rank1_head_s2 = (paceSel == 2);
 		if paceSel == 1 then
 			start_plot_database._lek_global_six_pace_fast = false;
 			start_plot_database._lek_global_six_fatal_on_exhausted = false;
@@ -2522,19 +2594,32 @@ function StartPlotSystem()
 			start_plot_database._lek_global_six_tuple_minimal_s2_fallback_max_layout = false;
 			-- nil relaxation_phases → 4a LekGlobalSix_DefaultTupleRelaxationPhases()
 		end
-		_lek_mapgen_tuple_benchmark_mode = false;
 	end
 
 	     start_plot_database._lek_global_six_solver = true;
 	     start_plot_database._lek_global_six_ripple_dry_run = false;
 	     start_plot_database._lek_tuple_pool_diag = false;
+	     -- Section5 (bias feasibility) hardness policy:
+	     -- Coastal + river remain hard constraints; region priority/avoid are softened
+	     -- to mimic legacy practical outcomes (usually satisfied, but not map-killing).
 	     start_plot_database._lek_global_six_s5_avoid_hard = false;
+	     start_plot_database._lek_global_six_s5_prim_hard = false;
 	     start_plot_database._lek_global_six_coastal_bias_requires_salt = true;
 	     start_plot_database._lek_global_six_coastal_disk3_max_salt_water_pct = 40;
 	     start_plot_database._lek_global_six_coastal_salt_water_disk_radius = 3;
 	     -- Per-phase defaults from 4a unless _lek_global_six_tuple_relaxation_phases is set.
 	     start_plot_database._lek_global_six_max_fail_complete = 1000;
 	     start_plot_database._lek_global_six_max_leaf_evals = 8000;
+	     -- Tuple stress testing toggle (manual perf experiments):
+	     -- false = normal day-to-day budgets
+	     -- true  = expensive search to test whether deeper tuple effort meaningfully improves tuple_ok rate
+	     local tupleStressMode = false;
+	     if tupleStressMode then
+		start_plot_database._lek_global_six_max_fail_complete = 12000;
+		start_plot_database._lek_global_six_max_leaf_evals = 40000;
+		-- Optional pool breadth bump for stress studies.
+		start_plot_database._lek_global_six_max_candidates_per_region = 48;
+	     end
 	     -- start_plot_database._lek_global_six_max_fail_complete = 12000;
 	     -- start_plot_database._lek_global_six_max_leaf_evals = 40000;
 	     -- start_plot_database._lek_global_six_max_fail_complete = 100000;
@@ -2583,9 +2668,11 @@ function StartPlotSystem()
 		end
 	end
 
-	_lek_mapgen_tuple_benchmark_mode = (_lek_mapgen_world_is_small == true)
-		and ((start_plot_database.iNumCivs or 0) == 6)
-		and (start_plot_database._lek_global_six_skip_tuple_use_legacy ~= true);
+	if start_plot_database._lek_global_six_skip_tuple_use_legacy == true then
+		_lek_mapgen_tuple_benchmark_mode = false;
+	else
+		_lek_mapgen_tuple_benchmark_mode = true;
+	end
 	if _lek_mapgen_tuple_benchmark_mode then
 		_lek_bench_tuple_ok = nil;
 		_lek_bench_tuple_why = "";
@@ -2601,7 +2688,17 @@ function StartPlotSystem()
 		_lek_bench_spacing_max_second = nil;
 		_lek_bench_spacing_min_center = nil;
 		_lek_bench_spacing_coastal_n = nil;
+		_lek_bench_spacing_salt_adj_n = nil;
 		_lek_bench_short_circuit_stage = nil;
+		_lek_global_six_request_map_regen_reason = nil;
+		_lek_bench_hex_ok = nil;
+		_lek_bench_hex_rot = nil;
+		_lek_bench_hex_ringR = nil;
+		_lek_bench_feas_bn = nil;
+		_lek_bench_feas_xmin = nil;
+		_lek_bench_feas_h2max = nil;
+		_lek_bench_feas_margmin = nil;
+		_lek_bench_feas_k = nil;
 	end
 
 	--[[ Debug: snow terrain on region centers + rectangle outline (expensive). Re-enable when diagnosing regions.
@@ -2633,6 +2730,7 @@ function StartPlotSystem()
 				and not biasSkipsSix
 				and start_plot_database.iNumCivs == 6
 				and att < maxRegenL then
+				_lek_global_six_request_map_regen_reason = "ChooseLocations_pcall_err";
 				_lek_global_six_request_map_regen = true;
 				local rq = "### LekGlobalSix mapRegen request runId=" .. tostring(_lek_run_id or "na")
 					.. " layout=" .. tostring(att) .. "/" .. tostring(maxRegenL)
@@ -2662,6 +2760,16 @@ function StartPlotSystem()
 		local ok, err = pcall(function() start_plot_database:BalanceAndAssign(args) end);
 		if not ok then
 			local msg = "### BalanceAndAssign CRASH runId=" .. tostring(_lek_run_id or "na") .. " err=" .. tostring(err);
+			print(msg);
+			appendLekLog({ msg });
+		end
+	end
+
+	do
+		local nR4 = LekDemoteRing4CoastalMountainsNearCoastalMajors(start_plot_database);
+		if not _lek_mapgen_tuple_benchmark_mode then
+			local msg = "### LekMapGen demote_ring4_coastal_mtn n=" .. tostring(nR4)
+				.. " runId=" .. tostring(_lek_run_id or "na");
 			print(msg);
 			appendLekLog({ msg });
 		end
@@ -2773,6 +2881,7 @@ function StartPlotSystem()
 						appendLekLog({ rmsg });
 					end
 					if canRegen then
+						_lek_global_six_request_map_regen_reason = "after_BA_missing_major_start_strict_rescue";
 						_lek_global_six_request_map_regen = true;
 					else
 						error("Lekmap: global-six majors without starting plots after strict rescue; regen exhausted.");
@@ -2903,6 +3012,17 @@ function StartPlotSystem()
 						if starts[i].coastal then cn = cn + 1; end
 					end
 					_lek_bench_spacing_coastal_n = cn;
+					local saltAdj = 0;
+					local pdc = start_plot_database.plotDataIsCoastal;
+					if pdc then
+						for i = 1, 6 do
+							local pi = starts[i].y * iW + starts[i].x + 1;
+							if pdc[pi] == true then
+								saltAdj = saltAdj + 1;
+							end
+						end
+					end
+					_lek_bench_spacing_salt_adj_n = saltAdj;
 				end
 
 				local lines = {};
