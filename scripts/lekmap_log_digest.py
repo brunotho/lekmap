@@ -89,6 +89,9 @@ RE_TUPLE_PHASES_FOR_LAYOUT = re.compile(
     r"### LekGlobalSix tuplePhasesForLayout runId=\S+ map_layout_attempt=(\d+) "
     r"slice=(\S+) phaseNames=(.+?)\s+nPhases=(\d+)"
 )
+RE_G6_CAUSE = re.compile(
+    r"### g6\|cause runId=\S+ status=(\S+) gate=(\S+) prune=(\S+) leaf=(\S+) combo=(\S+) why=(\S+)(?: relax_phase=(\S+))?"
+)
 
 
 def _parse_kv_counts(blob: str) -> Dict[str, int]:
@@ -128,6 +131,7 @@ def digest_block(block: List[str]) -> dict:
         "tuple_relax_gate_hard_only": False,
         "tuple_phases_for_layout": None,
         "tuple_search_layout": None,
+        "g6_cause": None,
     }
     for line in block:
         if "### LekGlobalSix tupleSearch" not in line:
@@ -192,6 +196,17 @@ def digest_block(block: List[str]) -> dict:
                 "phase_names": mpl.group(3).strip(),
                 "n_phases": int(mpl.group(4)),
             }
+        mg6 = RE_G6_CAUSE.search(line)
+        if mg6:
+            r["g6_cause"] = {
+                "status": mg6.group(1),
+                "gate": mg6.group(2),
+                "prune": mg6.group(3),
+                "leaf": mg6.group(4),
+                "combo": mg6.group(5),
+                "why": mg6.group(6),
+                "relax_phase": mg6.group(7) or "",
+            }
     for line in block:
         if "### LekGlobalSix tuplePhase end" in line:
             mp = RE_PHASE_END.search(line)
@@ -224,7 +239,15 @@ def roll_summary(block: List[str], d: dict) -> str:
     lay = ""
     if tpf:
         lay = f" laySlice={tpf['slice']} nPh={tpf['n_phases']}"
-    return f"tuple={ts} solver={sr} {bg}{lay}"
+    gc = d.get("g6_cause")
+    if gc:
+        cause = (
+            f" cause(status={gc['status']},gate={gc['gate']},prune={gc['prune']},"
+            f"leaf={gc['leaf']},why={gc['why']})"
+        )
+    else:
+        cause = " cause=absent"
+    return f"tuple={ts} solver={sr} {bg}{lay}{cause}"
 
 
 def scan_mapgen_timing(lines: List[str]) -> dict:
@@ -319,6 +342,12 @@ def main() -> int:
     ok_first: Dict[str, int] = {}
     regen_reason: Dict[str, int] = {}
     min_elig_hist: Dict[str, int] = collections.Counter()
+    cause_status: Dict[str, int] = {}
+    cause_gate: Dict[str, int] = {}
+    cause_prune: Dict[str, int] = {}
+    cause_leaf: Dict[str, int] = {}
+    cause_why: Dict[str, int] = {}
+    cause_combo: Dict[str, int] = {}
     rolls_with_tuple = 0
     tuple_relax_hard_only_rolls = 0
     tuple_ok_with_layout = 0
@@ -360,6 +389,14 @@ def main() -> int:
                 tuple_ok_layout_le3 += 1
         if d["solver_return"]:
             inc(solver_status, d["solver_return"])
+        gc = d.get("g6_cause")
+        if gc:
+            inc(cause_status, gc["status"])
+            inc(cause_gate, gc["gate"])
+            inc(cause_prune, gc["prune"])
+            inc(cause_leaf, gc["leaf"])
+            inc(cause_why, gc["why"])
+            inc(cause_combo, gc["combo"])
         for b in d["bias_decisions"]:
             inc(bias_decision, b["decision"])
             inc(bias_reason, b["reason"])
@@ -438,6 +475,13 @@ def main() -> int:
 
     dump("tupleSearch status", tuple_status)
     dump("solver_return", solver_status)
+    dump("g6|cause status", cause_status)
+    dump("g6|cause gate", cause_gate)
+    dump("g6|cause prune", cause_prune)
+    dump("g6|cause leaf", cause_leaf)
+    dump("g6|cause why", cause_why)
+    if args.full:
+        dump("g6|cause combo", cause_combo)
     bias_skip = bias_decision.get("skip_impossible", 0)
     bias_go = bias_decision.get("proceed_dfs", 0)
     print(
