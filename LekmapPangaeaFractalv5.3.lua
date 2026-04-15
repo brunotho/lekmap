@@ -624,7 +624,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 
 	local allcomplete = false;
 	local outerAttempts = 0;
-	local MAX_OUTER = 25;
+	local MAX_OUTER = 50;
 
 	while allcomplete == false do
 		outerAttempts = outerAttempts + 1;
@@ -2620,16 +2620,15 @@ function StartPlotSystem()
 		-- Optional pool breadth bump for stress studies.
 		start_plot_database._lek_global_six_max_candidates_per_region = 48;
 	     end
-	     -- start_plot_database._lek_global_six_max_fail_complete = 12000;
-	     -- start_plot_database._lek_global_six_max_leaf_evals = 40000;
-	     -- start_plot_database._lek_global_six_max_fail_complete = 100000;
-	     -- start_plot_database._lek_global_six_max_leaf_evals = 300000;
+	     start_plot_database._lek_global_six_force_geometry_only = true;
+	     start_plot_database._lek_global_six_force_geometry_sample_count = 120;
+	     start_plot_database._lek_global_six_force_geometry_candidate_cap = 36;
+	     start_plot_database._lek_global_six_force_geometry_center_band_min = 11;
+	     start_plot_database._lek_global_six_force_geometry_center_band_max = 16;
+	     start_plot_database._lek_global_six_force_geometry_target_center_d = 13;
 	     start_plot_database._lek_enable_virtual_six_retries = false;
 	     start_plot_database._lek_disable_virtual_six = true;
-	     -- start_plot_database._lek_enable_virtual_six_retries = true
-	     -- start_plot_database._lek_disable_virtual_six = false
 	     start_plot_database._lek_flatten_region_start_tiers = false
-	     -- start_plot_database._lek_flatten_region_start_tiers = true
 	     -- _lek_stronger_bias 
 	     start_plot_database.centerBias = 20
 	     start_plot_database.middleBias = 50
@@ -2760,6 +2759,30 @@ function StartPlotSystem()
 		local ok, err = pcall(function() start_plot_database:BalanceAndAssign(args) end);
 		if not ok then
 			local msg = "### BalanceAndAssign CRASH runId=" .. tostring(_lek_run_id or "na") .. " err=" .. tostring(err);
+			print(msg);
+			appendLekLog({ msg });
+		end
+	end
+	do
+		local ok, err = pcall(function()
+			if start_plot_database and start_plot_database.LekGlobalSix_ForceApplyExpectedPlayerStarts then
+				start_plot_database:LekGlobalSix_ForceApplyExpectedPlayerStarts();
+			end
+		end);
+		if not ok then
+			local msg = "### LekGlobalSix forceBiasApply CRASH runId=" .. tostring(_lek_run_id or "na") .. " err=" .. tostring(err);
+			print(msg);
+			appendLekLog({ msg });
+		end
+	end
+	do
+		local ok, err = pcall(function()
+			if start_plot_database and start_plot_database.LekGlobalSix_LogForceBiasAssignmentAudit then
+				start_plot_database:LekGlobalSix_LogForceBiasAssignmentAudit();
+			end
+		end);
+		if not ok then
+			local msg = "### LekGlobalSix forceBiasAudit CRASH runId=" .. tostring(_lek_run_id or "na") .. " err=" .. tostring(err);
 			print(msg);
 			appendLekLog({ msg });
 		end

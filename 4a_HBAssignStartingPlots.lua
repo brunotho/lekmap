@@ -351,6 +351,8 @@ function AssignStartingPlots.Create()
 		GenerateRegions = AssignStartingPlots.GenerateRegions,
 		ChooseLocations = AssignStartingPlots.ChooseLocations,
 		LekGlobalSixChooseLocations = AssignStartingPlots.LekGlobalSixChooseLocations,
+		LekGlobalSix_ForceApplyExpectedPlayerStarts = AssignStartingPlots.LekGlobalSix_ForceApplyExpectedPlayerStarts,
+		LekGlobalSix_LogForceBiasAssignmentAudit = AssignStartingPlots.LekGlobalSix_LogForceBiasAssignmentAudit,
 		LekGlobalSix_OK_RunAll = AssignStartingPlots.LekGlobalSix_OK_RunAll,
 		LekGlobalSix_GatherRawFindStartStyleCandidateIndices = AssignStartingPlots.LekGlobalSix_GatherRawFindStartStyleCandidateIndices,
 		LekGlobalSix_GatherTupleStyleCandidateIndices = AssignStartingPlots.LekGlobalSix_GatherTupleStyleCandidateIndices,
@@ -493,6 +495,7 @@ function AssignStartingPlots.Create()
 		PlaceLuxuries = AssignStartingPlots.PlaceLuxuries,
 		LekPlaceRegionalLuxuryShortfallFallback = AssignStartingPlots.LekPlaceRegionalLuxuryShortfallFallback,
 		LekBuildRegionalLuxuryRepairPoolInBand = AssignStartingPlots.LekBuildRegionalLuxuryRepairPoolInBand,
+		LekOrderSeaRegionalRepairPool = AssignStartingPlots.LekOrderSeaRegionalRepairPool,
 		LekCollectCoastSeaPlotIndicesInBandFromXY = AssignStartingPlots.LekCollectCoastSeaPlotIndicesInBandFromXY,
 		PlaceSmallQuantitiesOfStrategics = AssignStartingPlots.PlaceSmallQuantitiesOfStrategics,
 		PlaceFish = AssignStartingPlots.PlaceFish,
@@ -7096,6 +7099,559 @@ function AssignStartingPlots:LekGlobalSix_TupleSingletonFastPathTry(byRegion)
 	return "fail", nil, nil, R.first_fail;
 end
 
+function AssignStartingPlots:LekGlobalSix_ForceGeometryPackMetrics(pack, targetD)
+	local iW, iH = Map.GetGridSize();
+	local cx = math.floor(iW / 2);
+	local cy = math.floor(iH / 2);
+	local per = {};
+	local minPair = 999999;
+	for i = 1, 6 do
+		local a = pack[i];
+		if not a or type(a[1]) ~= "number" or type(a[2]) ~= "number" then
+			return nil;
+		end
+		for j = i + 1, 6 do
+			local b = pack[j];
+			local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, a[1], a[2], b[1], b[2]);
+			if d ~= nil and d < minPair then
+				minPair = d;
+			end
+		end
+	end
+	local maxD2 = -1;
+	local minCenter = 999999;
+	local maxCenterDev = -1;
+	local sumCenterDev = 0;
+	for r = 1, 6 do
+		local a = pack[r];
+		local dCenter = AssignStartingPlots.LekGlobalSix_PlotDistance(self, a[1], a[2], cx, cy);
+		local dists = {};
+		for j = 1, 6 do
+			if j ~= r then
+				local b = pack[j];
+				local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, a[1], a[2], b[1], b[2]);
+				if d ~= nil then
+					dists[#dists + 1] = d;
+				end
+			end
+		end
+		table.sort(dists);
+		local d1 = dists[1] or 999999;
+		local d2 = dists[2] or 999999;
+		local m = AssignStartingPlots.LekGlobalSix_MeasureBiasConditionsAtXY(self, a[1], a[2]);
+		local dev = math.abs((dCenter or targetD) - targetD);
+		per[r] = {
+			x = a[1],
+			y = a[2],
+			dCenter = dCenter,
+			d1 = d1,
+			d2 = d2,
+			coastal = (m.alongOcean == true),
+		};
+		if d2 > maxD2 then
+			maxD2 = d2;
+		end
+		if dCenter ~= nil and dCenter < minCenter then
+			minCenter = dCenter;
+		end
+		if dev > maxCenterDev then
+			maxCenterDev = dev;
+		end
+		sumCenterDev = sumCenterDev + dev;
+	end
+	return {
+		per = per,
+		maxD2 = maxD2,
+		minCenter = minCenter,
+		minPair = minPair,
+		maxCenterDev = maxCenterDev,
+		avgCenterDev = sumCenterDev / 6,
+		targetD = targetD,
+	};
+end
+
+function AssignStartingPlots:LekGlobalSix_ForceGeometryBiasFit(pack)
+	if type(pack) ~= "table" then
+		return true, 0, 0, "na";
+	end
+	local plist, perr = AssignStartingPlots.LekGlobalSix_Section5_BuildPlayerBiasPlist(self);
+	if not plist then
+		return true, 0, 0, "plist_err_" .. tostring(perr or "na");
+	end
+	local rmeta = {};
+	for r = 1, 6 do
+		local p = pack[r];
+		if p and type(p[1]) == "number" and type(p[2]) == "number" then
+			local m = AssignStartingPlots.LekGlobalSix_MeasureBiasConditionsAtXY(self, p[1], p[2]);
+			rmeta[r] = {
+				coastal = (m.alongOcean == true),
+				river = (m.isRiver == true or m.nearRiver == true),
+				rt = self.regionTypes[r],
+			};
+		else
+			return false, 0, 0, "pack_incomplete";
+		end
+	end
+	local function regionMatchesPrim(p, r)
+		local rt = rmeta[r].rt;
+		for _, rtNeed in ipairs(p.pr or {}) do
+			if rt == rtNeed then
+				return true;
+			end
+		end
+		return false;
+	end
+	local function regionPassesAvoid(p, r)
+		local rt = rmeta[r].rt;
+		for _, rtBad in ipairs(p.av or {}) do
+			if rt == rtBad then
+				return false;
+			end
+		end
+		return true;
+	end
+	local function hardOK(p, r)
+		if p.tag == "coastal" then
+			return rmeta[r].coastal == true;
+		end
+		return true;
+	end
+	local function softScore(p, r)
+		if p.tag == "river" then
+			return rmeta[r].river and 1 or 0, 1;
+		elseif p.tag == "pri1" then
+			local ok = regionMatchesPrim(p, r);
+			return ok and 2 or 0, 2;
+		elseif p.tag == "prim" then
+			local ok = regionMatchesPrim(p, r);
+			return ok and 1 or 0, 1;
+		elseif p.tag == "avoid" then
+			local ok = regionPassesAvoid(p, r);
+			return ok and 1 or 0, 1;
+		end
+		return 0, 0;
+	end
+	local function hardEligCount(p)
+		local n = 0;
+		for r = 1, 6 do
+			if hardOK(p, r) then
+				n = n + 1;
+			end
+		end
+		return n;
+	end
+	table.sort(plist, function(a, b)
+		local ca, cb = hardEligCount(a), hardEligCount(b);
+		if ca ~= cb then
+			return ca < cb;
+		end
+		return a.pid < b.pid;
+	end);
+	local occ = {};
+	local bestScore = -999999;
+	local bestMax = 0;
+	local bestAssign = nil;
+	local function dfs(k, score, maxScore, assign)
+		if k > #plist then
+			if score > bestScore then
+				bestScore = score;
+				bestMax = maxScore;
+				bestAssign = {};
+				for pid, reg in pairs(assign) do
+					bestAssign[pid] = reg;
+				end
+			end
+			return;
+		end
+		local p = plist[k];
+		local moved = false;
+		for r = 1, 6 do
+			if not occ[r] and hardOK(p, r) then
+				moved = true;
+				occ[r] = true;
+				local s, m = softScore(p, r);
+				assign[p.pid] = r;
+				dfs(k + 1, score + s, maxScore + m, assign);
+				assign[p.pid] = nil;
+				occ[r] = false;
+			end
+		end
+		if not moved then
+			return;
+		end
+	end
+	dfs(1, 0, 0, {});
+	if bestScore < 0 then
+		return false, 0, 0, "coastal_hard_no_matching", nil, nil;
+	end
+	local coastalPids = {};
+	for _, p in ipairs(plist) do
+		if p.tag == "coastal" then
+			coastalPids[#coastalPids + 1] = p.pid;
+		end
+	end
+	table.sort(coastalPids);
+	return true, bestScore, bestMax, "ok", bestAssign, coastalPids;
+end
+
+function AssignStartingPlots:LekGlobalSix_ForceGeometryPackFromPools(byRegion, depthOrder)
+	local function isEngineSafeStartCandidate(c)
+		if c == nil or type(c.x) ~= "number" or type(c.y) ~= "number" then
+			return false;
+		end
+		local p = Map.GetPlot(c.x, c.y);
+		if not p then
+			return false;
+		end
+		if p:IsWater() then
+			return false;
+		end
+		if p:IsImpassable() then
+			return false;
+		end
+		local a = p:GetArea();
+		if not a then
+			return false;
+		end
+		return true;
+	end
+
+	local sampleN = tonumber(self._lek_global_six_force_geometry_sample_count);
+	if type(sampleN) ~= "number" or sampleN < 1 then
+		sampleN = 120;
+	end
+	local candCap = tonumber(self._lek_global_six_force_geometry_candidate_cap);
+	if type(candCap) ~= "number" or candCap < 1 then
+		candCap = 36;
+	end
+	local targetD = tonumber(self._lek_global_six_force_geometry_target_center_d);
+	if type(targetD) ~= "number" or targetD < 1 then
+		targetD = LEK_G6_S1_TARGET_D;
+	end
+	local bandMin = tonumber(self._lek_global_six_force_geometry_center_band_min);
+	local bandMax = tonumber(self._lek_global_six_force_geometry_center_band_max);
+	if type(bandMin) ~= "number" then
+		bandMin = 12;
+	end
+	if type(bandMax) ~= "number" then
+		bandMax = 16;
+	end
+	if bandMin > bandMax then
+		local tmp = bandMin;
+		bandMin = bandMax;
+		bandMax = tmp;
+	end
+	local dMinPairOpt6 = AssignStartingPlots.LekGlobalSix_MinPairwiseDistanceFromStartDistanceOption();
+	if type(dMinPairOpt6) ~= "number" or dMinPairOpt6 < 2 then
+		dMinPairOpt6 = LEK_G6_MIN_PAIRWISE_PLOTDIST_FALLBACK;
+	end
+	local forceExactTwoCoastal = (self.BalancedCoastalExactTwo == true) and (self.ForceAllInlandPlayerSpawns ~= true);
+	local function countCoastalInPack(pack)
+		local n = 0;
+		for _, t in pairs(pack or {}) do
+			if t and type(t[1]) == "number" and type(t[2]) == "number" then
+				local m = AssignStartingPlots.LekGlobalSix_MeasureBiasConditionsAtXY(self, t[1], t[2]);
+				if m and m.alongOcean == true then
+					n = n + 1;
+				end
+			end
+		end
+		return n;
+	end
+	local function filterPoolForForceTwoCoastal(pool, wantCoastalOnly, wantInlandOnly)
+		if not forceExactTwoCoastal then
+			return pool;
+		end
+		if not wantCoastalOnly and not wantInlandOnly then
+			return pool;
+		end
+		local out = {};
+		for i = 1, #pool do
+			local c = pool[i];
+			local m = AssignStartingPlots.LekGlobalSix_MeasureBiasConditionsAtXY(self, c.x, c.y);
+			local isC = (m and m.alongOcean == true);
+			if wantCoastalOnly and isC then
+				out[#out + 1] = c;
+			elseif wantInlandOnly and not isC then
+				out[#out + 1] = c;
+			end
+		end
+		return out;
+	end
+	local pools = {};
+	for r = 1, 6 do
+		local src = byRegion[r] or {};
+		local lim = math.min(#src, candCap);
+		local inBand = {};
+		local fallback = {};
+		for i = 1, lim do
+			local c = src[i];
+			if isEngineSafeStartCandidate(c) then
+				fallback[#fallback + 1] = c;
+				local d = tonumber(c.dMapCenter);
+				if d ~= nil and d >= bandMin and d <= bandMax then
+					inBand[#inBand + 1] = c;
+				end
+			end
+		end
+		if #inBand > 0 then
+			pools[r] = inBand;
+		elseif #fallback > 0 then
+			pools[r] = fallback;
+		else
+			return nil, nil, sampleN, candCap, bandMin, bandMax;
+		end
+	end
+	local function pickUniqueCompatible(pool, used, pack, depth, coastalSoFar)
+		local placed = depth - 1;
+		local rem = 6 - placed;
+		local needC = 2 - coastalSoFar;
+		local needI = 4 - (placed - coastalSoFar);
+		local wantCoastalOnly = false;
+		local wantInlandOnly = false;
+		if forceExactTwoCoastal then
+			if needC > rem or needI > rem then
+				return nil, nil;
+			end
+			if needC == rem then
+				wantCoastalOnly = true;
+			elseif needI == rem then
+				wantInlandOnly = true;
+			end
+		end
+		pool = filterPoolForForceTwoCoastal(pool, wantCoastalOnly, wantInlandOnly);
+		local n = #pool;
+		if n < 1 then
+			return nil, nil;
+		end
+		local start = 1 + Map.Rand(n, "LekForceGeomPickStart");
+		for off = 0, n - 1 do
+			local idx = ((start + off - 1) % n) + 1;
+			local c = pool[idx];
+			local ck = tostring(c.plotIndex or (tostring(c.x) .. "," .. tostring(c.y)));
+			if not used[ck] then
+				local ok = true;
+				for r2, t2 in pairs(pack) do
+					if t2 and type(t2[1]) == "number" and type(t2[2]) == "number" then
+						local dxy = AssignStartingPlots.LekGlobalSix_PlotDistance(self, c.x, c.y, t2[1], t2[2]);
+						local req = AssignStartingPlots.LekGlobalSix_MinPairRequiredPlotDistForTuple(self, c.x, c.y, t2[1], t2[2], dMinPairOpt6);
+						if dxy ~= nil and req ~= nil and dxy < req then
+							ok = false;
+							break;
+						end
+					end
+				end
+				if ok then
+					return c, ck;
+				end
+			end
+		end
+		return nil, nil;
+	end
+	local bestPack = nil;
+	local bestMetrics = nil;
+	local feasibleSamples = 0;
+	for si = 1, sampleN do
+		local used = {};
+		local pack = {};
+		local okPack = true;
+		for depth = 1, 6 do
+			local r = depthOrder[depth];
+			local pool = pools[r];
+			local coastalSoFar = countCoastalInPack(pack);
+			local c, ck = pickUniqueCompatible(pool, used, pack, depth, coastalSoFar);
+			if not c then
+				okPack = false;
+				break;
+			end
+			used[ck] = true;
+			pack[r] = { c.x, c.y, c.score };
+		end
+		if okPack and forceExactTwoCoastal and countCoastalInPack(pack) ~= 2 then
+			okPack = false;
+		end
+		if okPack then
+			local m = AssignStartingPlots.LekGlobalSix_ForceGeometryPackMetrics(self, pack, targetD);
+			if m ~= nil then
+				local biasOk, bScore, bMax, bDet, bAssign, bCoastalPids = AssignStartingPlots.LekGlobalSix_ForceGeometryBiasFit(self, pack);
+				if biasOk then
+					feasibleSamples = feasibleSamples + 1;
+					m.biasSoftScore = bScore;
+					m.biasSoftMax = bMax;
+					m.biasSoftDet = bDet;
+					m.biasAssignPidRegion = bAssign;
+					m.biasCoastalPids = bCoastalPids;
+					m.samplesTried = sampleN;
+					m.samplesFeasible = feasibleSamples;
+					m.centerBandMin = bandMin;
+					m.centerBandMax = bandMax;
+				if bestMetrics == nil
+					or m.maxD2 < bestMetrics.maxD2
+					or (m.maxD2 == bestMetrics.maxD2 and m.minPair > bestMetrics.minPair)
+					or (m.maxD2 == bestMetrics.maxD2 and m.minPair == bestMetrics.minPair and m.biasSoftScore > (bestMetrics.biasSoftScore or -999999))
+					or (m.maxD2 == bestMetrics.maxD2 and m.minPair == bestMetrics.minPair and m.biasSoftScore == (bestMetrics.biasSoftScore or -999999) and m.maxCenterDev < bestMetrics.maxCenterDev)
+				then
+					bestMetrics = m;
+					bestPack = pack;
+				end
+				end
+			end
+		end
+	end
+	return bestPack, bestMetrics, sampleN, candCap, bandMin, bandMax;
+end
+
+function AssignStartingPlots:LekGlobalSix_LogForceGeometryPack(rid, phaseIdx, phaseName, metrics, sampleN, candCap, bandMin, bandMax)
+	if type(metrics) ~= "table" or type(metrics.per) ~= "table" then
+		return;
+	end
+	LekPlacementProbeAt(1, "### LekGlobalSix forceGeom runId=" .. tostring(rid) ..
+		" phaseIndex=" .. tostring(phaseIdx) ..
+		" name=" .. tostring(phaseName) ..
+		" samples=" .. tostring(sampleN) ..
+		" candCap=" .. tostring(candCap) ..
+		" centerBand=" .. tostring(bandMin) .. "-" .. tostring(bandMax) ..
+		" targetD=" .. tostring(metrics.targetD) ..
+		" maxCenterDev=" .. tostring(metrics.maxCenterDev) ..
+		" avgCenterDev=" .. string.format("%.3f", metrics.avgCenterDev or 0) ..
+		" minCenter=" .. tostring(metrics.minCenter) ..
+		" maxSecondNearest=" .. tostring(metrics.maxD2) ..
+		" minPair=" .. tostring(metrics.minPair) ..
+		" biasSoftScore=" .. tostring(metrics.biasSoftScore or 0) ..
+		" biasSoftMax=" .. tostring(metrics.biasSoftMax or 0) ..
+		" samplesFeasible=" .. tostring(metrics.samplesFeasible or 0) ..
+		" biasDet=" .. tostring(metrics.biasSoftDet or "na"));
+	local dC, d1, d2, coast = {}, {}, {}, {};
+	for r = 1, 6 do
+		local p = metrics.per[r];
+		if p then
+			dC[#dC + 1] = "r" .. tostring(r) .. ":" .. tostring(p.dCenter);
+			d1[#d1 + 1] = "r" .. tostring(r) .. ":" .. tostring(p.d1);
+			d2[#d2 + 1] = "r" .. tostring(r) .. ":" .. tostring(p.d2);
+			coast[#coast + 1] = "r" .. tostring(r) .. ":" .. tostring(p.coastal and "true" or "false");
+			LekPlacementProbeAt(1, "### LekGlobalSix forceGeomSlot runId=" .. tostring(rid) ..
+				" r=" .. tostring(r) ..
+				" x=" .. tostring(p.x) ..
+				" y=" .. tostring(p.y) ..
+				" coastal=" .. tostring(p.coastal and "true" or "false") ..
+				" dCenter=" .. tostring(p.dCenter) ..
+				" d1=" .. tostring(p.d1) ..
+				" d2=" .. tostring(p.d2));
+		end
+	end
+	LekPlacementProbeAt(1, "### LekGlobalSix forceGeomVectors runId=" .. tostring(rid) ..
+		" dCenter=[" .. table.concat(dC, ",") .. "]" ..
+		" d1=[" .. table.concat(d1, ",") .. "]" ..
+		" d2=[" .. table.concat(d2, ",") .. "]" ..
+		" coastal=[" .. table.concat(coast, ",") .. "]" ..
+		" overallMaxSecondNearest=" .. tostring(metrics.maxD2) ..
+		" overallMinCenter=" .. tostring(metrics.minCenter));
+end
+
+function AssignStartingPlots:LekGlobalSix_LogForceBiasAssignmentAudit()
+	local expected = self._lek_force_expected_pid_region;
+	if type(expected) ~= "table" then
+		return;
+	end
+	local expPids = {};
+	for pid, _ in pairs(expected) do
+		expPids[#expPids + 1] = tonumber(pid) or pid;
+	end
+	table.sort(expPids);
+	local expParts = {};
+	for _, pid in ipairs(expPids) do
+		expParts[#expParts + 1] = tostring(pid) .. "->r" .. tostring(expected[pid]);
+	end
+	local actual = {};
+	local allPids = {};
+	local seenPid = {};
+	for _, pid in ipairs(self.player_ID_list or {}) do
+		allPids[#allPids + 1] = pid;
+		seenPid[pid] = true;
+	end
+	for pid, _ in pairs(expected) do
+		if not seenPid[pid] then
+			allPids[#allPids + 1] = pid;
+		end
+	end
+	table.sort(allPids);
+	for _, pid in ipairs(allPids) do
+		local player = LekSafeMajorPlayer(pid);
+		if player then
+			local sp = player:GetStartingPlot();
+			if sp then
+				local sx, sy = sp:GetX(), sp:GetY();
+				local hitR = nil;
+				for r = 1, 6 do
+					local t = self.startingPlots[r];
+					if t and type(t[1]) == "number" and type(t[2]) == "number" and t[1] == sx and t[2] == sy then
+						hitR = r;
+						break;
+					end
+				end
+				actual[pid] = hitR or "na";
+			else
+				actual[pid] = "none";
+			end
+		else
+			actual[pid] = "nil_player";
+		end
+	end
+	local actParts = {};
+	local mismatch = 0;
+	for _, pid in ipairs(allPids) do
+		actParts[#actParts + 1] = tostring(pid) .. "->r" .. tostring(actual[pid]);
+		local ex = expected[pid];
+		if ex ~= nil and tostring(ex) ~= tostring(actual[pid]) then
+			mismatch = mismatch + 1;
+		end
+	end
+	local coastalPids = self._lek_force_expected_coastal_pids;
+	local coastalStr = "na";
+	if type(coastalPids) == "table" then
+		local cpy = {};
+		for i = 1, #coastalPids do
+			cpy[#cpy + 1] = tostring(coastalPids[i]);
+		end
+		coastalStr = table.concat(cpy, ",");
+	end
+	LekPlacementProbeAt(1, "### LekGlobalSix forceBiasAudit runId=" .. tostring(_lek_run_id or "na") ..
+		" expected=[" .. table.concat(expParts, ",") .. "]" ..
+		" actual=[" .. table.concat(actParts, ",") .. "]" ..
+		" expectedCoastalPids=[" .. coastalStr .. "]" ..
+		" mismatch=" .. tostring(mismatch));
+end
+
+function AssignStartingPlots:LekGlobalSix_ForceApplyExpectedPlayerStarts()
+	if self._lek_global_six_force_geometry_only ~= true then
+		return;
+	end
+	local expected = self._lek_force_expected_pid_region;
+	if type(expected) ~= "table" then
+		return;
+	end
+	local applied = 0;
+	local miss = 0;
+	for pid, region in pairs(expected) do
+		local r = tonumber(region);
+		local t = (r and self.startingPlots[r]) or nil;
+		if t and type(t[1]) == "number" and type(t[2]) == "number" then
+			local p = Map.GetPlot(t[1], t[2]);
+			local pl = LekSafeMajorPlayer(pid);
+			if p and pl then
+				pl:SetStartingPlot(p);
+				applied = applied + 1;
+			else
+				miss = miss + 1;
+			end
+		else
+			miss = miss + 1;
+		end
+	end
+	LekPlacementProbeAt(1, "### LekGlobalSix forceBiasApply runId=" .. tostring(_lek_run_id or "na")
+		.. " applied=" .. tostring(applied) .. " missing=" .. tostring(miss));
+end
+
 function AssignStartingPlots:LekGlobalSix_TuplePoolFeasProbeRun(byRegion, s2cap, phaseIdx, phaseName, rid)
 	if self._lek_global_six_tuple_pool_feas_probe == false then
 		return;
@@ -7752,6 +8308,8 @@ function AssignStartingPlots:LekGlobalSix_RunTupleSearch()
 	self._lek_tuple_cause_prune = nil;
 	self._lek_tuple_cause_leaf = nil;
 	self._lek_tuple_cause_combo = nil;
+	self._lek_force_expected_pid_region = nil;
+	self._lek_force_expected_coastal_pids = nil;
 	self._lek_tuple_search_success_phase_name = nil;
 	self._lek_tuple_search_success_phase_index = nil;
 	self._lek_g6_bias_policy = AssignStartingPlots.LekGlobalSix_BuildEffectiveBiasPolicy(self);
@@ -8117,6 +8675,52 @@ function AssignStartingPlots:LekGlobalSix_RunTupleSearch()
 					" sortKeys=" .. tostring(dfsOrderKeys) ..
 					" " .. table.concat(parts, "; "));
 			end
+
+			if self._lek_global_six_force_geometry_only == true then
+				local forcePack, forceMetrics, forceSampleN, forceCap, forceBandMin, forceBandMax =
+					AssignStartingPlots.LekGlobalSix_ForceGeometryPackFromPools(self, byRegion, depthOrder);
+				if forcePack ~= nil then
+					for r = 1, 6 do
+						local p = forcePack[r];
+						self.startingPlots[r] = { p[1], p[2], p[3] };
+						self:PlaceImpactAndRipples(p[1], p[2]);
+					end
+					AssignStartingPlots.LekGlobalSix_LogForceGeometryPack(self, rid, phaseIdx, phaseName, forceMetrics, forceSampleN, forceCap, forceBandMin, forceBandMax);
+					local _okRuleAudF, _errRuleAudF = pcall(function()
+						AssignStartingPlots.LekGlobalSix_LogRuleAuditAfterTupleCommit(self);
+					end);
+					if not _okRuleAudF then
+						LekPlacementProbeAt(1, "### LekGlobalSix ruleAuditAfterTuple pcall_err runId=" .. rid
+							.. " err=" .. tostring(_errRuleAudF));
+					end
+					self._lek_tuple_cause_gate = "force_geometry_only";
+					self._lek_tuple_cause_prune = "force_geometry_only";
+					self._lek_tuple_cause_leaf = "ok_force_geometry_only";
+					self._lek_tuple_cause_combo = "na";
+					self._lek_force_expected_pid_region = forceMetrics and forceMetrics.biasAssignPidRegion or nil;
+					self._lek_force_expected_coastal_pids = forceMetrics and forceMetrics.biasCoastalPids or nil;
+					self._lek_tuple_search_success_phase_name = tostring(phaseName) .. "_force_geometry_only";
+					self._lek_tuple_search_success_phase_index = phaseIdx;
+					self._lek_g6_runtime_s1_min = nil;
+					self._lek_g6_runtime_s1_max = nil;
+					self._lek_g6_runtime_s2_max = nil;
+					LekPlacementProbeLog("### LekGlobalSix tuplePhase success_force_geometry_only runId=" .. rid ..
+						" phaseIndex=" .. tostring(phaseIdx) ..
+						" name=" .. phaseName ..
+						" failComplete=0 leafEvals=0");
+					return true, 0, 0, maxFail, nil;
+				else
+					lastFC = 0;
+					lastLE = 0;
+					lastMaxF = maxFail;
+					lastFailKind = "force_geometry_no_pack";
+					self._lek_tuple_cause_gate = "force_geometry_no_pack";
+					LekPlacementProbeLog("### LekGlobalSix tuplePhase end runId=" .. rid ..
+						" phaseIndex=" .. tostring(phaseIdx) ..
+						" name=" .. phaseName ..
+						" status=force_geometry_no_pack");
+				end
+			else
 
 			local biasGateOk = true;
 			local biasGateReason = "gate_off";
@@ -8723,6 +9327,7 @@ function AssignStartingPlots:LekGlobalSix_RunTupleSearch()
 			end
 		end
 		end
+	end
 	end
 
 	if minS2FallbackActive and minS2Fallback ~= nil and minS2Fallback.pack ~= nil then
@@ -17513,6 +18118,74 @@ function AssignStartingPlots:LekBuildRegionalLuxuryRepairPoolInBand(region_numbe
 	addFromList(senary);
 	return pool;
 end
+
+function AssignStartingPlots:LekOrderSeaRegionalRepairPool(region_number, res_ID, pool)
+	if type(pool) ~= "table" or #pool <= 1 then
+		return pool or {};
+	end
+	local sp = self.startingPlots[region_number];
+	if sp == nil or type(sp[1]) ~= "number" or type(sp[2]) ~= "number" then
+		return pool;
+	end
+	local sx, sy = sp[1], sp[2];
+	local iW, iH = Map.GetGridSize();
+	local nearestOtherCoastal = nil;
+	for r = 1, self.iNumCivs or 0 do
+		if r ~= region_number then
+			local t = self.startingPlots[r];
+			if t and type(t[1]) == "number" and type(t[2]) == "number" then
+				local m = AssignStartingPlots.LekGlobalSix_MeasureBiasConditionsAtXY(self, t[1], t[2]);
+				if m and m.alongOcean == true then
+					local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, sx, sy, t[1], t[2]);
+					if type(d) == "number" and (nearestOtherCoastal == nil or d < nearestOtherCoastal.d) then
+						nearestOtherCoastal = { x = t[1], y = t[2], d = d };
+					end
+				end
+			end
+		end
+	end
+	local sameRes = {};
+	for y = 0, iH - 1 do
+		for x = 0, iW - 1 do
+			local p = Map.GetPlot(x, y);
+			if p and p:GetResourceType(-1) == res_ID then
+				sameRes[#sameRes + 1] = { x = x, y = y };
+			end
+		end
+	end
+	local scored = {};
+	for _, pi in ipairs(pool) do
+		local x = math.floor((pi - 1) % iW);
+		local y = math.floor((pi - x - 1) / iW);
+		local nearestSame = 99;
+		for _, s in ipairs(sameRes) do
+			local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, x, y, s.x, s.y);
+			if type(d) == "number" and d < nearestSame then
+				nearestSame = d;
+			end
+		end
+		if #sameRes == 0 then
+			nearestSame = 8;
+		end
+		local coastAway = 0;
+		if nearestOtherCoastal ~= nil and type(nearestOtherCoastal.d) == "number" and nearestOtherCoastal.d <= 15 then
+			coastAway = AssignStartingPlots.LekGlobalSix_PlotDistance(self, x, y, nearestOtherCoastal.x, nearestOtherCoastal.y) or 0;
+		end
+		local score = coastAway * 9 + nearestSame * 3 + Map.Rand(3, "LekSeaRegionalRepairSortNoise");
+		scored[#scored + 1] = { pi = pi, score = score };
+	end
+	table.sort(scored, function(a, b)
+		if a.score ~= b.score then
+			return a.score > b.score;
+		end
+		return a.pi < b.pi;
+	end);
+	local out = {};
+	for i = 1, #scored do
+		out[i] = scored[i].pi;
+	end
+	return out;
+end
 ------------------------------------------------------------------------------
 function AssignStartingPlots:LekPlaceRegionalLuxuryShortfallFallback()
 	self._lek_regional_lux_shortfall_after_fallback = {};
@@ -17530,12 +18203,14 @@ function AssignStartingPlots:LekPlaceRegionalLuxuryShortfallFallback()
 			local pool48 = self:LekBuildRegionalLuxuryRepairPoolInBand(region_number, res_ID, 4, 7);
 			local pool18 = {};
 			if #pool48 > 0 then
-				left = self:PlaceSpecificNumberOfResources(res_ID, 1, left, 1, -1, 0, 0, GetShuffledCopyOfTable(pool48));
+				local ordered48 = self:LekIsSeaLuxuryResourceId(res_ID) and self:LekOrderSeaRegionalRepairPool(region_number, res_ID, pool48) or GetShuffledCopyOfTable(pool48);
+				left = self:PlaceSpecificNumberOfResources(res_ID, 1, left, 1, -1, 0, 0, ordered48);
 			end
 			if left > 0 then
 				pool18 = self:LekBuildRegionalLuxuryRepairPoolInBand(region_number, res_ID, 1, 7);
 				if #pool18 > 0 then
-					left = self:PlaceSpecificNumberOfResources(res_ID, 1, left, 1, -1, 0, 0, GetShuffledCopyOfTable(pool18));
+					local ordered18 = self:LekIsSeaLuxuryResourceId(res_ID) and self:LekOrderSeaRegionalRepairPool(region_number, res_ID, pool18) or GetShuffledCopyOfTable(pool18);
+					left = self:PlaceSpecificNumberOfResources(res_ID, 1, left, 1, -1, 0, 0, ordered18);
 				end
 			end
 			if left > 0 then
