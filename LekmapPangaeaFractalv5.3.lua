@@ -2621,7 +2621,7 @@ function StartPlotSystem()
 		start_plot_database._lek_global_six_max_candidates_per_region = 48;
 	     end
 	     start_plot_database._lek_global_six_force_geometry_only = true;
-	     start_plot_database._lek_global_six_force_geometry_sample_count = 120;
+	     start_plot_database._lek_global_six_force_geometry_sample_count = 1000;
 	     start_plot_database._lek_global_six_force_geometry_candidate_cap = 36;
 	     start_plot_database._lek_global_six_force_geometry_center_band_min = 11;
 	     start_plot_database._lek_global_six_force_geometry_center_band_max = 16;
