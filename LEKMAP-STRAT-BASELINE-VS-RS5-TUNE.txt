@@ -13,7 +13,7 @@ This file is the **progression log** for measured A/B; bump the “last updated�
   • **RS5 v2 aggregate retune** (raise non-balance major trim cap + relax RS5 freqs): see `4a_HBAssignStartingPlots.lua` — `LEK_RS5_MAX_NON_BALANCE_MAJOR_PER_TYPE`, `PlaceStrategicAndBonusResources` rs5 block — commit **`b830798`**.
   • **Spec** (success criteria, ~15% total cut, 0–4 extra majors, small-share, no hill small iron): `LEKMAP-STRATEGIC-RESOURCE-TUNING-SPEC.txt`
 
-Last updated: **2026-04-19** — State A/B table frozen on old pastes; **State C** row below is **target + code intent** until a new log batch is pasted.
+Last updated: **2026-04-19** — State A/B frozen on old pastes; **State C** has a first **n=5** peek (user paste); enlarge batch before locking knobs.
 
 
 Mean A vs B and % change (B vs A on batch means)
@@ -44,21 +44,52 @@ Anchors from the spec (same benchmark style as State A):
   • **Process:** re-run a **same-size** roll batch (e.g. 30 maps) after each knob, same script/settings, and append a new dated block here so progression stays comparable.
 
 
-State C — RS5 **v2** (code change in tree; **paste new `LEK_STRAT_TOTAL` batch here**)
----------------------------------------------------------------------------
-**Intent vs spec:** move batch mean **total nodes** from State B **~36.6** up toward **~49.4** (baseline **~58.2** minus **~15%**). Hill small-iron strip + rescan audit unchanged.
+State C — RS5 **v2** (first batch, **n=5**)
+-----------------------------------------
+Source: user paste **2026-04-19** — five maps, `tuple_ok=1`, `stage=before_PlaceOilInTheSea`, audit collapsed to **`final_map_after_rs5_tune`** only (fewer `LEK_STRAT_PHASE` lines than State A). Code: **`b830798`** (+ doc hash fix **`47fe7e3`**).
 
-**Code dials (v2):**
+RunIds: **312074**, **439775**, **562117**, **816072**, **1026270**.
+
+**Quick read:** mean total **≈ 38.4** — **above** State B **≈ 36.6** (+**≈ 5%**) but still **below** spec anchor **≈ 49.4** (baseline −15%) by **≈ 11** nodes on this tiny sample. **`horse_majorN = 16` on all five** (6 balance + **10** non-balance majors kept — trim cap saturated). Small-share mean **≈ 0.23** (between A **≈ 0.18** and B **≈ 0.46**).
+
+Aggregates (n=5; pstdev is population over these five only — high variance expected):
+
+  horse_majorN: min **16** max **16** median **16** mean **16** pstdev **0**
+  horse_smallN: min **1** max **11** median **8** mean **≈ 6.6** pstdev **≈ 3.9**
+  iron_majorN:  min **9** max **16** median **13** mean **≈ 12.8** pstdev **≈ 2.3**
+  iron_smallN:  min **0** max **8** median **1** mean **≈ 3.0** pstdev **≈ 3.0**
+  horse_nodes: mean **≈ 22.6** · iron_nodes: mean **≈ 15.8**
+  **total** (four N): min **30** max **51** median **34** mean **≈ 38.4** pstdev **≈ 7.9**
+
+Small-share mean **≈ 0.228** (median **≈ 0.242**).
+
+Vs frozen batch means — **% change on means** `(C−X)/X×100`:
+
+  Metric                | State C (n=5) | vs A      | vs B
+  ----------------------+-------------+-----------+-----------
+  total nodes           | **≈ 38.4**  | **≈ −34%**| **≈ +5%**
+  horse_majorN          | **16**      | **≈ −54%**| **≈ +60%**
+  horse_smallN          | **≈ 6.6**   | **≈ +4%** | **≈ −31%**
+  iron_majorN           | **≈ 12.8**  | **≈ +6%** | **≈ +33%**
+  iron_smallN           | **≈ 3.0**   | **≈ −35%**| **≈ −60%**
+  small-share           | **≈ 0.23**  | **≈ +27%**| **≈ −50%**
+
+Per-run `LEK_STRAT_TOTAL` (tab-separated):
+
+  runId	horse_majorN	horse_smallN	iron_majorN	iron_smallN	total
+  312074	16	3	14	1	34
+  439775	16	8	9	0	33
+  562117	16	10	13	5	44
+  816072	16	1	12	1	30
+  1026270	16	11	16	8	51
+
+**Code dials (v2, unchanged):**
   • `LEK_RS5_MAX_NON_BALANCE_MAJOR_PER_TYPE = **10**` (was hardcoded **4** in post-process — main lever; trims farthest non-`strat_balance_region` majors first).
-  • `resource_setting == 5` frequencies: horse dry/plains/tundra **11 / 11 / 112** (was 12/12/118); iron tundra/snow/desert/hills **17 / 16 / 12 / 24** (was 19/18/13/26); small-strat base **26** (was 24) → slightly **fewer** small placements per land-list sweep vs v1.
+  • `resource_setting == 5` frequencies: horse dry/plains/tundra **11 / 11 / 112**; iron tundra/snow/desert/hills **17 / 16 / 12 / 24**; small-strat base **26**.
 
-**Tension:** spec §2 “**0–4** extra majors per type (~90% maps)” is stricter than the v2 trim cap if read as a **hard** per-map ceiling. v2 prioritizes the **§3 aggregate ~−15% total** first; after you measure State C, either (a) bring cap back down and loosen only freqs, or (b) amend the spec / add a histogram on “extras” from audit passes.
+**Tension:** spec §2 “**0–4** extra majors per type (~90% maps)” vs trim cap **10** — first peek shows **horse** pinned at **16** every map (extras = **10**). If §2 stays strict, next knob is **lower cap** + **loosen freqs** to recover total toward **~49** without pinning.
 
-Placeholder row (fill after batch):
-
-  Metric                 | State C v2 (n=?) | vs A mean | vs B mean
-  -----------------------+------------------+-----------+----------
-  total nodes mean       | *(paste)*        | *(calc)*  | *(calc)*
+**Next:** roll **20–30** more maps, same grep; if mean total still **< ~46**, try **`LEK_RS5_MAX_NON_BALANCE_MAJOR_PER_TYPE = 12`** or slightly denser horse/iron `ProcessResourceList` freqs (watch iron_major variance).
 
 
 State A — BASELINE (previous strategic placement logic, no post-map RS5 clamp)
