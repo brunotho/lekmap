@@ -262,7 +262,7 @@ local function LekHBPlotListLen(plot_list)
 end
 
 local function LekStratIsBalanceAuditPass(pass)
-	return type(pass) == "string" and string.find(pass, "^strat_balance_region=") == 1;
+	return type(pass) == "string" and string.sub(pass, 1, 21) == "strat_balance_region=";
 end
 
 ------------------------------------------------------------------------------
@@ -783,6 +783,11 @@ function AssignStartingPlots.Create()
 		GetMajorStrategicResourceQuantityValues = AssignStartingPlots.GetMajorStrategicResourceQuantityValues,
 		GetSmallStrategicResourceQuantityValues = AssignStartingPlots.GetSmallStrategicResourceQuantityValues,
 		PlaceStrategicAndBonusResources = AssignStartingPlots.PlaceStrategicAndBonusResources,
+		LekStratPostProcessForResourceSettingFive = AssignStartingPlots.LekStratPostProcessForResourceSettingFive,
+		LekStratTrimNonBalanceMajorHorseIron = AssignStartingPlots.LekStratTrimNonBalanceMajorHorseIron,
+		LekStratStripSmallIronOnHillsFromMap = AssignStartingPlots.LekStratStripSmallIronOnHillsFromMap,
+		LekStratMinDistanceToAnyMajorStart = AssignStartingPlots.LekStratMinDistanceToAnyMajorStart,
+		LekStratDecrementPlacedAmounts = AssignStartingPlots.LekStratDecrementPlacedAmounts,
 		
 		-- Civ start position variables
 		startingPlots = {},				-- Stores x and y coordinates (and "score") of starting plots for civs, indexed by region number
