@@ -265,6 +265,12 @@ local function LekStratIsBalanceAuditPass(pass)
 	return type(pass) == "string" and string.sub(pass, 1, 21) == "strat_balance_region=";
 end
 
+-- RS5 (`resource_setting == 5`): max non-`strat_balance_region` horse/iron *major* sites kept after
+-- `LekStratTrimNonBalanceMajorHorseIron` (farthest-from-any-start majors removed first).
+-- Baseline batch mean total horse+iron nodes ~58; spec ~15% cut → ~49. RS5 v1 cap **4** → batch mean ~37 (too deep).
+-- v2 default **10** — recenters aggregate totals toward ~49 once re-batched (`LEK_STRAT_TOTAL`).
+local LEK_RS5_MAX_NON_BALANCE_MAJOR_PER_TYPE = 10;
+
 ------------------------------------------------------------------------------
 -- Strategic audit (horse/iron only): active when self.resource_setting == 5.
 -- Call sites set self._lek_strat_audit_context to a short pass label before placing.
@@ -518,7 +524,7 @@ function AssignStartingPlots.LekStratAuditRescanHorseIronFromMap(self, passLabel
 end
 
 function AssignStartingPlots:LekStratPostProcessForResourceSettingFive()
-	self:LekStratTrimNonBalanceMajorHorseIron(4);
+	self:LekStratTrimNonBalanceMajorHorseIron(LEK_RS5_MAX_NON_BALANCE_MAJOR_PER_TYPE);
 	self:LekStratStripSmallIronOnHillsFromMap();
 	AssignStartingPlots.LekStratAuditReset(self);
 	AssignStartingPlots.LekStratAuditRescanHorseIronFromMap(self, "final_map_after_rs5_tune");
@@ -22689,9 +22695,9 @@ function AssignStartingPlots:PlaceStrategicAndBonusResources()
 	local rs5_fq_iron_tdf, rs5_fq_iron_snf, rs5_fq_iron_ddf, rs5_fq_iron_hl = 16, 15, 11, 22;
 	local rs5_small_freq_base = 23;
 	if self.resource_setting == 5 then
-		rs5_fq_horse_dgf, rs5_fq_horse_pln, rs5_fq_horse_tdf = 12, 12, 118;
-		rs5_fq_iron_tdf, rs5_fq_iron_snf, rs5_fq_iron_ddf, rs5_fq_iron_hl = 19, 18, 13, 26;
-		rs5_small_freq_base = 24;
+		rs5_fq_horse_dgf, rs5_fq_horse_pln, rs5_fq_horse_tdf = 11, 11, 112;
+		rs5_fq_iron_tdf, rs5_fq_iron_snf, rs5_fq_iron_ddf, rs5_fq_iron_hl = 17, 16, 12, 24;
+		rs5_small_freq_base = 26;
 	end
 
 	-- Place Strategic resources.
