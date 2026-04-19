@@ -10,7 +10,7 @@ This file is the **progression log** for measured A/B; bump the “last updated�
 
   • **RS5 strategic tuning** (caps / freqs / rescan / hill small-iron): `05886d8` — *Save snapshot and implement RS5 strategic horse/iron tuning.*
   • **findStarts crash fix** (wire `LekStratPostProcess*` into `findStarts` prototype): `38b686b` — *Fix crash: wire RS5 strat post-process methods into findStarts prototype.*
-  • **RS5 v2 aggregate retune** (raise non-balance major trim cap + relax RS5 freqs): see `4a_HBAssignStartingPlots.lua` — `LEK_RS5_MAX_NON_BALANCE_MAJOR_PER_TYPE`, `PlaceStrategicAndBonusResources` rs5 block — commit **`62b52d2`**.
+  • **RS5 v2 aggregate retune** (raise non-balance major trim cap + relax RS5 freqs): see `4a_HBAssignStartingPlots.lua` — `LEK_RS5_MAX_NON_BALANCE_MAJOR_PER_TYPE`, `PlaceStrategicAndBonusResources` rs5 block — commit **`b830798`**.
   • **Spec** (success criteria, ~15% total cut, 0–4 extra majors, small-share, no hill small iron): `LEKMAP-STRATEGIC-RESOURCE-TUNING-SPEC.txt`
 
 Last updated: **2026-04-19** — State A/B table frozen on old pastes; **State C** row below is **target + code intent** until a new log batch is pasted.
