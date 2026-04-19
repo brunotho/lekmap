@@ -2486,7 +2486,7 @@ function StartPlotSystem()
 
 	-- Get Resources setting input by user.
 	local AllowInlandSea = LekMapGetCustomOption(19)
-	local res = LekMapGetCustomOption(14)
+	local res = LekMapGetCustomOption(14) or 5
 	local starts = LekMapGetCustomOption(5)
 	--if starts == 7 then
 		--starts = 1 + Map.Rand(8, "Random Resources Option - Lua");

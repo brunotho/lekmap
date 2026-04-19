@@ -1,0 +1,86 @@
+LEKmap — debug / log reference (Living notes)
+==============================================
+
+Purpose
+-------
+Quick lookup for where toggles live and what strings appear in logs when tuning mapgen or analyzing rolls (10-map batches, averages, etc.).
+
+
+Where logs land (macOS default path in Lua)
+--------------------------------------------
+Many ### lines go both to normal Lua print output and to the diag file opened by LekMapgenDiagLogAppend:
+
+  ~/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log
+
+Not everything uses that append — anything that only calls print() may appear only in the stock Lua log. Lines routed through LekMapgenPrintAndDiagFile() or LekPlacementProbeAt() appear in LekmapStartSpacing6P.log when io append succeeds.
+
+Also see Pangaea appendLekLog() inside StartPlotSystem — tuple_benchmark_mode / small-world gates may skip some append paths.
+
+
+Verbosity & benchmark globals (common knobs)
+--------------------------------------------
+4a_HBAssignStartingPlots.lua (loaded early):
+  _lek_mapgen_log_verbosity   -- 1 = milestones; 2 = + placement probe detail; 3 = more tuple noise
+  _lek_mapgen_tuple_benchmark_mode  -- set by Pangaea after GenerateRegions when using Global Six pace
+  _lek_strat_audit_log_each_hit     -- false = no per-tile ### LEK_STRAT_HIT lines (default); true = every horse/iron placement
+
+LekmapPangaeaFractalv5.3.lua top:
+  _lek_mapgen_log_verbosity = 1   -- default for this map script
+
+
+Snow paint — region rectangles & centers (visual only)
+--------------------------------------------------------
+Goal: paint terrain so each region’s bounding rectangle and approximate center are visible on the finished map (snow markers).
+
+Location: LekmapPangaeaFractalv5.3.lua
+
+  Function: DebugPaintRegionsTerrains(start_plot_database)
+    Declared inside StartPlotSystem(), before GenerateRegions args block (~line 2374).
+
+  Inner painting loop (snow center + coarse rectangle outline): currently commented out as a block inside the function (--[[ ... ]] around ~2454–2484). Uncomment that block to enable the heavy outline pass.
+
+  Outer call site (after GenerateRegions, before ChooseLocations): currently commented (--[[ ... ]] around ~2703–2707):
+      print("### DEBUG region markers paint START")
+      DebugPaintRegionsTerrains(start_plot_database)
+      print("### DEBUG region markers paint END")
+
+  Duplicate stub at bottom of StartPlotSystem (~3152): DebugPaintRegionsTerrains(start_plot_database) — optional late repaint.
+
+Warning: outline uses many SetTerrainType calls (bounded by outlinePaintCountMax). Run only when diagnosing regions; can stall or clutter the map.
+
+
+Greppable log prefixes (selection)
+----------------------------------
+### LEK_RESOURCE_SETTING     — resolved resource_setting + args.resources (GenerateRegions).
+
+### LEK_STRAT_AUDIT strat_pass_begin — entering major strategic placement block (resource_setting == 5).
+
+### LEK_STRAT_HIT              — one horse/iron placement (only if _lek_strat_audit_log_each_hit == true).
+
+### LEK_STRAT_SUMMARY          — stage tag + raw entry count before sea oil.
+
+### LEK_STRAT_TOTAL            — map-wide rollout for this summary: horse_majorN, horse_smallN, iron_majorN, iron_smallN, horse_nodes, iron_nodes.
+
+### LEK_STRAT_PHASE            — same counts broken down by placement pass label (pass=...).
+
+### LekBench6                  — tuple / spacing / lux repair / hex_ok single-line rollup per layout.
+
+### LekMapGen ...              — plot types timing, GenerateMap_lua_entry/exit, LekHB_GenerateMap_Core_*.
+
+### LekGlobalSix ...           — force geometry, solver, bias audit, coastal tuple phases.
+
+### ChooseLocations begin      — marks global-six placement entry.
+
+### DebugPaintRegionsTerrains — snow / outline diagnostics when enabled.
+
+
+Strategic audit vocabulary
+--------------------------
+“Units” (removed from primary phase lines): Civ resource amount on a tile (e.g. horse bundle size). Summing units across nodes was useful for yield math; node counts are easier to scan.
+
+Major vs small node: inferred from qty when logged — horse qty >= 4 → major node; iron qty >= 5 → major node (see LekStratAuditClassifyHorseIronSize).
+
+
+Rolling N maps for statistics
+-----------------------------
+Collect ### LEK_STRAT_TOTAL and ### LEK_STRAT_PHASE lines plus ### LekBench6 per accepted layout; grep runId to group one map. Average horse_majorN / iron_majorN / etc. across runs after you paste batches.

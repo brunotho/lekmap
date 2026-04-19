@@ -62,6 +62,9 @@ end
 if _lek_mapgen_tuple_benchmark_mode == nil then
 	_lek_mapgen_tuple_benchmark_mode = false;
 end
+if _lek_strat_audit_log_each_hit == nil then
+	_lek_strat_audit_log_each_hit = false;
+end
 
 function LekMapgenTupleBenchmarkMode()
 	return _lek_mapgen_tuple_benchmark_mode == true;
@@ -183,6 +186,13 @@ function LekPlacementProbeAt(minLevel, msg)
 	end);
 end
 
+function LekMapgenPrintAndDiagFile(msg)
+	print(msg);
+	pcall(function()
+		LekMapgenDiagLogAppend(msg);
+	end);
+end
+
 function LekPlacementProbeLog(msg)
 	LekPlacementProbeAt(2, msg);
 end
@@ -251,6 +261,269 @@ local function LekHBPlotListLen(plot_list)
 	return table.maxn(plot_list) or 0;
 end
 
+local function LekStratIsBalanceAuditPass(pass)
+	return type(pass) == "string" and string.find(pass, "^strat_balance_region=") == 1;
+end
+
+------------------------------------------------------------------------------
+-- Strategic audit (horse/iron only): active when self.resource_setting == 5.
+-- Call sites set self._lek_strat_audit_context to a short pass label before placing.
+------------------------------------------------------------------------------
+AssignStartingPlots = AssignStartingPlots or {};
+function AssignStartingPlots.LekStratAuditReset(self)
+	if (self.resource_setting or 0) ~= 5 then
+		self._lek_strat_audit = nil;
+		self._lek_strat_audit_context = nil;
+		return;
+	end
+	self._lek_strat_audit = { entries = {} };
+	self._lek_strat_audit_context = nil;
+end
+
+function AssignStartingPlots.LekStratAuditEnsure(self)
+	if (self.resource_setting or 0) ~= 5 then
+		return false;
+	end
+	if self._lek_strat_audit == nil then
+		self._lek_strat_audit = { entries = {} };
+	end
+	return true;
+end
+
+function AssignStartingPlots.LekStratAuditClassifyHorseIronSize(self, resId, qty)
+	if type(qty) ~= "number" then
+		return "?";
+	end
+	if resId == self.horse_ID then
+		return (qty >= 4) and "major" or "small";
+	end
+	if resId == self.iron_ID then
+		return (qty >= 5) and "major" or "small";
+	end
+	return "?";
+end
+
+function AssignStartingPlots.LekStratAuditRecordHorseIron(self, resId, qty, plot, x, y)
+	if not AssignStartingPlots.LekStratAuditEnsure(self) then
+		return;
+	end
+	if resId ~= self.horse_ID and resId ~= self.iron_ID then
+		return;
+	end
+	local p = plot;
+	if p == nil and type(x) == "number" and type(y) == "number" then
+		p = Map.GetPlot(x, y);
+	end
+	local tt, ft, pt = -1, -1, -1;
+	if p then
+		tt = p:GetTerrainType();
+		ft = p:GetFeatureType();
+		pt = p:GetPlotType();
+	end
+	local resName = (resId == self.horse_ID) and "horse" or "iron";
+	local sz = AssignStartingPlots.LekStratAuditClassifyHorseIronSize(self, resId, qty);
+	local pass = tostring(self._lek_strat_audit_context or "unknown_pass");
+	local ent = {
+		pass = pass,
+		res = resName,
+		qty = qty,
+		sz = sz,
+		tt = tt,
+		ft = ft,
+		pt = pt,
+		x = x,
+		y = y,
+	};
+	local t = self._lek_strat_audit.entries;
+	t[#t + 1] = ent;
+	if _lek_strat_audit_log_each_hit == true and #t <= 4000 then
+		LekMapgenPrintAndDiagFile("### LEK_STRAT_HIT runId=" .. tostring(_lek_run_id or "na")
+			.. " pass=" .. pass
+			.. " res=" .. resName
+			.. " qty=" .. tostring(qty)
+			.. " sz=" .. sz
+			.. " x=" .. tostring(x) .. " y=" .. tostring(y)
+			.. " tt=" .. tostring(tt) .. " ft=" .. tostring(ft) .. " pt=" .. tostring(pt));
+	end
+end
+
+function AssignStartingPlots:LekStratAuditPrintSummary(stageTag)
+	if (self.resource_setting or 0) ~= 5 or not self._lek_strat_audit or not self._lek_strat_audit.entries then
+		return;
+	end
+	local rid = tostring(_lek_run_id or "na");
+	local total_horse_major, total_horse_small, total_iron_major, total_iron_small = 0, 0, 0, 0;
+	local byPass = {};
+	for _, e in ipairs(self._lek_strat_audit.entries) do
+		local p = e.pass;
+		byPass[p] = byPass[p] or {
+			horse_nodes = 0, iron_nodes = 0,
+			horse_units = 0, iron_units = 0,
+			horse_major = 0, horse_small = 0, iron_major = 0, iron_small = 0,
+		};
+		local b = byPass[p];
+		if e.res == "horse" then
+			b.horse_nodes = b.horse_nodes + 1;
+			b.horse_units = b.horse_units + (tonumber(e.qty) or 0);
+			if e.sz == "major" then
+				b.horse_major = b.horse_major + 1;
+				total_horse_major = total_horse_major + 1;
+			elseif e.sz == "small" then
+				b.horse_small = b.horse_small + 1;
+				total_horse_small = total_horse_small + 1;
+			end
+		elseif e.res == "iron" then
+			b.iron_nodes = b.iron_nodes + 1;
+			b.iron_units = b.iron_units + (tonumber(e.qty) or 0);
+			if e.sz == "major" then
+				b.iron_major = b.iron_major + 1;
+				total_iron_major = total_iron_major + 1;
+			elseif e.sz == "small" then
+				b.iron_small = b.iron_small + 1;
+				total_iron_small = total_iron_small + 1;
+			end
+		end
+	end
+	local keys = {};
+	for k in pairs(byPass) do
+		keys[#keys + 1] = k;
+	end
+	table.sort(keys);
+	LekMapgenPrintAndDiagFile("### LEK_STRAT_SUMMARY runId=" .. rid .. " stage=" .. tostring(stageTag or "na")
+		.. " resource_setting=5 entries=" .. tostring(#self._lek_strat_audit.entries));
+	LekMapgenPrintAndDiagFile("### LEK_STRAT_TOTAL runId=" .. rid .. " stage=" .. tostring(stageTag or "na")
+		.. " horse_majorN=" .. tostring(total_horse_major)
+		.. " horse_smallN=" .. tostring(total_horse_small)
+		.. " iron_majorN=" .. tostring(total_iron_major)
+		.. " iron_smallN=" .. tostring(total_iron_small)
+		.. " horse_nodes=" .. tostring(total_horse_major + total_horse_small)
+		.. " iron_nodes=" .. tostring(total_iron_major + total_iron_small));
+	for _, k in ipairs(keys) do
+		local b = byPass[k];
+		LekMapgenPrintAndDiagFile("### LEK_STRAT_PHASE runId=" .. rid
+			.. " pass=" .. k
+			.. " horse_majorN=" .. tostring(b.horse_major)
+			.. " horse_smallN=" .. tostring(b.horse_small)
+			.. " iron_majorN=" .. tostring(b.iron_major)
+			.. " iron_smallN=" .. tostring(b.iron_small));
+	end
+end
+
+function AssignStartingPlots:LekStratMinDistanceToAnyMajorStart(x, y)
+	local best = 999999;
+	local n = self.iNumCivs or 0;
+	for r = 1, n do
+		local sp = self.startingPlots[r];
+		if sp and type(sp[1]) == "number" and type(sp[2]) == "number" then
+			local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, sp[1], sp[2], x, y);
+			if type(d) == "number" and d < best then
+				best = d;
+			end
+		end
+	end
+	return best;
+end
+
+function AssignStartingPlots:LekStratDecrementPlacedAmounts(resId, qty)
+	if not self.amounts_of_resources_placed or type(resId) ~= "number" or type(qty) ~= "number" then
+		return;
+	end
+	local i = resId + 1;
+	self.amounts_of_resources_placed[i] = math.max(0, (self.amounts_of_resources_placed[i] or 0) - qty);
+end
+
+function AssignStartingPlots:LekStratTrimNonBalanceMajorHorseIron(maxExtraPerType)
+	if maxExtraPerType == nil then
+		maxExtraPerType = 4;
+	end
+	if not self._lek_strat_audit or not self._lek_strat_audit.entries then
+		return;
+	end
+	local function trimOneKind(resName, resId)
+		local byKey = {};
+		for _, e in ipairs(self._lek_strat_audit.entries) do
+			if e.res == resName and e.sz == "major" and not LekStratIsBalanceAuditPass(e.pass)
+				and type(e.x) == "number" and type(e.y) == "number" then
+				local key = tostring(e.x) .. "_" .. tostring(e.y);
+				byKey[key] = { x = e.x, y = e.y, resId = resId };
+			end
+		end
+		local list = {};
+		for _, row in pairs(byKey) do
+			row.d = self:LekStratMinDistanceToAnyMajorStart(row.x, row.y);
+			list[#list + 1] = row;
+		end
+		if #list <= maxExtraPerType then
+			return;
+		end
+		table.sort(list, function(a, b)
+			return (a.d or 0) > (b.d or 0);
+		end);
+		for i = 1, #list - maxExtraPerType do
+			local row = list[i];
+			local plot = Map.GetPlot(row.x, row.y);
+			if plot and plot:GetResourceType(-1) == row.resId and plot.GetNumResource then
+				local q = plot:GetNumResource();
+				if type(q) == "number" then
+					local sz = AssignStartingPlots.LekStratAuditClassifyHorseIronSize(self, row.resId, q);
+					if sz == "major" then
+						plot:SetResourceType(-1);
+						self:LekStratDecrementPlacedAmounts(row.resId, q);
+					end
+				end
+			end
+		end
+	end
+	trimOneKind("horse", self.horse_ID);
+	trimOneKind("iron", self.iron_ID);
+end
+
+function AssignStartingPlots:LekStratStripSmallIronOnHillsFromMap()
+	local iW, iH = Map.GetGridSize();
+	for y = 0, iH - 1 do
+		for x = 0, iW - 1 do
+			local plot = Map.GetPlot(x, y);
+			if plot:GetPlotType() == PlotTypes.PLOT_HILLS and plot:GetResourceType(-1) == self.iron_ID and plot.GetNumResource then
+				local q = plot:GetNumResource();
+				if type(q) == "number" and q < 5 then
+					plot:SetResourceType(-1);
+					self:LekStratDecrementPlacedAmounts(self.iron_ID, q);
+				end
+			end
+		end
+	end
+end
+
+function AssignStartingPlots.LekStratAuditRescanHorseIronFromMap(self, passLabel)
+	if not AssignStartingPlots.LekStratAuditEnsure(self) then
+		return;
+	end
+	self._lek_strat_audit.entries = {};
+	local iW, iH = Map.GetGridSize();
+	for y = 0, iH - 1 do
+		for x = 0, iW - 1 do
+			local plot = Map.GetPlot(x, y);
+			local rt = plot:GetResourceType(-1);
+			if (rt == self.horse_ID or rt == self.iron_ID) and plot.GetNumResource then
+				local qty = plot:GetNumResource();
+				if type(qty) ~= "number" then
+					qty = 0;
+				end
+				self._lek_strat_audit_context = passLabel or "map_scan";
+				AssignStartingPlots.LekStratAuditRecordHorseIron(self, rt, qty, plot, x, y);
+			end
+		end
+	end
+	self._lek_strat_audit_context = nil;
+end
+
+function AssignStartingPlots:LekStratPostProcessForResourceSettingFive()
+	self:LekStratTrimNonBalanceMajorHorseIron(4);
+	self:LekStratStripSmallIronOnHillsFromMap();
+	AssignStartingPlots.LekStratAuditReset(self);
+	AssignStartingPlots.LekStratAuditRescanHorseIronFromMap(self, "final_map_after_rs5_tune");
+end
+
 -- Lekmap: stubs for natural wonder custom eligibility/placement (called when XML method number != -1)
 function NWCustomEligibility(x, y, method_number) return false; end
 function NWCustomPlacement(x, y, row_number, method_number) end
@@ -304,7 +577,7 @@ function NWCustomPlacement(x, y, row_number, method_number) end
 
 ------------------------------------------------------------------------------
 ------------------------------------------------------------------------------
-AssignStartingPlots = {};
+AssignStartingPlots = AssignStartingPlots or {};
 ------------------------------------------------------------------------------
 
 -- WARNING: There must not be any recalculation of AreaIDs at any time during
@@ -2213,7 +2486,11 @@ function AssignStartingPlots:GenerateRegions(args)
 	local iW, iH = Map.GetGridSize();
 	self.method = args.method or self.method; -- Continental method is default.
 	self.start_locations = args.start_locations or 2; -- Each map script has to pass in parameter for Resource setting chosen by user.
-	self.resource_setting = args.resources or 3;
+	self.resource_setting = args.resources or 5;
+	LekMapgenPrintAndDiagFile("### LEK_RESOURCE_SETTING runId=" .. tostring(_lek_run_id or "na")
+		.. " args.resources=" .. tostring(args.resources)
+		.. " resolved_resource_setting=" .. tostring(self.resource_setting));
+	AssignStartingPlots.LekStratAuditReset(self);
 	self.CoastLux = args.CoastLux or false;
 	self.AllowInlandSea = args.AllowInlandSea or 1;
 	self.NoCoastInland = args.NoCoastInland;
@@ -9620,9 +9897,11 @@ function AssignStartingPlots:AttemptToPlaceSmallStrategicAtPlot(x, y)
 				--print("Placed Horse.");
 			end
 			plot:SetResourceType(choice, 2);
+			AssignStartingPlots.LekStratAuditRecordHorseIron(self, choice, 2, plot, x, y);
 			self.amounts_of_resources_placed[choice + 1] = self.amounts_of_resources_placed[choice + 1] + 2;
 		else -- Can't be horses.
 			plot:SetResourceType(self.iron_ID, 2);
+			AssignStartingPlots.LekStratAuditRecordHorseIron(self, self.iron_ID, 2, plot, x, y);
 			self.amounts_of_resources_placed[self.iron_ID + 1] = self.amounts_of_resources_placed[self.iron_ID + 1] + 2;
 			--print("Placed Iron.");
 		end
@@ -9650,6 +9929,10 @@ function AssignStartingPlots:AddStrategicBalanceResources(region_number)
 	local iron_fallback, horse_fallback, oil_fallback, alum_fallback, coal_fallback, uran_fallback = {}, {}, {}, {}, {}, {};
 	local radius = 3;
 	local OilToPlace = 2;
+	local prevStratAuditCtx = self._lek_strat_audit_context;
+	if self.resource_setting == 5 then
+		self._lek_strat_audit_context = "strat_balance_region=" .. tostring(region_number);
+	end
 	
 	--print("- Adding Strategic Balance Resources for start location in Region#", region_number);
 	
@@ -9997,6 +10280,7 @@ function AssignStartingPlots:AddStrategicBalanceResources(region_number)
 			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(self.uranium_ID, uran_amt, 2, 1, 1, 0, 0, shuf_list);
 		end
 	end
+	self._lek_strat_audit_context = prevStratAuditCtx;
 end
 ------------------------------------------------------------------------------
 function AssignStartingPlots:AttemptToPlaceStoneAtGrassPlot(x, y)
@@ -10559,6 +10843,10 @@ function AssignStartingPlots:NormalizeStartLocation(region_number)
 	
 	-- If early hammers will be too short, attempt to add a small Horse or Iron to second ring.
 	if innerHammerScore <= 4 and earlyHammerScore < 10 then -- Add a small Horse or Iron to second ring.
+		local prevHammerStratCtx = self._lek_strat_audit_context;
+		if self.resource_setting == 5 then
+			self._lek_strat_audit_context = "hammer_poor_second_ring_qty2";
+		end
 		if isEvenY then
 			randomized_second_ring_adjustments = GetShuffledCopyOfTable(self.secondRingYIsEven);
 		else
@@ -10576,6 +10864,7 @@ function AssignStartingPlots:NormalizeStartLocation(region_number)
 				print("FAILED to add small strategic resource near hammer-poor start plot at ", x, y);
 			end
 		end
+		self._lek_strat_audit_context = prevHammerStratCtx;
 	end
 	
 	-- Rate the food situation.
@@ -15126,6 +15415,7 @@ function AssignStartingPlots:ProcessResourceList(frequency, impact_table_number,
 							end
 							--print("ProcessResourceList table 1, Resource: " .. res_ID[use_this_res_index] .. ", Quantity: " .. res_quantity[use_this_res_index]);
 							res_plot:SetResourceType(res_ID[use_this_res_index], res_quantity[use_this_res_index]);
+							AssignStartingPlots.LekStratAuditRecordHorseIron(self, res_ID[use_this_res_index], res_quantity[use_this_res_index], res_plot, x, y);
 							if (Game.GetResourceUsageType(res_ID[use_this_res_index]) == ResourceUsageTypes.RESOURCEUSAGE_LUXURY) then
 								self.totalLuxPlacedSoFar = self.totalLuxPlacedSoFar + 1;
 							end
@@ -15217,6 +15507,9 @@ function AssignStartingPlots:ProcessResourceList(frequency, impact_table_number,
 				end
 				--print("ProcessResourceList backup, Resource: " .. res_ID[use_this_res_index] .. ", Quantity: " .. res_quantity[use_this_res_index]);
 				res_plot:SetResourceType(res_ID[use_this_res_index], res_quantity[use_this_res_index]);
+				if impact_table_number == 1 then
+					AssignStartingPlots.LekStratAuditRecordHorseIron(self, res_ID[use_this_res_index], res_quantity[use_this_res_index], res_plot, x, y);
+				end
 				self:PlaceResourceImpact(x, y, impact_table_number, res_min[use_this_res_index] + res_addition);
 				self.amounts_of_resources_placed[res_ID[use_this_res_index] + 1] = self.amounts_of_resources_placed[res_ID[use_this_res_index] + 1] + res_quantity[use_this_res_index];
 			end
@@ -15288,6 +15581,7 @@ function AssignStartingPlots:PlaceSpecificNumberOfResources(resource_ID, quantit
 				local res_plot = Map.GetPlot(x, y)
 				if res_plot and res_plot:GetResourceType(-1) == -1 then
 					res_plot:SetResourceType(resource_ID, quantity);
+					AssignStartingPlots.LekStratAuditRecordHorseIron(self, resource_ID, quantity, res_plot, x, y);
 					self.amounts_of_resources_placed[resource_ID + 1] = self.amounts_of_resources_placed[resource_ID + 1] + quantity;
 					--print("-"); print("Placed Resource#", resource_ID, "at Plot", x, y);
 					self.totalLuxPlacedSoFar = self.totalLuxPlacedSoFar + 1;
@@ -20712,6 +21006,10 @@ function AssignStartingPlots:PlaceSmallQuantitiesOfStrategics(frequency, plot_li
 								end
 							end
 						end
+						if (self.resource_setting or 0) == 5 and selected_ID == self.iron_ID
+							and plotType == PlotTypes.PLOT_HILLS and selected_quantity < 5 then
+							selected_ID = -1;
+						end
 						-- Now place the resource, then impact the strategic data layer.
 						if selected_ID ~= -1 then	
 							local strat_radius = Map.Rand(4, "Resource Radius - Place Small Quantities LUA");
@@ -20719,6 +21017,7 @@ function AssignStartingPlots:PlaceSmallQuantitiesOfStrategics(frequency, plot_li
 								strat_radius = 1;
 							end
 							res_plot:SetResourceType(selected_ID, selected_quantity);
+							AssignStartingPlots.LekStratAuditRecordHorseIron(self, selected_ID, selected_quantity, res_plot, x, y);
 							self:PlaceResourceImpact(x, y, 1, strat_radius);
 							placed_this_res = true;
 							self.amounts_of_resources_placed[selected_ID + 1] = self.amounts_of_resources_placed[selected_ID + 1] + selected_quantity;
@@ -22381,79 +22680,109 @@ function AssignStartingPlots:PlaceStrategicAndBonusResources()
 		bonus_multiplier = 0.15;
 	end
 
+	local rs5_fq_horse_dgf, rs5_fq_horse_pln, rs5_fq_horse_tdf = 10, 10, 100;
+	local rs5_fq_iron_tdf, rs5_fq_iron_snf, rs5_fq_iron_ddf, rs5_fq_iron_hl = 16, 15, 11, 22;
+	local rs5_small_freq_base = 23;
+	if self.resource_setting == 5 then
+		rs5_fq_horse_dgf, rs5_fq_horse_pln, rs5_fq_horse_tdf = 12, 12, 118;
+		rs5_fq_iron_tdf, rs5_fq_iron_snf, rs5_fq_iron_ddf, rs5_fq_iron_hl = 19, 18, 13, 26;
+		rs5_small_freq_base = 24;
+	end
+
 	-- Place Strategic resources.
 	print("Map Generation - Placing Strategics");
+	if self.resource_setting == 5 then
+		LekMapgenPrintAndDiagFile("### LEK_STRAT_AUDIT strat_pass_begin runId=" .. tostring(_lek_run_id or "na")
+			.. " resource_setting=5 start_locations=" .. tostring(self.start_locations)
+			.. " iNumCivs=" .. tostring(self.iNumCivs)
+			.. " bonus_mult=" .. tostring(bonus_multiplier));
+	end
 	local resources_to_place = {
 	{self.oil_ID, oil_amt, 65, 1, 4},
 	{self.uranium_ID, uran_amt, 35, 1, 4} };
+	self._lek_strat_audit_context = "major:marsh_list_f7_oil+uran";
 	self:ProcessResourceList(7, 1, self.marsh_list, resources_to_place)
 
 	local resources_to_place = {
 	{self.oil_ID, oil_amt, 55, 1, 5},
 	{self.aluminum_ID, alum_amt, 15, 1, 2},
 	{self.iron_ID, iron_amt, 35, 1, 2} };
-	self:ProcessResourceList(16, 1, self.tundra_flat_no_feature, resources_to_place)
+	self._lek_strat_audit_context = "major:tundra_flat_f16_oil+alum+iron";
+	self:ProcessResourceList(rs5_fq_iron_tdf, 1, self.tundra_flat_no_feature, resources_to_place)
 
 	local resources_to_place = {
 	{self.oil_ID, oil_amt, 65, 1, 5},
 	{self.aluminum_ID, alum_amt, 15, 1, 2},
 	{self.iron_ID, iron_amt, 20, 1, 2} };
-	self:ProcessResourceList(15, 1, self.snow_flat_list, resources_to_place)
+	self._lek_strat_audit_context = "major:snow_flat_f15_oil+alum+iron";
+	self:ProcessResourceList(rs5_fq_iron_snf, 1, self.snow_flat_list, resources_to_place)
 
 	local resources_to_place = {
 	{self.oil_ID, oil_amt, 70, 1, 2},
 	{self.iron_ID, iron_amt, 30, 1, 2} };
-	self:ProcessResourceList(11, 1, self.desert_flat_no_feature, resources_to_place)
+	self._lek_strat_audit_context = "major:desert_flat_f11_oil+iron";
+	self:ProcessResourceList(rs5_fq_iron_ddf, 1, self.desert_flat_no_feature, resources_to_place)
 
 	local resources_to_place = {
 	{self.iron_ID, iron_amt, 26, 1, 3},
 	{self.coal_ID, coal_amt, 35, 1, 3},
 	{self.aluminum_ID, alum_amt, 39, 1, 3} };
-	self:ProcessResourceList(22, 1, self.hills_list, resources_to_place)
+	self._lek_strat_audit_context = "major:hills_list_f22_iron+coal+alum";
+	self:ProcessResourceList(rs5_fq_iron_hl, 1, self.hills_list, resources_to_place)
 
 	local resources_to_place = {
 	{self.coal_ID, coal_amt, 30, 1, 2},
 	{self.uranium_ID, uran_amt, 70, 1, 2} };
+	self._lek_strat_audit_context = "major:jungle_flat_f33_coal+uran";
 	self:ProcessResourceList(33, 1, self.jungle_flat_list, resources_to_place)
 	local resources_to_place = {
 	{self.coal_ID, coal_amt, 25, 1, 2},
 	{self.oil_ID, oil_amt, 25, 1, 5},
 	{self.uranium_ID, uran_amt, 50, 10, 0} };
+	self._lek_strat_audit_context = "major:forest_flat_f39_coal+oil+uran";
 	self:ProcessResourceList(39, 1, self.forest_flat_list, resources_to_place)
 
 	local resources_to_place = {
 	{self.horse_ID, horse_amt, 100, 1, 5} };
-	self:ProcessResourceList(10, 1, self.dry_grass_flat_no_feature, resources_to_place)
+	self._lek_strat_audit_context = "major:dry_grass_flat_f10_horse";
+	self:ProcessResourceList(rs5_fq_horse_dgf, 1, self.dry_grass_flat_no_feature, resources_to_place)
 	local resources_to_place = {
 	{self.horse_ID, horse_amt, 100, 1, 5} };
-	self:ProcessResourceList(10, 1, self.plains_flat_no_feature, resources_to_place)
+	self._lek_strat_audit_context = "major:plains_flat_f10_horse";
+	self:ProcessResourceList(rs5_fq_horse_pln, 1, self.plains_flat_no_feature, resources_to_place)
 	local resources_to_place = {
 	{self.horse_ID, horse_amt, 100, 1, 5} };
-	self:ProcessResourceList(100, 1, self.tundra_flat_no_feature, resources_to_place)
+	self._lek_strat_audit_context = "major:tundra_flat_f100_horse";
+	self:ProcessResourceList(rs5_fq_horse_tdf, 1, self.tundra_flat_no_feature, resources_to_place)
 
 	self:AddModernMinorStrategicsToCityStates() -- Added spring 2011
 	
-	self:PlaceSmallQuantitiesOfStrategics(23 * bonus_multiplier, self.land_list);
+	self._lek_strat_audit_context = "small_strat:land_list_freq=" .. string.format("%.4f", rs5_small_freq_base * bonus_multiplier);
+	self:PlaceSmallQuantitiesOfStrategics(rs5_small_freq_base * bonus_multiplier, self.land_list);
 
 	
 	-- Check for low or missing Strategic resources
 	if self.amounts_of_resources_placed[self.iron_ID + 1] < 8 then
 		--print("Map has very low iron, adding another.");
 		local resources_to_place = { {self.iron_ID, iron_amt, 100, 0, 0} };
+		self._lek_strat_audit_context = "backfill:iron_total_lt8_hills_once";
 		self:ProcessResourceList(99999, 1, self.hills_list, resources_to_place) -- 99999 means one per that many tiles: a single instance.
 	end
 	if self.amounts_of_resources_placed[self.iron_ID + 1] < 4 * self.iNumCivs then
 		--print("Map has very low iron, adding another.");
 		local resources_to_place = { {self.iron_ID, iron_amt, 100, 0, 0} };
+		self._lek_strat_audit_context = "backfill:iron_total_lt_4xcivs_land_once";
 		self:ProcessResourceList(99999, 1, self.land_list, resources_to_place)
 	end
 	if self.amounts_of_resources_placed[self.horse_ID + 1] < 4 * self.iNumCivs then
 		print("Map has very low horse, adding another.");
 		local resources_to_place = { {self.horse_ID, horse_amt, 100, 0, 0} };
+		self._lek_strat_audit_context = "backfill:horse_total_lt_4xcivs_plains_once";
 		self:ProcessResourceList(99999, 1, self.plains_flat_no_feature, resources_to_place)
 		
 		--print("Map has very low horse, adding another.");
 		local resources_to_place = { {self.horse_ID, horse_amt, 100, 0, 0} };
+		self._lek_strat_audit_context = "backfill:horse_total_lt_4xcivs_dry_grass_once";
 		self:ProcessResourceList(99999, 1, self.dry_grass_flat_no_feature, resources_to_place)
 	end
 	if self.amounts_of_resources_placed[self.coal_ID + 1] < 8 then
@@ -22498,6 +22827,11 @@ function AssignStartingPlots:PlaceStrategicAndBonusResources()
 		end
 	end
 
+	self._lek_strat_audit_context = nil;
+	if self.resource_setting == 5 then
+		self:LekStratPostProcessForResourceSettingFive();
+	end
+	AssignStartingPlots.LekStratAuditPrintSummary(self, "before_PlaceOilInTheSea");
 	self:PlaceOilInTheSea();
 
 	
