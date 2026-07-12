@@ -1,6 +1,13 @@
 Lekmap v5.3 (since v5.2)
 ========================
 
+Testing release (branch release/v5.3-testing)
+---------------------------------------------
+- Snapshot: last commit before RS5 horse/iron strategic rework (parent of 05886d8).
+- Map script UI name: "A Fractal Pangaea - Lekmap v5.3" (LekmapPangaeaFractalv5.3.lua).
+- File logging default OFF: set `_lek_mapgen_diag_file_enabled = true` at top of LekmapPangaeaFractalv5.3.lua to append ### lines to Civ5 Logs/LekmapStartSpacing6P.log (macOS or Windows path). Console print() unchanged.
+- RS5 strategic tuning (trim, LEK_STRAT_* audit, hill small-iron strip) is NOT in this branch — use `main` for that work.
+
 Fractal / pipeline (LekmapPangaeaFractalv5.3.lua)
 - plotTypes writes use 1-based indices (y*iW+x+1) wherever they must match 4_HBMapGenerator.SetPlotTypes.
 - Inland sea spray: after rounding, eligible tiles are rebuilt from the full connected component, not only the last rounding pass.

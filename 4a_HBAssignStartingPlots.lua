@@ -14,22 +14,34 @@
 
 include("1_HBMapmakerUtilities");
 
+function LekMapgenDiagFileEnabled()
+	return _lek_mapgen_diag_file_enabled == true;
+end
+
 function LekMapgenDiagLogPath()
 	if not (os and os.getenv) then
 		return nil;
 	end
+	local logName = "LekmapStartSpacing6P.log";
+	local userProfile = os.getenv("USERPROFILE") or "";
+	if userProfile ~= "" then
+		return userProfile .. "\\Documents\\My Games\\Sid Meier's Civilization 5\\Logs\\" .. logName;
+	end
 	local home = os.getenv("HOME") or "";
 	if home ~= "" then
-		return home .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log";
+		return home .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/" .. logName;
 	end
 	local user = os.getenv("USER") or "";
 	if user ~= "" then
-		return "/Users/" .. user .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log";
+		return "/Users/" .. user .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/" .. logName;
 	end
 	return nil;
 end
 
 function LekMapgenDiagLogAppend(lineOrLines)
+	if not LekMapgenDiagFileEnabled() then
+		return;
+	end
 	local path = LekMapgenDiagLogPath();
 	if not path or not (io and io.open) then
 		return;
@@ -61,6 +73,9 @@ if _lek_mapgen_world_is_small == nil then
 end
 if _lek_mapgen_tuple_benchmark_mode == nil then
 	_lek_mapgen_tuple_benchmark_mode = false;
+end
+if _lek_mapgen_diag_file_enabled == nil then
+	_lek_mapgen_diag_file_enabled = false;
 end
 
 function LekMapgenTupleBenchmarkMode()
@@ -14007,7 +14022,7 @@ function AssignStartingPlots:PlaceCityStates()
 			" refineReached=" .. tostring(self._lek_cs_refine_reached or 0) ..
 			" placeSuccess=" .. tostring(self._lek_cs_place_success or 0) ..
 			" selectedNil=" .. tostring(self._lek_cs_selected_nil or 0);
-		local line3 = "### LekBuildPing after_CS_refine_debug repo=v5.2";
+		local line3 = "### LekBuildPing after_CS_refine_debug repo=v5.3";
 		if not LekMapgenTupleBenchmarkMode() then
 			LekMapgenDiagLogAppend({ line, line2, line3 });
 		end

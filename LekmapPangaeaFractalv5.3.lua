@@ -13,6 +13,8 @@
 
 -- 1=progress milestones (tuple vs legacy, outcomes) | 2=+ ChooseLocations / feasibility | 3=tuple phases, pools, DFS detail
 _lek_mapgen_log_verbosity = 1;
+-- false = no LekmapStartSpacing6P.log file (default for testers). true = mirror ### / bench lines to Civ5 Logs folder (dev tuning).
+_lek_mapgen_diag_file_enabled = false;
 -- Small map: softer Pangaea/island tracing (outer loop + per-island spam). Tuple bench line (`LekBench6`): on for Global six pace (option 13 = 2), off for Legacy pace (13 = 1).
 _lek_mapgen_world_is_small = false;
 
