@@ -340,6 +340,9 @@ function AssignStartingPlots.LekStratAuditClassifyStrategicSize(self, resId, qty
 		if string.sub(p, 1, 12) == "small_strat:" then
 			return "small";
 		end
+		if string.find(p, "_small", 1, true) then
+			return "small";
+		end
 		if string.sub(p, 1, 13) == "strat_balance"
 			or string.sub(p, 1, 9) == "backfill:"
 			or string.sub(p, 1, 16) == "guaranteed_band:"
@@ -741,6 +744,11 @@ function AssignStartingPlots.LekStratSkipGlobalHorseIronEnabled()
 	return _lek_strat_skip_global_horse_iron == true;
 end
 
+-- RS5 oil/uranium balance recipe: band guarantees (see `_lek_strat_ou_bands`).
+function AssignStartingPlots.LekStratOuBandsEnabled()
+	return _lek_strat_ou_bands == true;
+end
+
 function AssignStartingPlots:LekStratBuildHorseIronListsForRingBand(x, y, dMin, dMax, ironFlatOnly)
 	-- Horse: OG balance-style flat primary. Iron: OG hills primary unless ironFlatOnly (extra smalls).
 	-- Primary when ripple_radius < dMax; fallback on outer ring of the band (+ flat iron fallbacks when not flat-only).
@@ -838,11 +846,18 @@ function AssignStartingPlots:LekStratBuildHorseIronListsForRingBand(x, y, dMin, 
 	return iron_list, iron_fallback, horse_list, horse_fallback;
 end
 
-function AssignStartingPlots:LekStratPlaceOneWithPrimaryFallback(resId, qty, primary_list, fallback_list, auditLabel)
+function AssignStartingPlots:LekStratPlaceOneWithPrimaryFallback(resId, qty, primary_list, fallback_list, auditLabel, impact_table_number, min_radius, max_radius)
+	-- Optional strategic/luxury/… impact: impact_table_number (-1 ignore), min/max radius.
+	local impactTbl = impact_table_number;
+	if impactTbl == nil then
+		impactTbl = -1;
+	end
+	local minR = min_radius or 0;
+	local maxR = max_radius or 0;
 	local prevCtx = self._lek_strat_audit_context;
-	local resName = (resId == self.horse_ID) and "horse" or ((resId == self.iron_ID) and "iron" or ("id" .. tostring(resId)));
-	local pN = table.maxn(primary_list);
-	local fN = table.maxn(fallback_list);
+	local resName = AssignStartingPlots.LekStratAuditResName(self, resId) or ("id" .. tostring(resId));
+	local pN = table.maxn(primary_list or {});
+	local fN = table.maxn(fallback_list or {});
 	local listUsed = "none";
 	local placed = false;
 	if pN > 0 then
@@ -850,7 +865,7 @@ function AssignStartingPlots:LekStratPlaceOneWithPrimaryFallback(resId, qty, pri
 			self._lek_strat_audit_context = auditLabel .. ":list=primary";
 		end
 		local shuf = GetShuffledCopyOfTable(primary_list);
-		if self:PlaceSpecificNumberOfResources(resId, qty, 1, 1, -1, 0, 0, shuf) == 0 then
+		if self:PlaceSpecificNumberOfResources(resId, qty, 1, 1, impactTbl, minR, maxR, shuf) == 0 then
 			placed = true;
 			listUsed = "primary";
 		end
@@ -860,7 +875,7 @@ function AssignStartingPlots:LekStratPlaceOneWithPrimaryFallback(resId, qty, pri
 			self._lek_strat_audit_context = auditLabel .. ":list=fallback";
 		end
 		local shuf = GetShuffledCopyOfTable(fallback_list);
-		if self:PlaceSpecificNumberOfResources(resId, qty, 1, 1, -1, 0, 0, shuf) == 0 then
+		if self:PlaceSpecificNumberOfResources(resId, qty, 1, 1, impactTbl, minR, maxR, shuf) == 0 then
 			placed = true;
 			listUsed = "fallback";
 		end
@@ -915,6 +930,222 @@ function AssignStartingPlots:LekStratPlaceExtraBalanceSmallsForRegion(region_num
 	LekMapgenPrintAndDiagFile("### LEK_STRAT_EXTRA_SMALLS region_done runId=" .. tostring(_lek_run_id or "na")
 		.. " region=" .. tostring(region_number)
 		.. " placed=" .. tostring(okN) .. "/4");
+end
+
+function AssignStartingPlots:LekStratBuildOilListsForRingBand(x, y, dMin, dMax)
+	-- Primary = OG oil_list terrain (desert/tundra/snow/marsh). Fallback = plains/grass/forest/jungle/flood.
+	local iW, iH = Map.GetGridSize();
+	local wrapX = Map:IsWrapX();
+	local wrapY = Map:IsWrapY();
+	local odd = self.firstRingYIsOdd;
+	local even = self.firstRingYIsEven;
+	local oil_list, oil_fallback = {}, {};
+	for ripple_radius = dMin, dMax do
+		local currentX = x - ripple_radius;
+		local currentY = y;
+		for direction_index = 1, 6 do
+			for plot_to_handle = 1, ripple_radius do
+				local plot_adjustments;
+				if currentY / 2 > math.floor(currentY / 2) then
+					plot_adjustments = odd[direction_index];
+				else
+					plot_adjustments = even[direction_index];
+				end
+				local nextX = currentX + plot_adjustments[1];
+				local nextY = currentY + plot_adjustments[2];
+				if wrapX == false and (nextX < 0 or nextX >= iW) then
+				elseif wrapY == false and (nextY < 0 or nextY >= iH) then
+				else
+					local realX = nextX;
+					local realY = nextY;
+					if wrapX then
+						realX = realX % iW;
+					end
+					if wrapY then
+						realY = realY % iH;
+					end
+					local plot = Map.GetPlot(realX, realY);
+					local plotType = plot:GetPlotType();
+					local terrainType = plot:GetTerrainType();
+					local featureType = plot:GetFeatureType();
+					local plotIndex = realY * iW + realX + 1;
+					if plotType == PlotTypes.PLOT_LAND then
+						if featureType == FeatureTypes.NO_FEATURE then
+							if terrainType == TerrainTypes.TERRAIN_TUNDRA
+								or terrainType == TerrainTypes.TERRAIN_DESERT
+								or terrainType == TerrainTypes.TERRAIN_SNOW then
+								if ripple_radius < dMax then
+									table.insert(oil_list, plotIndex);
+								else
+									table.insert(oil_fallback, plotIndex);
+								end
+							elseif terrainType == TerrainTypes.TERRAIN_PLAINS or terrainType == TerrainTypes.TERRAIN_GRASS then
+								table.insert(oil_fallback, plotIndex);
+							end
+						elseif featureType == FeatureTypes.FEATURE_MARSH then
+							if ripple_radius < dMax then
+								table.insert(oil_list, plotIndex);
+							else
+								table.insert(oil_fallback, plotIndex);
+							end
+						elseif featureType == FeatureTypes.FEATURE_FLOOD_PLAINS
+							or featureType == FeatureTypes.FEATURE_JUNGLE
+							or featureType == FeatureTypes.FEATURE_FOREST then
+							table.insert(oil_fallback, plotIndex);
+						end
+					end
+					currentX, currentY = nextX, nextY;
+				end
+			end
+		end
+	end
+	return oil_list, oil_fallback;
+end
+
+function AssignStartingPlots:LekStratBuildUranListsForRingBand(x, y, dMin, dMax)
+	-- Primary: marsh/jungle/forest + tundra/desert/snow land. Fallback: grass/plains + hills land.
+	local iW, iH = Map.GetGridSize();
+	local wrapX = Map:IsWrapX();
+	local wrapY = Map:IsWrapY();
+	local odd = self.firstRingYIsOdd;
+	local even = self.firstRingYIsEven;
+	local uran_list, uran_fallback = {}, {};
+	for ripple_radius = dMin, dMax do
+		local currentX = x - ripple_radius;
+		local currentY = y;
+		for direction_index = 1, 6 do
+			for plot_to_handle = 1, ripple_radius do
+				local plot_adjustments;
+				if currentY / 2 > math.floor(currentY / 2) then
+					plot_adjustments = odd[direction_index];
+				else
+					plot_adjustments = even[direction_index];
+				end
+				local nextX = currentX + plot_adjustments[1];
+				local nextY = currentY + plot_adjustments[2];
+				if wrapX == false and (nextX < 0 or nextX >= iW) then
+				elseif wrapY == false and (nextY < 0 or nextY >= iH) then
+				else
+					local realX = nextX;
+					local realY = nextY;
+					if wrapX then
+						realX = realX % iW;
+					end
+					if wrapY then
+						realY = realY % iH;
+					end
+					local plot = Map.GetPlot(realX, realY);
+					local plotType = plot:GetPlotType();
+					local terrainType = plot:GetTerrainType();
+					local featureType = plot:GetFeatureType();
+					local plotIndex = realY * iW + realX + 1;
+					if plotType == PlotTypes.PLOT_LAND or plotType == PlotTypes.PLOT_HILLS then
+						if featureType ~= FeatureTypes.FEATURE_FLOOD_PLAINS and featureType ~= FeatureTypes.FEATURE_OASIS then
+							local primary = false;
+							if featureType == FeatureTypes.FEATURE_MARSH
+								or featureType == FeatureTypes.FEATURE_JUNGLE
+								or featureType == FeatureTypes.FEATURE_FOREST then
+								primary = true;
+							elseif featureType == FeatureTypes.NO_FEATURE
+								and (terrainType == TerrainTypes.TERRAIN_TUNDRA
+									or terrainType == TerrainTypes.TERRAIN_DESERT
+									or terrainType == TerrainTypes.TERRAIN_SNOW) then
+								primary = true;
+							end
+							if primary and ripple_radius < dMax then
+								table.insert(uran_list, plotIndex);
+							elseif primary then
+								table.insert(uran_fallback, plotIndex);
+							else
+								table.insert(uran_fallback, plotIndex);
+							end
+						end
+					end
+					currentX, currentY = nextX, nextY;
+				end
+			end
+		end
+	end
+	return uran_list, uran_fallback;
+end
+
+function AssignStartingPlots:LekStratPickMajorOrMinorQty(majorQty, minorQty)
+	if Map.Rand(2, "LekStrat OU major/minor coin - Lua") == 0 then
+		return majorQty, "major";
+	end
+	return minorQty, "small";
+end
+
+function AssignStartingPlots:LekStratPlaceOuBandsForRegion(region_number)
+	local start_point_data = self.startingPlots[region_number];
+	if start_point_data == nil then
+		return;
+	end
+	local x, y = start_point_data[1], start_point_data[2];
+	local uran_major, horse_major, oil_major, iron_major = self:GetMajorStrategicResourceQuantityValues();
+	local uran_small, horse_small, oil_small, iron_small = self:GetSmallStrategicResourceQuantityValues();
+	LekMapgenPrintAndDiagFile("### LEK_STRAT_OU_BANDS region_begin runId=" .. tostring(_lek_run_id or "na")
+		.. " region=" .. tostring(region_number)
+		.. " startX=" .. tostring(x) .. " startY=" .. tostring(y)
+		.. " oil_major_qty=" .. tostring(oil_major) .. " oil_small_qty=" .. tostring(oil_small)
+		.. " uran_major_qty=" .. tostring(uran_major) .. " uran_small_qty=" .. tostring(uran_small));
+
+	local oilOk, uranOk = 0, 0;
+	-- Oil: 1 major r1-3; 1 major/minor r4-5; 1 major/minor r6-7.
+	do
+		local oil_list, oil_fallback = self:LekStratBuildOilListsForRingBand(x, y, 1, 3);
+		if self:LekStratPlaceOneWithPrimaryFallback(
+			self.oil_ID, oil_major, oil_list, oil_fallback,
+			"guaranteed_band:oil_r1-3_major:region=" .. tostring(region_number)) then
+			oilOk = oilOk + 1;
+		end
+	end
+	do
+		local qty, szTag = self:LekStratPickMajorOrMinorQty(oil_major, oil_small);
+		local oil_list, oil_fallback = self:LekStratBuildOilListsForRingBand(x, y, 4, 5);
+		if self:LekStratPlaceOneWithPrimaryFallback(
+			self.oil_ID, qty, oil_list, oil_fallback,
+			"guaranteed_band:oil_r4-5_" .. szTag .. ":region=" .. tostring(region_number)) then
+			oilOk = oilOk + 1;
+		end
+	end
+	do
+		local qty, szTag = self:LekStratPickMajorOrMinorQty(oil_major, oil_small);
+		local oil_list, oil_fallback = self:LekStratBuildOilListsForRingBand(x, y, 6, 7);
+		if self:LekStratPlaceOneWithPrimaryFallback(
+			self.oil_ID, qty, oil_list, oil_fallback,
+			"guaranteed_band:oil_r6-7_" .. szTag .. ":region=" .. tostring(region_number)) then
+			oilOk = oilOk + 1;
+		end
+	end
+
+	-- Uranium: 1 deposit r1-5 + 1 r6-8. Qty=1 (OG balance) so unit floor still yields ~21 nodes.
+	-- Strategic impact so globals/backfill do not stack into the same start rings.
+	local uran_band_qty = 1;
+	local uran_band_impact_min, uran_band_impact_max = 4, 6;
+	do
+		local uran_list, uran_fallback = self:LekStratBuildUranListsForRingBand(x, y, 1, 5);
+		if self:LekStratPlaceOneWithPrimaryFallback(
+			self.uranium_ID, uran_band_qty, uran_list, uran_fallback,
+			"guaranteed_band:uran_r1-5_qty1:region=" .. tostring(region_number),
+			1, uran_band_impact_min, uran_band_impact_max) then
+			uranOk = uranOk + 1;
+		end
+	end
+	do
+		local uran_list, uran_fallback = self:LekStratBuildUranListsForRingBand(x, y, 6, 8);
+		if self:LekStratPlaceOneWithPrimaryFallback(
+			self.uranium_ID, uran_band_qty, uran_list, uran_fallback,
+			"guaranteed_band:uran_r6-8_qty1:region=" .. tostring(region_number),
+			1, uran_band_impact_min, uran_band_impact_max) then
+			uranOk = uranOk + 1;
+		end
+	end
+
+	LekMapgenPrintAndDiagFile("### LEK_STRAT_OU_BANDS region_done runId=" .. tostring(_lek_run_id or "na")
+		.. " region=" .. tostring(region_number)
+		.. " oil_placed=" .. tostring(oilOk) .. "/3"
+		.. " uran_placed=" .. tostring(uranOk) .. "/2");
 end
 
 -- Lekmap: stubs for natural wonder custom eligibility/placement (called when XML method number != -1)
@@ -1179,9 +1410,14 @@ function AssignStartingPlots.Create()
 		LekStratPostProcessForResourceSettingFive = AssignStartingPlots.LekStratPostProcessForResourceSettingFive,
 		LekStratExtraBalanceSmallsEnabled = AssignStartingPlots.LekStratExtraBalanceSmallsEnabled,
 		LekStratSkipGlobalHorseIronEnabled = AssignStartingPlots.LekStratSkipGlobalHorseIronEnabled,
+		LekStratOuBandsEnabled = AssignStartingPlots.LekStratOuBandsEnabled,
 		LekStratBuildHorseIronListsForRingBand = AssignStartingPlots.LekStratBuildHorseIronListsForRingBand,
+		LekStratBuildOilListsForRingBand = AssignStartingPlots.LekStratBuildOilListsForRingBand,
+		LekStratBuildUranListsForRingBand = AssignStartingPlots.LekStratBuildUranListsForRingBand,
+		LekStratPickMajorOrMinorQty = AssignStartingPlots.LekStratPickMajorOrMinorQty,
 		LekStratPlaceOneWithPrimaryFallback = AssignStartingPlots.LekStratPlaceOneWithPrimaryFallback,
 		LekStratPlaceExtraBalanceSmallsForRegion = AssignStartingPlots.LekStratPlaceExtraBalanceSmallsForRegion,
+		LekStratPlaceOuBandsForRegion = AssignStartingPlots.LekStratPlaceOuBandsForRegion,
 		LekStratTrimNonBalanceMajorHorseIron = AssignStartingPlots.LekStratTrimNonBalanceMajorHorseIron,
 		LekStratStripSmallIronOnHillsFromMap = AssignStartingPlots.LekStratStripSmallIronOnHillsFromMap,
 		LekStratMinDistanceToAnyMajorStart = AssignStartingPlots.LekStratMinDistanceToAnyMajorStart,
@@ -6488,38 +6724,49 @@ function AssignStartingPlots.LekGlobalSix_BuildEffectiveBiasPolicy(self)
 			end
 			return 10;
 		end
+		-- Prefer dropping non-natural coastal first; among same tier, pick at random
+		-- (was highest pid — made demotion deterministic).
 		while countReq() > 2 do
-			local drop = nil;
-			local dropTier = -1;
+			local bestTier = -1;
+			local cands = {};
 			for _, pm in ipairs(pmeta) do
 				if policy.coastal_required[pm.pid] == true then
 					local t = tier(pm);
-					if t > dropTier or (t == dropTier and (drop == nil or pm.pid > drop.pid)) then
-						drop = pm;
-						dropTier = t;
+					if t > bestTier then
+						bestTier = t;
+						cands = { pm };
+					elseif t == bestTier then
+						cands[#cands + 1] = pm;
 					end
 				end
 			end
-			if not drop then
+			if #cands == 0 then
 				break;
 			end
+			local drop = cands[1 + Map.Rand(#cands, "LekForce2 drop coastal pid - Lua")];
 			policy.coastal_required[drop.pid] = nil;
 		end
+		-- Fill to exactly 2: natural coastal first (tier 0), then placeFirst (1), then
+		-- plain inland (10). Same tier: random among eligibles (was lowest pid — always
+		-- drafted slot 0/1 when an inland civ was needed).
 		while countReq() < 2 do
-			local add = nil;
-			local addTier = 999;
+			local bestTier = 999;
+			local cands = {};
 			for _, pm in ipairs(pmeta) do
 				if policy.coastal_required[pm.pid] ~= true then
 					local t = tier(pm);
-					if t < addTier or (t == addTier and (add == nil or pm.pid < add.pid)) then
-						add = pm;
-						addTier = t;
+					if t < bestTier then
+						bestTier = t;
+						cands = { pm };
+					elseif t == bestTier then
+						cands[#cands + 1] = pm;
 					end
 				end
 			end
-			if not add then
+			if #cands == 0 then
 				break;
 			end
+			local add = cands[1 + Map.Rand(#cands, "LekForce2 add coastal pid - Lua")];
 			policy.coastal_required[add.pid] = true;
 		end
 	end
@@ -10582,8 +10829,13 @@ function AssignStartingPlots:AddStrategicBalanceResources(region_number)
 	local uran_amt, horse_amt, oil_amt, iron_amt, coal_amt, alum_amt = self:GetMajorStrategicResourceQuantityValues()
 	local shuf_list;
 	local placed_iron, placed_horse, placed_oil, placed_alum, placed_coal, placed_uran = false, false, false, false, false, false;
+	-- RS5 oil/uranium recipe is band guarantees (replaces OG 2×oil + 2×uran-qty1 below).
+	local useOuBands = (self.resource_setting or 0) == 5 and AssignStartingPlots.LekStratOuBandsEnabled();
 
-	uran_amt = 1;
+	-- OG balance path only: uranium deposits were qty=1.
+	if not useOuBands then
+		uran_amt = 1;
+	end
 
 	if table.maxn(iron_list) > 0 then
 		if self.resource_setting == 5 then
@@ -10607,19 +10859,39 @@ function AssignStartingPlots:AddStrategicBalanceResources(region_number)
 			placed_horse = true;
 		end
 	end
-	if table.maxn(oil_list) > 0 then
-		if self.resource_setting == 5 then
-			self._lek_strat_audit_context = "strat_balance_oil_primary:region=" .. tostring(region_number)
-				.. " primaryN=" .. tostring(table.maxn(oil_list));
+
+	if useOuBands then
+		self:LekStratPlaceOuBandsForRegion(region_number);
+		placed_oil = true;
+		placed_uran = true;
+	else
+		if table.maxn(oil_list) > 0 then
+			if self.resource_setting == 5 then
+				self._lek_strat_audit_context = "strat_balance_oil_primary:region=" .. tostring(region_number)
+					.. " primaryN=" .. tostring(table.maxn(oil_list));
+			end
+			shuf_list = GetShuffledCopyOfTable(oil_list)
+			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(self.oil_ID, oil_amt, 2, 1, -1, 0, 0, shuf_list);
+			if iNumLeftToPlace == 0 then
+				print("All Oil Placed First Attempt");
+				placed_oil = true;
+				OilToPlace = 0;
+			else
+				OilToPlace = 1;
+			end
 		end
-		shuf_list = GetShuffledCopyOfTable(oil_list)
-		iNumLeftToPlace = self:PlaceSpecificNumberOfResources(self.oil_ID, oil_amt, 2, 1, -1, 0, 0, shuf_list);
-		if iNumLeftToPlace == 0 then
-			print("All Oil Placed First Attempt");
-			placed_oil = true;
-			OilToPlace = 0;
-		else
-			OilToPlace = 1;
+		if self.start_locations == 2 then
+			if table.maxn(uran_list) > 0 then
+				if self.resource_setting == 5 then
+					self._lek_strat_audit_context = "strat_balance_uran_primary:region=" .. tostring(region_number)
+						.. " primaryN=" .. tostring(table.maxn(uran_list));
+				end
+				shuf_list = GetShuffledCopyOfTable(uran_list)
+				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(self.uranium_ID, uran_amt, 2, 1, 1, 0, 0, shuf_list);
+				if iNumLeftToPlace == 0 then
+					placed_uran = true;
+				end
+			end
 		end
 	end
 	
@@ -10642,22 +10914,6 @@ function AssignStartingPlots:AddStrategicBalanceResources(region_number)
 			end
 		end
 	end
-
-	if self.start_locations == 2 then
-		if table.maxn(uran_list) > 0 then
-			if self.resource_setting == 5 then
-				self._lek_strat_audit_context = "strat_balance_uran_primary:region=" .. tostring(region_number)
-					.. " primaryN=" .. tostring(table.maxn(uran_list));
-			end
-			shuf_list = GetShuffledCopyOfTable(uran_list)
-			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(self.uranium_ID, uran_amt, 2, 1, 1, 0, 0, shuf_list);
-			if iNumLeftToPlace == 0 then
-				placed_uran = true;
-			end
-		end
-	end
-
-
 
 	if placed_iron == false and table.maxn(iron_fallback) > 0 then
 		if self.resource_setting == 5 then
@@ -10688,6 +10944,7 @@ function AssignStartingPlots:AddStrategicBalanceResources(region_number)
 			.. " horse_ok=" .. tostring(placed_horse)
 			.. " oil_ok=" .. tostring(placed_oil)
 			.. " uran_ok=" .. tostring(placed_uran)
+			.. " ou_bands=" .. tostring(useOuBands)
 			.. " iron_primaryN=" .. tostring(table.maxn(iron_list))
 			.. " iron_fallbackN=" .. tostring(table.maxn(iron_fallback))
 			.. " horse_primaryN=" .. tostring(table.maxn(horse_list))
@@ -10697,7 +10954,7 @@ function AssignStartingPlots:AddStrategicBalanceResources(region_number)
 			.. " uran_primaryN=" .. tostring(table.maxn(uran_list))
 			.. " uran_fallbackN=" .. tostring(table.maxn(uran_fallback)));
 	end
-	if placed_oil == false and table.maxn(oil_fallback) > 0 then
+	if not useOuBands and placed_oil == false and table.maxn(oil_fallback) > 0 then
 		if self.resource_setting == 5 then
 			self._lek_strat_audit_context = "strat_balance_oil_fallback:region=" .. tostring(region_number)
 				.. " fallbackN=" .. tostring(table.maxn(oil_fallback));
@@ -10728,7 +10985,7 @@ function AssignStartingPlots:AddStrategicBalanceResources(region_number)
 			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(self.coal_ID, coal_amt, 1, 1, 1, 0, 0, shuf_list);
 		end
 	end
-	if self.start_locations == 2 then
+	if not useOuBands and self.start_locations == 2 then
 		if placed_uran == false and table.maxn(uran_fallback) > 0 then
 			if self.resource_setting == 5 then
 				self._lek_strat_audit_context = "strat_balance_uran_fallback:region=" .. tostring(region_number)
@@ -11300,6 +11557,8 @@ function AssignStartingPlots:NormalizeStartLocation(region_number)
 	-- Add mandatory Iron, Horse, Oil to every start if Strategic Balance option is enabled.
 	if self.start_locations == 3 or self.start_locations == 4 or self.start_locations == 5 or self.start_locations == 6 or self.start_locations == 1 or self.start_locations == 2 then
 		self:AddStrategicBalanceResources(region_number)
+		-- Horse/iron extras are additive on top of OG majors. Oil/uranium RS5 bands are
+		-- the balance recipe itself (placed inside AddStrategicBalanceResources).
 		if (self.resource_setting or 0) == 5 and AssignStartingPlots.LekStratExtraBalanceSmallsEnabled() then
 			if region_number == 1 then
 				LekMapgenPrintAndDiagFile("### LEK_STRAT_EXTRA_SMALLS begin runId=" .. tostring(_lek_run_id or "na")
@@ -18886,6 +19145,11 @@ function AssignStartingPlots:LekEnforceBalancedCoastalExactTwoAfterBalanceAndAss
 			for i = 1, math.min(deficit, #regionCandidates) do
 				local r = regionCandidates[i].r;
 				local pid = regionCandidates[i].pid;
+				local oldT = self.startingPlots[r];
+				local oldX, oldY = nil, nil;
+				if oldT and type(oldT[1]) == "number" and type(oldT[2]) == "number" then
+					oldX, oldY = oldT[1], oldT[2];
+				end
 				local ok = self:FindCoastalStart(r);
 				if ok then
 					local nt = self.startingPlots[r];
@@ -18894,6 +19158,24 @@ function AssignStartingPlots:LekEnforceBalancedCoastalExactTwoAfterBalanceAndAss
 						local pl = LekSafeMajorPlayer(pid);
 						if pl and np then
 							pl:SetStartingPlot(np);
+							-- Normalize already placed strategics at the old inland plot.
+							-- Re-seed balance recipe at the new coastal start or horse/oil/uran vanish.
+							local moved = (oldX == nil) or (oldX ~= nt[1]) or (oldY ~= nt[2]);
+							if moved and (self.start_locations == 3 or self.start_locations == 4
+								or self.start_locations == 5 or self.start_locations == 6
+								or self.start_locations == 1 or self.start_locations == 2) then
+								LekMapgenPrintAndDiagFile("### LEK FORCE2 postBA_reseeds_strat runId="
+									.. tostring(_lek_run_id or "na")
+									.. " region=" .. tostring(r)
+									.. " pid=" .. tostring(pid)
+									.. " from=" .. tostring(oldX) .. "," .. tostring(oldY)
+									.. " to=" .. tostring(nt[1]) .. "," .. tostring(nt[2]));
+								self:AddStrategicBalanceResources(r);
+								if (self.resource_setting or 0) == 5
+									and AssignStartingPlots.LekStratExtraBalanceSmallsEnabled() then
+									self:LekStratPlaceExtraBalanceSmallsForRegion(r);
+								end
+							end
 							fixed = fixed + 1;
 						end
 					end
@@ -21484,6 +21766,12 @@ function AssignStartingPlots:PlaceSmallQuantitiesOfStrategics(frequency, plot_li
 							and plotType == PlotTypes.PLOT_HILLS and selected_quantity < 5 then
 							selected_ID = -1;
 						end
+						-- OU bands already cover land oil near starts; skip random small oil.
+						if selected_ID == self.oil_ID
+							and (self.resource_setting or 0) == 5
+							and AssignStartingPlots.LekStratOuBandsEnabled() then
+							selected_ID = -1;
+						end
 						-- Now place the resource, then impact the strategic data layer.
 						if selected_ID ~= -1 then	
 							local strat_radius = Map.Rand(4, "Resource Radius - Place Small Quantities LUA");
@@ -22580,6 +22868,10 @@ function AssignStartingPlots:PlaceOilInTheSea()
 	end
 	local iNumLandOilUnits = self.amounts_of_resources_placed[self.oil_ID + 1];
 	local iNumToPlace = math.floor((iNumLandOilUnits / 2) / (sea_oil_amt / 2));
+	-- OU bands raise land oil units; scale sea nodes back toward baseline (~11–12 on 6-civ).
+	if (self.resource_setting or 0) == 5 and AssignStartingPlots.LekStratOuBandsEnabled() then
+		iNumToPlace = math.max(0, math.floor(iNumToPlace * 0.40 + 0.5));
+	end
 
 	print("+++++++++++++++++++++++++++++++++++++++++++++ Adding Oil resources to the Sea +++++++++++++++++++++++++++++++++++++++++++++");
 	print("Land Oil Count: " .. tostring(iNumLandOilUnits));
@@ -23157,13 +23449,30 @@ function AssignStartingPlots:PlaceStrategicAndBonusResources()
 	local rs5_fq_horse_dgf, rs5_fq_horse_pln, rs5_fq_horse_tdf = 10, 10, 100;
 	local rs5_fq_iron_tdf, rs5_fq_iron_snf, rs5_fq_iron_ddf, rs5_fq_iron_hl = 16, 15, 11, 22;
 	local rs5_small_freq_base = 23;
+	local rs5_fq_marsh, rs5_fq_jungle, rs5_fq_forest = 7, 33, 39;
+	local rs5_oil_w_marsh, rs5_oil_w_tundra, rs5_oil_w_snow, rs5_oil_w_desert, rs5_oil_w_forest = 65, 55, 65, 70, 25;
+	local rs5_uran_w_marsh, rs5_uran_w_jungle, rs5_uran_w_forest = 35, 70, 50;
+	local rs5_uran_impact_min, rs5_uran_impact_max = 1, 4;
 	local skipGlobalHorseIron = (self.resource_setting or 0) == 5 and AssignStartingPlots.LekStratSkipGlobalHorseIronEnabled();
+	local ouBands = (self.resource_setting or 0) == 5 and AssignStartingPlots.LekStratOuBandsEnabled();
 	if self.resource_setting == 5 then
 		-- v5: n=5 batch mean total ~52 (global ~15.6); target ~49 → thin ~20% more.
 		-- Higher freq = fewer sites. Horse plains was the main global overshoot.
 		rs5_fq_horse_dgf, rs5_fq_horse_pln, rs5_fq_horse_tdf = 67, 67, 670;
 		rs5_fq_iron_tdf, rs5_fq_iron_snf, rs5_fq_iron_ddf, rs5_fq_iron_hl = 96, 91, 67, 132;
 		rs5_small_freq_base = 125;
+	end
+	if ouBands then
+		-- Land oil target ≈ OG (~17 nodes): player bands = 18, so omit global land oil majors.
+		-- Uran band qty=1 (OG); keep spaced majors + backfill toward ~21 nodes / 30 units.
+		rs5_fq_marsh, rs5_fq_jungle, rs5_fq_forest = 18, 55, 70;
+		rs5_oil_w_marsh, rs5_oil_w_tundra, rs5_oil_w_snow, rs5_oil_w_desert, rs5_oil_w_forest = 0, 0, 0, 0, 0;
+		rs5_uran_w_marsh, rs5_uran_w_jungle, rs5_uran_w_forest = 20, 35, 25;
+		-- Slightly wider than band impact so interstitial globals/backfill favor sparse land.
+		rs5_uran_impact_min, rs5_uran_impact_max = 5, 7;
+		rs5_fq_iron_tdf = math.max(rs5_fq_iron_tdf, 140);
+		rs5_fq_iron_snf = math.max(rs5_fq_iron_snf, 130);
+		rs5_fq_iron_ddf = math.max(rs5_fq_iron_ddf, 100);
 	end
 
 	-- Place Strategic resources.
@@ -23174,39 +23483,52 @@ function AssignStartingPlots:PlaceStrategicAndBonusResources()
 			.. " iNumCivs=" .. tostring(self.iNumCivs)
 			.. " bonus_mult=" .. tostring(bonus_multiplier)
 			.. " extra_balance_smalls=" .. tostring(AssignStartingPlots.LekStratExtraBalanceSmallsEnabled())
-			.. " skip_global_horse_iron=" .. tostring(skipGlobalHorseIron));
+			.. " skip_global_horse_iron=" .. tostring(skipGlobalHorseIron)
+			.. " ou_bands=" .. tostring(ouBands));
 	end
 	local resources_to_place = {
-	{self.oil_ID, oil_amt, 65, 1, 4},
-	{self.uranium_ID, uran_amt, 35, 1, 4} };
-	self._lek_strat_audit_context = "major:marsh_list_f7_oil+uran";
-	self:ProcessResourceList(7, 1, self.marsh_list, resources_to_place)
+	{self.uranium_ID, uran_amt, rs5_uran_w_marsh, rs5_uran_impact_min, rs5_uran_impact_max} };
+	if not ouBands then
+		table.insert(resources_to_place, 1, {self.oil_ID, oil_amt, rs5_oil_w_marsh, 1, 4});
+	end
+	self._lek_strat_audit_context = ouBands and "major:marsh_list_f7_uran" or "major:marsh_list_f7_oil+uran";
+	self:ProcessResourceList(rs5_fq_marsh, 1, self.marsh_list, resources_to_place)
 
 	local resources_to_place = {
-	{self.oil_ID, oil_amt, 55, 1, 5},
 	{self.aluminum_ID, alum_amt, 15, 1, 2} };
+	if not ouBands then
+		table.insert(resources_to_place, 1, {self.oil_ID, oil_amt, rs5_oil_w_tundra, 1, 5});
+	end
 	if not skipGlobalHorseIron then
 		table.insert(resources_to_place, {self.iron_ID, iron_amt, 35, 1, 2});
 	end
-	self._lek_strat_audit_context = skipGlobalHorseIron and "major:tundra_flat_f16_oil+alum" or "major:tundra_flat_f16_oil+alum+iron";
+	self._lek_strat_audit_context = (ouBands and "major:tundra_flat_f16_alum" or "major:tundra_flat_f16_oil+alum")
+		.. (skipGlobalHorseIron and "" or "+iron");
 	self:ProcessResourceList(rs5_fq_iron_tdf, 1, self.tundra_flat_no_feature, resources_to_place)
 
 	local resources_to_place = {
-	{self.oil_ID, oil_amt, 65, 1, 5},
 	{self.aluminum_ID, alum_amt, 15, 1, 2} };
+	if not ouBands then
+		table.insert(resources_to_place, 1, {self.oil_ID, oil_amt, rs5_oil_w_snow, 1, 5});
+	end
 	if not skipGlobalHorseIron then
 		table.insert(resources_to_place, {self.iron_ID, iron_amt, 20, 1, 2});
 	end
-	self._lek_strat_audit_context = skipGlobalHorseIron and "major:snow_flat_f15_oil+alum" or "major:snow_flat_f15_oil+alum+iron";
+	self._lek_strat_audit_context = (ouBands and "major:snow_flat_f15_alum" or "major:snow_flat_f15_oil+alum")
+		.. (skipGlobalHorseIron and "" or "+iron");
 	self:ProcessResourceList(rs5_fq_iron_snf, 1, self.snow_flat_list, resources_to_place)
 
-	local resources_to_place = {
-	{self.oil_ID, oil_amt, 70, 1, 2} };
+	local resources_to_place = {};
+	if not ouBands then
+		table.insert(resources_to_place, {self.oil_ID, oil_amt, rs5_oil_w_desert, 1, 2});
+	end
 	if not skipGlobalHorseIron then
 		table.insert(resources_to_place, {self.iron_ID, iron_amt, 30, 1, 2});
 	end
-	self._lek_strat_audit_context = skipGlobalHorseIron and "major:desert_flat_f11_oil" or "major:desert_flat_f11_oil+iron";
-	self:ProcessResourceList(rs5_fq_iron_ddf, 1, self.desert_flat_no_feature, resources_to_place)
+	if table.maxn(resources_to_place) > 0 then
+		self._lek_strat_audit_context = ouBands and "major:desert_flat_f11_iron" or (skipGlobalHorseIron and "major:desert_flat_f11_oil" or "major:desert_flat_f11_oil+iron");
+		self:ProcessResourceList(rs5_fq_iron_ddf, 1, self.desert_flat_no_feature, resources_to_place)
+	end
 
 	local resources_to_place = {
 	{self.coal_ID, coal_amt, 35, 1, 3},
@@ -23219,15 +23541,17 @@ function AssignStartingPlots:PlaceStrategicAndBonusResources()
 
 	local resources_to_place = {
 	{self.coal_ID, coal_amt, 30, 1, 2},
-	{self.uranium_ID, uran_amt, 70, 1, 2} };
+	{self.uranium_ID, uran_amt, rs5_uran_w_jungle, rs5_uran_impact_min, rs5_uran_impact_max} };
 	self._lek_strat_audit_context = "major:jungle_flat_f33_coal+uran";
-	self:ProcessResourceList(33, 1, self.jungle_flat_list, resources_to_place)
+	self:ProcessResourceList(rs5_fq_jungle, 1, self.jungle_flat_list, resources_to_place)
 	local resources_to_place = {
 	{self.coal_ID, coal_amt, 25, 1, 2},
-	{self.oil_ID, oil_amt, 25, 1, 5},
-	{self.uranium_ID, uran_amt, 50, 10, 0} };
-	self._lek_strat_audit_context = "major:forest_flat_f39_coal+oil+uran";
-	self:ProcessResourceList(39, 1, self.forest_flat_list, resources_to_place)
+	{self.uranium_ID, uran_amt, rs5_uran_w_forest, rs5_uran_impact_min, rs5_uran_impact_max} };
+	if not ouBands then
+		table.insert(resources_to_place, 2, {self.oil_ID, oil_amt, rs5_oil_w_forest, 1, 5});
+	end
+	self._lek_strat_audit_context = ouBands and "major:forest_flat_f39_coal+uran" or "major:forest_flat_f39_coal+oil+uran";
+	self:ProcessResourceList(rs5_fq_forest, 1, self.forest_flat_list, resources_to_place)
 
 	if not skipGlobalHorseIron then
 		local resources_to_place = {
@@ -23286,7 +23610,8 @@ function AssignStartingPlots:PlaceStrategicAndBonusResources()
 		local resources_to_place = { {self.coal_ID, coal_amt, 100, 0, 0} };
 		self:ProcessResourceList(99999, 1, self.land_list, resources_to_place)
 	end
-	if self.amounts_of_resources_placed[self.oil_ID + 1] < 4 * self.iNumCivs then
+	-- OU bands already place ~3 oil/start; keep OG oil backfill only when bands off.
+	if not ouBands and self.amounts_of_resources_placed[self.oil_ID + 1] < 4 * self.iNumCivs then
 		print("Map has very low oil, adding another.");
 		local resources_to_place = { {self.oil_ID, oil_amt, 100, 0, 0} };
 		self._lek_strat_audit_context = "backfill:oil_total_lt_4xcivs_land_once";
@@ -23299,13 +23624,16 @@ function AssignStartingPlots:PlaceStrategicAndBonusResources()
 	end
 	
 	do
+		-- OU bands use qty=1 like OG balance; unit floor + spaced impact restore ~21 nodes.
 		local urTarget = 5 * self.iNumCivs;
 		local urIter = 0;
+		local urMinR = ouBands and rs5_uran_impact_min or 0;
+		local urMaxR = ouBands and rs5_uran_impact_max or 0;
 		while self.amounts_of_resources_placed[self.uranium_ID + 1] < urTarget and urIter < 64 do
 			urIter = urIter + 1;
 			print("Map has very low uranium, adding another.");
 			local beforeU = self.amounts_of_resources_placed[self.uranium_ID + 1];
-			local resources_to_place = { {self.uranium_ID, uran_amt, 100, 0, 0} };
+			local resources_to_place = { {self.uranium_ID, uran_amt, 100, urMinR, urMaxR} };
 			self._lek_strat_audit_context = "backfill:uran_lt_" .. tostring(urTarget) .. "_land_i" .. tostring(urIter);
 			self:ProcessResourceList(99999, 1, self.land_list, resources_to_place);
 			if self.amounts_of_resources_placed[self.uranium_ID + 1] == beforeU then

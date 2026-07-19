@@ -24,7 +24,11 @@ _lek_strat_extra_balance_smalls = true;
 -- RS5: when true, skip biome ProcessResourceList / PlaceSmallQuantities / backfill for horse+iron.
 -- Split from extras. false = globals on; volume via rs5_* freqs only (no post trim).
 _lek_strat_skip_global_horse_iron = false;
--- Per-tile horse/iron placement lines (`### LEK_STRAT_HIT`). On with strat testing.
+-- RS5 oil/uranium balance recipe (in AddStrategicBalanceResources): band guarantees instead of OG 2×oil + 2×uran.
+-- Oil: major r1-3, major/minor r4-5, major/minor r6-7. Uran: qty1 r1-5 + qty1 r6-8 (OG unit size).
+-- Land oil globals off (majors + small_strat); CS minor oil kept. Uran majors/backfill spaced.
+_lek_strat_ou_bands = true;
+-- Per-tile horse/iron/oil/uran placement lines (`### LEK_STRAT_HIT`). On with strat testing.
 _lek_strat_audit_log_each_hit = true;
 
 -- Setup UI shows only two map script rows; code still uses legacy indices 1–19 via LekMapGetCustomOption.
