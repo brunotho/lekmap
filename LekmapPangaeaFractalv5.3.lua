@@ -19,6 +19,14 @@ _lek_mapgen_world_is_small = false;
 -- TEST ONLY: not used in normal maps. When true, PlaceResources ends with LekTestCopperOnAllWater (ocean/lake copper); engine may skip tiles.
 _lek_test_copper_on_all_water = false;
 
+-- RS5: after OG balance majors, place small iron+horse in r4-5 and r6-7 (iron flat-only; horse OG flat primary).
+_lek_strat_extra_balance_smalls = true;
+-- RS5: when true, skip biome ProcessResourceList / PlaceSmallQuantities / backfill for horse+iron.
+-- Split from extras. false = globals on; volume via rs5_* freqs only (no post trim).
+_lek_strat_skip_global_horse_iron = false;
+-- Per-tile horse/iron placement lines (`### LEK_STRAT_HIT`). On with strat testing.
+_lek_strat_audit_log_each_hit = true;
+
 -- Setup UI shows only two map script rows; code still uses legacy indices 1–19 via LekMapGetCustomOption.
 -- Engine Map.GetCustomOption(1..2) are those rows, mapped by _lek_map_visible_ui_order to old 13, 17.
 -- Start Quality (legacy index 5) is stubbed in _lek_map_hidden_option_defaults, not shown in Advanced Setup.
