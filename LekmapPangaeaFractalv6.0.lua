@@ -92,7 +92,7 @@ _lek_global_six_request_map_regen = false;
 function GetMapScriptInfo()
 	local world_age, temperature, rainfall, sea_level, resources = GetCoreMapOptions()
 	return {
-		Name = "A Fractal Pangaea - Lekmap v6.0",
+		Name = "## Lekmap 6.0 -- Fractal Pangaea",
 		Description = "A map script made for Lekmod based of HB's Mapscript v8.1. Pangaea - Fractal",
 		IsAdvancedMap = false,
 		IconIndex = 0,
