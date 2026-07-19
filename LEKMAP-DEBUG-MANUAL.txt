@@ -24,7 +24,7 @@ Verbosity & benchmark globals (common knobs)
   _lek_mapgen_tuple_benchmark_mode  -- set by Pangaea after GenerateRegions when using Global Six pace
   _lek_strat_audit_log_each_hit     -- false = no per-tile ### LEK_STRAT_HIT lines (default); true = every horse/iron placement
 
-LekmapPangaeaFractalv5.3.lua top:
+LekmapPangaeaFractalv6.0.lua top:
   _lek_mapgen_log_verbosity = 1   -- default for this map script
 
 
@@ -32,7 +32,7 @@ Snow paint — region rectangles & centers (visual only)
 --------------------------------------------------------
 Goal: paint terrain so each region’s bounding rectangle and approximate center are visible on the finished map (snow markers).
 
-Location: LekmapPangaeaFractalv5.3.lua
+Location: LekmapPangaeaFractalv6.0.lua
 
   Function: DebugPaintRegionsTerrains(start_plot_database)
     Declared inside StartPlotSystem(), before GenerateRegions args block (~line 2374).

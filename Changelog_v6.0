@@ -1,7 +1,17 @@
-Lekmap v5.3 (since v5.2)
+Lekmap v6.0 (since v5.3)
 ========================
 
-Fractal / pipeline (LekmapPangaeaFractalv5.3.lua)
+Version bump from the v5.2/v5.3 line. Player-facing map name and script file are v6.0.
+
+Notable since late v5.3
+-----------------------
+- RS5 strategic oil/uranium start bands; Force-2 coastal random picks; post-BA coastal reseed.
+- Sea regional lux shortfall repair: shuffle within hard max dist 7; soft spacing then fill (count over clump-avoidance).
+- Inland seas: enforce >=5 land tiles between inland sea and main ocean (thicken gate + land-fill repair).
+
+Carried from Changelog_v5.3
+---------------------------
+Fractal / pipeline (LekmapPangaeaFractalv6.0.lua)
 - plotTypes writes use 1-based indices (y*iW+x+1) wherever they must match 4_HBMapGenerator.SetPlotTypes.
 - Inland sea spray: after rounding, eligible tiles are rebuilt from the full connected component, not only the last rounding pass.
 
