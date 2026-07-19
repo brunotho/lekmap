@@ -428,14 +428,81 @@ function RoundInlandSeas(self)
 		end
 	end
 
+	-- Hex distance from every tile to nearest main-ocean water. Inland-sea water must stay at
+	-- dist >= MIN_INLAND_TO_OPEN_WATER_DIST (6 => at least 5 land tiles between the water bodies).
+	local MIN_INLAND_TO_OPEN_WATER_DIST = 6;
+	local distFromOpenWater = {};
+	queue = {};
+	for k, _ in pairs(openOcean) do
+		local ox = k % iW;
+		local oy = math.floor(k / iW);
+		distFromOpenWater[k] = 0;
+		queue[#queue + 1] = {ox, oy};
+	end
+	q = 1;
+	while q <= #queue do
+		local cx, cy = queue[q][1], queue[q][2];
+		q = q + 1;
+		local cd = distFromOpenWater[cy * iW + cx];
+		for d = 1, 6 do
+			local nx, ny = GetHexNeighbor(cx, cy, d, iW, iH, wrapX, wrapY);
+			if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+				local nk = ny * iW + nx;
+				if distFromOpenWater[nk] == nil then
+					distFromOpenWater[nk] = cd + 1;
+					queue[#queue + 1] = {nx, ny};
+				end
+			end
+		end
+	end
+
+	-- Paint inland-sea ocean that is too close to main ocean back to land. Optional comp limits to one body.
+	local function enforceInlandOpenOceanLandGap(comp)
+		local filled = 0;
+		local keys = {};
+		if comp ~= nil then
+			for k in pairs(comp) do
+				keys[#keys + 1] = k;
+			end
+		else
+			for k in pairs(inlandSet) do
+				keys[#keys + 1] = k;
+			end
+		end
+		for i = 1, #keys do
+			local k = keys[i];
+			local d = distFromOpenWater[k];
+			if d ~= nil and d < MIN_INLAND_TO_OPEN_WATER_DIST then
+				local tx = k % iW;
+				local ty = math.floor(k / iW);
+				if isOcean(tx, ty) and not openOcean[k] then
+					plotTypes[pidx(tx, ty)] = PlotTypes.PLOT_LAND;
+					inlandSet[k] = nil;
+					if comp ~= nil then
+						comp[k] = nil;
+					end
+					filled = filled + 1;
+				end
+			end
+		end
+		return filled;
+	end
+
+	-- Fix ridge-created seas that already sit too close, before thickening.
+	enforceInlandOpenOceanLandGap(nil);
+
 	-- Thicken inland seas: random ocean seeds, paint ring-1 land→ocean with noise (no touch to open ocean).
 	local MIN_SIZE = 6;
-	local MIN_DIST_FROM_OPEN_OCEAN = 4;
+	local MIN_DIST_FROM_OPEN_OCEAN = 6;
 	local BLOB_PAINT_ITERS = 12;
 	local BLOB_EDGE_PAINT_PCT = 76;
 	for _, comp in ipairs(components) do
 		local tiles = {};
-		for k in pairs(comp) do tiles[#tiles + 1] = inlandSet[k]; end
+		for k in pairs(comp) do
+			if inlandSet[k] ~= nil then
+				tiles[#tiles + 1] = inlandSet[k];
+			end
+		end
 		if #tiles >= MIN_SIZE then
 			for _blob = 1, BLOB_PAINT_ITERS do
 				local oceanCells = {};
@@ -465,7 +532,10 @@ function RoundInlandSeas(self)
 							end
 							local nk = ny * iW + nx;
 							local distO = distToOpenOcean[nk];
-							local farEnough = (distO == nil) or (distO >= MIN_DIST_FROM_OPEN_OCEAN);
+							local waterDist = distFromOpenWater[nk];
+							-- Require known land-dist AND hex-dist-to-main-ocean water (>= 6 => 5 land tiles between).
+							local farEnough = (distO ~= nil) and (distO >= MIN_DIST_FROM_OPEN_OCEAN)
+								and (waterDist ~= nil) and (waterDist >= MIN_INLAND_TO_OPEN_WATER_DIST);
 							if not adjOpenOcean and farEnough then
 								plotTypes[pidx(nx, ny)] = PlotTypes.PLOT_OCEAN;
 								comp[nk] = true;
@@ -475,12 +545,17 @@ function RoundInlandSeas(self)
 					end
 				end
 			end
+			-- After thicken: fill any too-close inland water back to land (same step family).
+			enforceInlandOpenOceanLandGap(comp);
 			tiles = {};
 			for k in pairs(comp) do
 				local tx = k % iW;
 				local ty = math.floor(k / iW);
-				tiles[#tiles + 1] = {tx, ty};
+				if isOcean(tx, ty) then
+					tiles[#tiles + 1] = {tx, ty};
+				end
 			end
+			if #tiles > 0 then
 			local minX, maxX, minY, maxY = iW, -1, iH, -1;
 			for _, t in ipairs(tiles) do
 				local x, y = t[1], t[2];
@@ -579,8 +654,11 @@ function RoundInlandSeas(self)
 					end
 				end
 			end
+			end -- #tiles > 0
 		end
 	end
+	-- Small / unthickened seas + any leftover violations.
+	enforceInlandOpenOceanLandGap(nil);
 end
 
 ------------------------------------------------------------------------------

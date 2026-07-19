@@ -18507,28 +18507,45 @@ function AssignStartingPlots:LekPlaceRegionalLuxuryShortfallFallback()
 	if q == nil or #q == 0 then
 		return;
 	end
-	LekMapgenFileTrace("Map Generation - Regional luxury shortfall repair (after all resources; dist 4-7 then 1-7; sea = coast-ocean ring from capital; impact/strategic spacing bypass via impact=-1)");
+	-- Hard max plot-distance from capital is always 7 (never place beyond).
+	-- Sea: shuffle (no scored pocket order). Try soft lux spacing first, then impact=-1 fill so count wins over spacing.
+	-- Land: unchanged shuffle + impact=-1.
+	LekMapgenFileTrace("Map Generation - Regional luxury shortfall repair (after all resources; hard max dist 7; bands 4-7 then 1-7; sea = shuffle, soft lux impact then impact=-1 fill; land = shuffle impact=-1)");
 	for _, ent in ipairs(q) do
 		local region_number = ent.region_number;
 		local res_ID = ent.res_id;
 		local amount = ent.amount;
 		if type(region_number) == "number" and region_number >= 1 and type(res_ID) == "number" and type(amount) == "number" and amount > 0 then
 			local left = amount;
+			local isSea = self:LekIsSeaLuxuryResourceId(res_ID);
 			local pool48 = self:LekBuildRegionalLuxuryRepairPoolInBand(region_number, res_ID, 4, 7);
 			local pool18 = {};
+			local function placeFromPool(pool)
+				if pool == nil or #pool == 0 then
+					return left;
+				end
+				local shuf = GetShuffledCopyOfTable(pool);
+				if isSea then
+					-- Prefer mild spacing when the pool allows it; never leave copies unplaced for spacing.
+					left = self:PlaceSpecificNumberOfResources(res_ID, 1, left, 1, 2, 1, 2, shuf);
+					if left > 0 then
+						left = self:PlaceSpecificNumberOfResources(res_ID, 1, left, 1, -1, 0, 0, shuf);
+					end
+					return left;
+				end
+				return self:PlaceSpecificNumberOfResources(res_ID, 1, left, 1, -1, 0, 0, shuf);
+			end
 			if #pool48 > 0 then
-				local ordered48 = self:LekIsSeaLuxuryResourceId(res_ID) and self:LekOrderSeaRegionalRepairPool(region_number, res_ID, pool48) or GetShuffledCopyOfTable(pool48);
-				left = self:PlaceSpecificNumberOfResources(res_ID, 1, left, 1, -1, 0, 0, ordered48);
+				left = placeFromPool(pool48);
 			end
 			if left > 0 then
 				pool18 = self:LekBuildRegionalLuxuryRepairPoolInBand(region_number, res_ID, 1, 7);
 				if #pool18 > 0 then
-					local ordered18 = self:LekIsSeaLuxuryResourceId(res_ID) and self:LekOrderSeaRegionalRepairPool(region_number, res_ID, pool18) or GetShuffledCopyOfTable(pool18);
-					left = self:PlaceSpecificNumberOfResources(res_ID, 1, left, 1, -1, 0, 0, ordered18);
+					left = placeFromPool(pool18);
 				end
 			end
 			if left > 0 then
-				LekMapgenFileTrace("-", "LEK regional repair still short Region#", region_number, "res", res_ID, "left", left, "pool48", #pool48, "pool18", #pool18);
+				LekMapgenFileTrace("-", "LEK regional repair still short Region#", region_number, "res", res_ID, "left", left, "pool48", #pool48, "pool18", #pool18, "sea", isSea);
 				table.insert(self._lek_regional_lux_shortfall_after_fallback, {
 					region_number = region_number,
 					res_id = res_ID,
@@ -18539,7 +18556,7 @@ function AssignStartingPlots:LekPlaceRegionalLuxuryShortfallFallback()
 				if LekMapgenTupleBenchmarkMode() then
 					_lek_bench_regional_lux_repair_cleared = (_lek_bench_regional_lux_repair_cleared or 0) + 1;
 				end
-				LekMapgenFileTrace("-", "LEK regional repair cleared", amount, "x res", res_ID, "Region#", region_number);
+				LekMapgenFileTrace("-", "LEK regional repair cleared", amount, "x res", res_ID, "Region#", region_number, "sea", isSea);
 			end
 		end
 	end
@@ -20256,7 +20273,7 @@ function AssignStartingPlots:PlaceLuxuries()
 				if LekMapgenTupleBenchmarkMode() then
 					_lek_bench_lux_regional_shortfall_queued = (_lek_bench_lux_regional_shortfall_queued or 0) + 1;
 				end
-				LekMapgenFileTrace("-", "LEK_DIAG sea lux regional shortfall Region#", region_number, "res", res_ID, "left", iNumLeftToPlace, "queued for dist-4-8/1-8 repair after resource pass");
+				LekMapgenFileTrace("-", "LEK_DIAG sea lux regional shortfall Region#", region_number, "res", res_ID, "left", iNumLeftToPlace, "queued for hard-max-7 repair (4-7 then 1-7, shuffle+soft then fill) after resource pass");
 			end
 		end
 		if iNumLeftToPlace > 0 then
