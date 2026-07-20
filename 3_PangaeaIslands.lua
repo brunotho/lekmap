@@ -417,12 +417,18 @@ function GeneratePangaeaIslands(self, genOpts)
 	local rollIslandSequence = {};
 	local rollIslandCounts = {};
 	local lastTryOceanSeedX, lastTryOceanSeedY;
-	local function recordIslandPlaced(islandType, seedX, seedY)
+	local lastTryLandX, lastTryLandY;
+	-- Fired only when a placer returns true (budget retries may wipe later; match final LekIslandRollSummary).
+	local function recordIslandPlaced(islandType, atX, atY, nearLandX, nearLandY)
 		rollIslandSequence[#rollIslandSequence + 1] = islandType;
 		rollIslandCounts[islandType] = (rollIslandCounts[islandType] or 0) + 1;
-		local seedPart = "";
-		if seedX ~= nil and seedY ~= nil then
-			seedPart = " startCell=" .. tostring(seedX) .. "," .. tostring(seedY);
+		local atPart = " at=na";
+		if atX ~= nil and atY ~= nil then
+			atPart = " at=" .. tostring(atX) .. "," .. tostring(atY);
+		end
+		local nearPart = "";
+		if nearLandX ~= nil and nearLandY ~= nil then
+			nearPart = " nearLand=" .. tostring(nearLandX) .. "," .. tostring(nearLandY);
 		end
 		local msg = "### LekIslandPlaced runId=" .. tostring(_lek_run_id or "na")
 			.. " layoutAttempt=" .. tostring(laIsland)
@@ -430,8 +436,11 @@ function GeneratePangaeaIslands(self, genOpts)
 			.. " budgetTry=" .. tostring(islandRunTry)
 			.. " seq=" .. tostring(#rollIslandSequence)
 			.. " type=" .. tostring(islandType)
-			.. seedPart;
-		if _lek_mapgen_world_is_small ~= true then
+			.. atPart
+			.. nearPart;
+		if LekMapgenPrintAndDiagFile then
+			LekMapgenPrintAndDiagFile(msg);
+		else
 			print(msg);
 			pcall(function()
 				if LekMapgenDiagLogAppend then
@@ -459,7 +468,9 @@ function GeneratePangaeaIslands(self, genOpts)
 			.. " placedN=" .. tostring(#rollIslandSequence)
 			.. " order=" .. table.concat(rollIslandSequence, ",")
 			.. " countsByType=" .. table.concat(countParts, ";");
-		if _lek_mapgen_world_is_small ~= true then
+		if LekMapgenPrintAndDiagFile then
+			LekMapgenPrintAndDiagFile(summary);
+		else
 			print(summary);
 			pcall(function()
 				if LekMapgenDiagLogAppend then
@@ -602,6 +613,7 @@ function GeneratePangaeaIslands(self, genOpts)
 		spotOpts.landY = landY;
 		spotOpts.nearPangea = pangeaTiles[landPlot];  -- landPlot is 1-based
 		lastTryOceanSeedX, lastTryOceanSeedY = x, y;
+		lastTryLandX, lastTryLandY = landX, landY;
 		return TryPlaceIsland(self.plotTypes, x, y, islLandInRing, spotOpts, forceType);
 	end
 
@@ -618,7 +630,7 @@ function GeneratePangaeaIslands(self, genOpts)
 			attempts = attempts + 1;
 		end
 		if placed then
-			recordIslandPlaced(islandType, lastTryOceanSeedX, lastTryOceanSeedY);
+			recordIslandPlaced(islandType, lastTryOceanSeedX, lastTryOceanSeedY, lastTryLandX, lastTryLandY);
 			spentBudget = spentBudget + GetBudget(islandType);
 			islandsPlaced = islandsPlaced + 1;
 		end
@@ -633,8 +645,9 @@ function GeneratePangaeaIslands(self, genOpts)
 		end
 		dbg2("### placing: " .. tostring(islandType) .. " ###");
 		if islandType == "polarMerge" then
-			if TryPlacePolarMerge(self.plotTypes, opts) then
-				recordIslandPlaced("polarMerge");
+			local ok, px, py = TryPlacePolarMerge(self.plotTypes, opts);
+			if ok then
+				recordIslandPlaced("polarMerge", px, py);
 				spentBudget = spentBudget + GetBudget(islandType);
 				islandsPlaced = islandsPlaced + 1;
 			end
@@ -652,36 +665,42 @@ function GeneratePangaeaIslands(self, genOpts)
 			end
 		]]
 		elseif islandType == "steppingStone" then
-			if TryPlaceSteppingStoneIsland(self.plotTypes, opts) then
-				recordIslandPlaced("steppingStone");
+			local ok, px, py = TryPlaceSteppingStoneIsland(self.plotTypes, opts);
+			if ok then
+				recordIslandPlaced("steppingStone", px, py);
 				spentBudget = spentBudget + GetBudget(islandType);
 				islandsPlaced = islandsPlaced + 1;
 			end
 		elseif islandType == "wrapSoftLandbridge" then
 			local placedBridge = false;
+			local bx, by = nil, nil;
 			for _wb = 1, 28 do
 				if runOnceClockExpired() then
 					break;
 				end
-				if TryPlaceWrapSoftLandbridge(self.plotTypes, opts) then
+				local ok, px, py = TryPlaceWrapSoftLandbridge(self.plotTypes, opts);
+				if ok then
 					placedBridge = true;
+					bx, by = px, py;
 					break;
 				end
 			end
 			if placedBridge then
-				recordIslandPlaced("wrapSoftLandbridge");
+				recordIslandPlaced("wrapSoftLandbridge", bx, by);
 				spentBudget = spentBudget + GetBudget(islandType);
 				islandsPlaced = islandsPlaced + 1;
 			end
 		elseif islandType == "mainlandRidge" then
-			if TryPlaceMainlandRidge(self.plotTypes, opts) then
-				recordIslandPlaced("mainlandRidge");
+			local ok, px, py = TryPlaceMainlandRidge(self.plotTypes, opts);
+			if ok then
+				recordIslandPlaced("mainlandRidge", px, py);
 				spentBudget = spentBudget + GetBudget(islandType);
 				islandsPlaced = islandsPlaced + 1;
 			end
 		elseif islandType == "lakeRidge" then
-			if TryPlaceLakeRidge(self.plotTypes, opts) then
-				recordIslandPlaced("lakeRidge");
+			local ok, px, py = TryPlaceLakeRidge(self.plotTypes, opts);
+			if ok then
+				recordIslandPlaced("lakeRidge", px, py);
 				spentBudget = spentBudget + GetBudget(islandType);
 				islandsPlaced = islandsPlaced + 1;
 			end
@@ -722,7 +741,7 @@ function GeneratePangaeaIslands(self, genOpts)
 			end
 		end
 		if placed then
-			recordIslandPlaced(islandType, lastTryOceanSeedX, lastTryOceanSeedY);
+			recordIslandPlaced(islandType, lastTryOceanSeedX, lastTryOceanSeedY, lastTryLandX, lastTryLandY);
 			local b = GetBudget(islandType);
 			bootstrapSpent = bootstrapSpent + b;
 			spentBudget = spentBudget + b;
@@ -772,7 +791,7 @@ function GeneratePangaeaIslands(self, genOpts)
 				if placed then break; end
 			end
 			if placed then
-				recordIslandPlaced(islandType, lastTryOceanSeedX, lastTryOceanSeedY);
+				recordIslandPlaced(islandType, lastTryOceanSeedX, lastTryOceanSeedY, lastTryLandX, lastTryLandY);
 				spentBudget = spentBudget + GetBudget(islandType);
 				islandsPlaced = islandsPlaced + 1;
 				idleCommonPasses = 0;

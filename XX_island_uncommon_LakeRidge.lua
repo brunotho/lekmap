@@ -204,7 +204,7 @@ function TryPlaceLakeRidge(plotTypes, opts)
 									end
 								end
 							end
-							return true;
+							return true, cx, cy;
 						end
 					end
 				end

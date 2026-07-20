@@ -22,7 +22,7 @@ Verbosity & benchmark globals (common knobs)
 4a_HBAssignStartingPlots.lua (loaded early):
   _lek_mapgen_log_verbosity   -- 1 = milestones; 2 = + placement probe detail; 3 = more tuple noise
   _lek_mapgen_tuple_benchmark_mode  -- set by Pangaea after GenerateRegions when using Global Six pace
-  _lek_strat_audit_log_each_hit     -- false = no per-tile ### LEK_STRAT_HIT lines (default); true = every horse/iron placement
+  _lek_strat_audit_log_each_hit     -- false = no per-tile ### LEK_STRAT_HIT; true = every audited strategic placement
 
 LekmapPangaeaFractalv6.0.lua top:
   _lek_mapgen_log_verbosity = 1   -- default for this map script
@@ -55,13 +55,27 @@ Greppable log prefixes (selection)
 
 ### LEK_STRAT_AUDIT strat_pass_begin — entering major strategic placement block (resource_setting == 5).
 
-### LEK_STRAT_HIT              — one horse/iron placement (only if _lek_strat_audit_log_each_hit == true).
+### LEK_STRAT_HIT              — one audited placement (horse/iron/oil/uran/coal/alum) if _lek_strat_audit_log_each_hit.
 
-### LEK_STRAT_SUMMARY          — stage tag + raw entry count before sea oil.
+### LEK_STRAT_SUMMARY          — stage tag + raw entry count.
 
-### LEK_STRAT_TOTAL            — map-wide rollout for this summary: horse_majorN, horse_smallN, iron_majorN, iron_smallN, horse_nodes, iron_nodes.
+### LEK_STRAT_TOTAL            — horse/iron node counts (major/small).
 
-### LEK_STRAT_PHASE            — same counts broken down by placement pass label (pass=...).
+### LEK_STRAT_OU_TOTAL         — oil (major/small/sea) + uranium node counts (+ units).
+
+### LEK_STRAT_CA_TOTAL         — coal + aluminum node counts (+ units).
+
+### LEK_STRAT_BUCKET / OU_BUCKET / CA_BUCKET — same counts by bucket=player|global|rescan|other.
+
+### LEK_STRAT_PHASE            — all six strategics broken down by placement pass label (pass=...).
+
+### LekIslandPlaced           — one successful island paint: type=… at=x,y [nearLand=x,y].
+### LekIslandRollSummary       — per budget-try: order=type1,type2… + countsByType (final accepted try is the map).
+
+Stages (resource_setting=5): after_strategics_pre_rs5_post (live pass labels, incl. cs_modern);
+after_rs5_rescan_pre_sea (map wipe → final_map_*); after_PlaceOilInTheSea; after_cs_center_strat.
+
+### LEK_CS_CENTER_STRAT        — begin|pick|hit|done for 3 CS nearest map center (20% oil/alum/uran each).
 
 ### LekBench6                  — tuple / spacing / lux repair / hex_ok single-line rollup per layout.
 
@@ -76,11 +90,17 @@ Greppable log prefixes (selection)
 
 Strategic audit vocabulary
 --------------------------
-“Units” (removed from primary phase lines): Civ resource amount on a tile (e.g. horse bundle size). Summing units across nodes was useful for yield math; node counts are easier to scan.
+“Units”: Civ resource amount on a tile. Node counts are easier to scan across batches.
 
-Major vs small node: inferred from qty when logged — horse qty >= 4 → major node; iron qty >= 5 → major node (see LekStratAuditClassifyHorseIronSize).
+Major vs small: horse qty>=4; iron/oil/coal/alum qty>=5; uranium mostly by pass label (_major/_small) because qty often ties.
+
+Pass labels of note:
+  cs_center:oil_major:cs=N   — center-CS optional strat (also alum_/uran_, _small)
+  cs_modern:coal_small:cs=N  — AddModernMinorStrategicsToCityStates (also oil_/alum_)
+  major:… / small_strat:… / guaranteed_band:… / strat_balance… / sea_oil:…
 
 
 Rolling N maps for statistics
 -----------------------------
-Collect ### LEK_STRAT_TOTAL and ### LEK_STRAT_PHASE lines plus ### LekBench6 per accepted layout; grep runId to group one map. Average horse_majorN / iron_majorN / etc. across runs after you paste batches.
+Collect LEK_STRAT_TOTAL, LEK_STRAT_OU_TOTAL, LEK_STRAT_CA_TOTAL, LEK_STRAT_PHASE (+ LEK_CS_CENTER_STRAT)
+and LekBench6 per layout; grep runId to group one map. Average *_majorN / *_smallN across runs.

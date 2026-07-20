@@ -278,5 +278,5 @@ function TryPlaceSteppingStoneIsland(plotTypes, opts)
 
 	if not _island_placed then _island_placed = {}; end
 	_island_placed.steppingStone = true;
-	return true;
+	return true, centerX, centerY;
 end

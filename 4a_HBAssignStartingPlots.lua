@@ -272,7 +272,7 @@ end
 local LEK_RS5_MAX_NON_BALANCE_MAJOR_PER_TYPE = 4;
 
 ------------------------------------------------------------------------------
--- Strategic audit (horse/iron/oil/uranium): active when self.resource_setting == 5.
+-- Strategic audit (horse/iron/oil/uranium/coal/aluminum): active when self.resource_setting == 5.
 -- Call sites set self._lek_strat_audit_context to a short pass label before placing.
 ------------------------------------------------------------------------------
 AssignStartingPlots = AssignStartingPlots or {};
@@ -301,11 +301,13 @@ function AssignStartingPlots.LekStratAuditResName(self, resId)
 	if resId == self.iron_ID then return "iron"; end
 	if resId == self.oil_ID then return "oil"; end
 	if resId == self.uranium_ID then return "uranium"; end
+	if resId == self.coal_ID then return "coal"; end
+	if resId == self.aluminum_ID then return "aluminum"; end
 	return nil;
 end
 
 function AssignStartingPlots.LekStratAuditClassifyHorseIronSize(self, resId, qty)
-	-- Kept for trim path; oil/uranium use ClassifyStrategicSize.
+	-- Kept for trim path; oil/uranium/coal/alum use ClassifyStrategicSize.
 	if type(qty) ~= "number" then
 		return "?";
 	end
@@ -335,18 +337,30 @@ function AssignStartingPlots.LekStratAuditClassifyStrategicSize(self, resId, qty
 		end
 		return (qty >= 5) and "major" or "small";
 	end
+	if resId == self.coal_ID then
+		-- Major qty ~7, small ~3.
+		return (qty >= 5) and "major" or "small";
+	end
+	if resId == self.aluminum_ID then
+		-- Major qty ~8, small ~3.
+		return (qty >= 5) and "major" or "small";
+	end
 	if resId == self.uranium_ID then
-		-- Major and small qty are often both 2 (or balance uses 1); classify by pass.
+		-- Major and small qty are often both 2 (or balance uses 1); classify by pass / label.
 		if string.sub(p, 1, 12) == "small_strat:" then
 			return "small";
 		end
-		if string.find(p, "_small", 1, true) then
+		if string.find(p, ":small:", 1, true) or string.find(p, "_small", 1, true) then
 			return "small";
+		end
+		if string.find(p, ":major:", 1, true) or string.find(p, "_major", 1, true) then
+			return "major";
 		end
 		if string.sub(p, 1, 13) == "strat_balance"
 			or string.sub(p, 1, 9) == "backfill:"
 			or string.sub(p, 1, 16) == "guaranteed_band:"
-			or string.sub(p, 1, 6) == "major:" then
+			or string.sub(p, 1, 6) == "major:"
+			or string.sub(p, 1, 10) == "cs_center:" then
 			return "major";
 		end
 		if qty < 2 then
@@ -358,7 +372,7 @@ function AssignStartingPlots.LekStratAuditClassifyStrategicSize(self, resId, qty
 end
 
 function AssignStartingPlots.LekStratAuditRecordHorseIron(self, resId, qty, plot, x, y)
-	-- Name historical; records horse/iron/oil/uranium.
+	-- Name historical; records horse/iron/oil/uranium/coal/aluminum.
 	if not AssignStartingPlots.LekStratAuditEnsure(self) then
 		return;
 	end
@@ -413,7 +427,7 @@ end
 
 function AssignStartingPlots.LekStratAuditClassifyPassBucket(pass)
 	-- player = NormalizeStartLocation / BalanceAndAssign (per-start).
-	-- global = PlaceStrategicAndBonusResources biome/frequency passes + sea oil.
+	-- global = PlaceStrategicAndBonusResources biome/frequency passes + sea oil + CS extras.
 	-- rescan = post-process map wipe (labels collapsed; not separable).
 	local p = tostring(pass or "");
 	if string.sub(p, 1, 13) == "strat_balance"
@@ -425,7 +439,9 @@ function AssignStartingPlots.LekStratAuditClassifyPassBucket(pass)
 	if string.sub(p, 1, 6) == "major:"
 		or string.sub(p, 1, 12) == "small_strat:"
 		or string.sub(p, 1, 9) == "backfill:"
-		or string.sub(p, 1, 8) == "sea_oil:" then
+		or string.sub(p, 1, 8) == "sea_oil:"
+		or string.sub(p, 1, 10) == "cs_center:"
+		or string.sub(p, 1, 10) == "cs_modern:" then
 		return "global";
 	end
 	if string.sub(p, 1, 10) == "final_map_" or p == "map_scan" then
@@ -440,6 +456,8 @@ local function LekStratAuditEmptyCounts()
 		iron_major = 0, iron_small = 0,
 		oil_major = 0, oil_small = 0, oil_sea = 0,
 		uran_major = 0, uran_small = 0,
+		coal_major = 0, coal_small = 0,
+		alum_major = 0, alum_small = 0,
 		nodes = 0,
 	};
 end
@@ -540,6 +558,10 @@ function AssignStartingPlots:LekStratAuditPrintSummary(stageTag)
 		elseif e.res == "oil" and e.sz == "sea" then key = "oil_sea";
 		elseif e.res == "uranium" and e.sz == "major" then key = "uran_major";
 		elseif e.res == "uranium" and e.sz == "small" then key = "uran_small";
+		elseif e.res == "coal" and e.sz == "major" then key = "coal_major";
+		elseif e.res == "coal" and e.sz == "small" then key = "coal_small";
+		elseif e.res == "aluminum" and e.sz == "major" then key = "alum_major";
+		elseif e.res == "aluminum" and e.sz == "small" then key = "alum_small";
 		end
 		if key then
 			bump(b, key);
@@ -571,6 +593,15 @@ function AssignStartingPlots:LekStratAuditPrintSummary(stageTag)
 		.. " uran_nodes=" .. tostring(tot.uran_major + tot.uran_small)
 		.. " oil_units=" .. tostring(self.amounts_of_resources_placed and (self.amounts_of_resources_placed[self.oil_ID + 1] or 0) or 0)
 		.. " uran_units=" .. tostring(self.amounts_of_resources_placed and (self.amounts_of_resources_placed[self.uranium_ID + 1] or 0) or 0));
+	LekMapgenPrintAndDiagFile("### LEK_STRAT_CA_TOTAL runId=" .. rid .. " stage=" .. tostring(stageTag or "na")
+		.. " coal_majorN=" .. tostring(tot.coal_major)
+		.. " coal_smallN=" .. tostring(tot.coal_small)
+		.. " alum_majorN=" .. tostring(tot.alum_major)
+		.. " alum_smallN=" .. tostring(tot.alum_small)
+		.. " coal_nodes=" .. tostring(tot.coal_major + tot.coal_small)
+		.. " alum_nodes=" .. tostring(tot.alum_major + tot.alum_small)
+		.. " coal_units=" .. tostring(self.amounts_of_resources_placed and (self.amounts_of_resources_placed[self.coal_ID + 1] or 0) or 0)
+		.. " alum_units=" .. tostring(self.amounts_of_resources_placed and (self.amounts_of_resources_placed[self.aluminum_ID + 1] or 0) or 0));
 	for _, bucketName in ipairs({ "player", "global", "rescan", "other" }) do
 		local bk = byBucket[bucketName];
 		if bk.nodes > 0 then
@@ -594,6 +625,17 @@ function AssignStartingPlots:LekStratAuditPrintSummary(stageTag)
 					.. " uran_smallN=" .. tostring(bk.uran_small)
 					.. " nodes=" .. tostring(ouNodes));
 			end
+			local caNodes = bk.coal_major + bk.coal_small + bk.alum_major + bk.alum_small;
+			if caNodes > 0 then
+				LekMapgenPrintAndDiagFile("### LEK_STRAT_CA_BUCKET runId=" .. rid
+					.. " stage=" .. tostring(stageTag or "na")
+					.. " bucket=" .. bucketName
+					.. " coal_majorN=" .. tostring(bk.coal_major)
+					.. " coal_smallN=" .. tostring(bk.coal_small)
+					.. " alum_majorN=" .. tostring(bk.alum_major)
+					.. " alum_smallN=" .. tostring(bk.alum_small)
+					.. " nodes=" .. tostring(caNodes));
+			end
 		end
 	end
 	AssignStartingPlots.LekStratAuditPrintSpacingForRes(self, stageTag, "uranium");
@@ -611,7 +653,11 @@ function AssignStartingPlots:LekStratAuditPrintSummary(stageTag)
 			.. " oil_smallN=" .. tostring(b.oil_small)
 			.. " oil_seaN=" .. tostring(b.oil_sea)
 			.. " uran_majorN=" .. tostring(b.uran_major)
-			.. " uran_smallN=" .. tostring(b.uran_small));
+			.. " uran_smallN=" .. tostring(b.uran_small)
+			.. " coal_majorN=" .. tostring(b.coal_major)
+			.. " coal_smallN=" .. tostring(b.coal_small)
+			.. " alum_majorN=" .. tostring(b.alum_major)
+			.. " alum_smallN=" .. tostring(b.alum_small));
 	end
 end
 
@@ -702,7 +748,7 @@ function AssignStartingPlots:LekStratStripSmallIronOnHillsFromMap()
 end
 
 function AssignStartingPlots.LekStratAuditRescanHorseIronFromMap(self, passLabel)
-	-- Name historical; rescans horse/iron/oil/uranium.
+	-- Name historical; rescans horse/iron/oil/uranium/coal/aluminum.
 	if not AssignStartingPlots.LekStratAuditEnsure(self) then
 		return;
 	end
@@ -712,7 +758,8 @@ function AssignStartingPlots.LekStratAuditRescanHorseIronFromMap(self, passLabel
 		for x = 0, iW - 1 do
 			local plot = Map.GetPlot(x, y);
 			local rt = plot:GetResourceType(-1);
-			if (rt == self.horse_ID or rt == self.iron_ID or rt == self.oil_ID or rt == self.uranium_ID)
+			if (rt == self.horse_ID or rt == self.iron_ID or rt == self.oil_ID or rt == self.uranium_ID
+				or rt == self.coal_ID or rt == self.aluminum_ID)
 				and plot.GetNumResource then
 				local qty = plot:GetNumResource();
 				if type(qty) ~= "number" then
@@ -1402,6 +1449,9 @@ function AssignStartingPlots.Create()
 		PlaceCoastalBonusIslands = AssignStartingPlots.PlaceCoastalBonusIslands,
 		AddExtraBonusesToHillsRegions = AssignStartingPlots.AddExtraBonusesToHillsRegions,
 		AddModernMinorStrategicsToCityStates = AssignStartingPlots.AddModernMinorStrategicsToCityStates,
+		LekAddCenterCityStateStrategics = AssignStartingPlots.LekAddCenterCityStateStrategics,
+		LekCountNonWaterTilesInRingsFromXY = AssignStartingPlots.LekCountNonWaterTilesInRingsFromXY,
+		LekCityStatePassesLandPackingRule = AssignStartingPlots.LekCityStatePassesLandPackingRule,
 		PlaceOilInTheSea = AssignStartingPlots.PlaceOilInTheSea,
 		FixResourceGraphics = AssignStartingPlots.FixResourceGraphics, -- Sugar could not be made visible enough in jungle, so turn any sugar jungle to marsh.
 		PrintFinalResourceTotalsToLog = AssignStartingPlots.PrintFinalResourceTotalsToLog,
@@ -14292,7 +14342,43 @@ function AssignStartingPlots:CanPlaceCityStateAt(x, y, area_ID, force_it, ignore
 	if self.plotDataIsNextToCoast[plotIndex] == true then
 		return false
 	end
+	-- Mainland: >=3 non-water in r1. Island: >=4 non-water in r1-2 (cuts coastal protrusions / thin isles).
+	if not AssignStartingPlots.LekCityStatePassesLandPackingRule(self, x, y) then
+		return false
+	end
 	return true
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekCountNonWaterTilesInRingsFromXY(x, y, dmin, dmax)
+	local n = 0;
+	if type(dmin) ~= "number" or type(dmax) ~= "number" or dmax < dmin or dmin < 1 then
+		return 0;
+	end
+	local iW = select(1, Map.GetGridSize());
+	for ring = dmin, dmax do
+		for _, plotIndex in ipairs(self:LekEnumeratePlotIndicesOnHexRing(x, y, ring)) do
+			local px = (plotIndex - 1) % iW;
+			local py = (plotIndex - px - 1) / iW;
+			local p = Map.GetPlot(px, py);
+			if p and p:GetPlotType() ~= PlotTypes.PLOT_OCEAN then
+				n = n + 1;
+			end
+		end
+	end
+	return n;
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:LekCityStatePassesLandPackingRule(x, y)
+	local plot = Map.GetPlot(x, y);
+	if not plot then
+		return false;
+	end
+	local biggest = Map.FindBiggestArea(false);
+	local onMainland = biggest and (plot:GetArea() == biggest:GetID());
+	if onMainland then
+		return self:LekCountNonWaterTilesInRingsFromXY(x, y, 1, 1) >= 3;
+	end
+	return self:LekCountNonWaterTilesInRingsFromXY(x, y, 1, 2) >= 4;
 end
 ------------------------------------------------------------------------------
 function AssignStartingPlots:ObtainNextSectionInRegion(incoming_west_x, incoming_south_y,
@@ -22861,6 +22947,7 @@ end
 function AssignStartingPlots:AddModernMinorStrategicsToCityStates()
 	-- This function added Spring 2011. Purpose is to add a small strategic to most city states.
 	local uran_amt, horse_amt, oil_amt, iron_amt, coal_amt, alum_amt = self:GetSmallStrategicResourceQuantityValues()
+	local prevStratAuditCtx = self._lek_strat_audit_context;
 	for city_state = 1, self.iNumCityStates do
 		-- First check to see if this city state number received a valid start plot.
 		if self.city_state_validity_table[city_state] == false then
@@ -22874,21 +22961,25 @@ function AssignStartingPlots:AddModernMinorStrategicsToCityStates()
 			if diceroll > 0 then
 				-- This city state selected for minor strategic resource placement.
 				local use_this_ID, res_amt, luxury_plot_lists, shuf_list;
+				local res_tag = "coal";
 				local primary, secondary, tertiary, quaternary, quinternary, sexternary = 0, 0, 0, 0, 0, 0;
 				if diceroll == 1 then
 					use_this_ID = self.coal_ID;
 					res_amt = coal_amt;
+					res_tag = "coal";
 					primary, secondary, tertiary, quaternary, quinternary, sexternary = 4, 5, 14, 12, 11, 10;
 				elseif diceroll == 2 then
 					use_this_ID = self.oil_ID;
 					res_amt = oil_amt;
+					res_tag = "oil";
 					primary, secondary, tertiary, quaternary, quinternary, sexternary = 10, 2, 14, 15, 12, 11;
 				elseif diceroll == 3 then
 					use_this_ID = self.aluminum_ID;
 					res_amt = alum_amt;
+					res_tag = "alum";
 					primary, secondary, tertiary, quaternary, quinternary, sexternary = 4, 5, 14, 10, 11, 12;
 				end
-				--print("-"); print("-"); print("-Assigned Strategic Type", use_this_ID, "to City State#", city_state);
+				self._lek_strat_audit_context = "cs_modern:" .. res_tag .. "_small:cs=" .. tostring(city_state);
 				-- Place strategic.
 				luxury_plot_lists = self:GenerateLuxuryPlotListsAtCitySite(x, y, 3, false)
 				shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[primary])
@@ -22913,14 +23004,104 @@ function AssignStartingPlots:AddModernMinorStrategicsToCityStates()
 					shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[sexternary])
 					iNumLeftToPlace = self:PlaceSpecificNumberOfResources(use_this_ID, res_amt, 1, 1, -1, 0, 0, shuf_list);
 				end
-				if iNumLeftToPlace == 0 then
-					--print("-"); print("Placed Minor Strategic ID#", use_this_ID, "at City State#", city_state, "located at Plot", x, y);
-				end
-			else
-				--print("-"); print("-"); print("-City State#", city_state, "gets no strategic resource assigned to it.");
 			end
 		end
 	end
+	self._lek_strat_audit_context = prevStratAuditCtx;
+end
+------------------------------------------------------------------------------
+-- After all other strategic placement: for the 3 CS closest to map center, independently
+-- roll 20% each for oil / aluminum / uranium; on hit place one 50/50 major/minor deposit near the CS.
+function AssignStartingPlots:LekAddCenterCityStateStrategics()
+	local iW, iH = Map.GetGridSize();
+	local cx = math.floor(iW / 2);
+	local cy = math.floor(iH / 2);
+	local scored = {};
+	for city_state = 1, self.iNumCityStates or 0 do
+		if self.city_state_validity_table and self.city_state_validity_table[city_state] == true then
+			local st = self.cityStatePlots and self.cityStatePlots[city_state];
+			if st and type(st[1]) == "number" and type(st[2]) == "number" then
+				local d = AssignStartingPlots.LekGlobalSix_PlotDistance(self, st[1], st[2], cx, cy);
+				if type(d) ~= "number" then
+					d = 999;
+				end
+				scored[#scored + 1] = { cs = city_state, x = st[1], y = st[2], d = d };
+			end
+		end
+	end
+	table.sort(scored, function(a, b)
+		if a.d ~= b.d then
+			return a.d < b.d;
+		end
+		return a.cs < b.cs;
+	end);
+	local nPick = math.min(3, #scored);
+	local uran_maj, _, oil_maj, _, _, alum_maj = self:GetMajorStrategicResourceQuantityValues();
+	local uran_sm, _, oil_sm, _, _, alum_sm = self:GetSmallStrategicResourceQuantityValues();
+	local kinds = {
+		{ id = self.oil_ID, name = "oil", maj = oil_maj, sm = oil_sm, impact = -1, lists = { 10, 2, 14, 15, 12, 11 } },
+		{ id = self.aluminum_ID, name = "alum", maj = alum_maj, sm = alum_sm, impact = -1, lists = { 4, 5, 14, 10, 11, 12 } },
+		{ id = self.uranium_ID, name = "uran", maj = uran_maj, sm = uran_sm, impact = 9, lists = { 14, 10, 11, 12, 4, 5 } },
+	};
+	local rolls = 0;
+	local placed = 0;
+	local failed = 0;
+	local prevStratAuditCtx = self._lek_strat_audit_context;
+	LekMapgenPrintAndDiagFile("### LEK_CS_CENTER_STRAT begin runId=" .. tostring(_lek_run_id or "na")
+		.. " mapCenter=" .. tostring(cx) .. "," .. tostring(cy)
+		.. " mapSize=" .. tostring(iW) .. "x" .. tostring(iH)
+		.. " validCS=" .. tostring(#scored)
+		.. " pickN=" .. tostring(nPick));
+	for i = 1, nPick do
+		local ent = scored[i];
+		LekMapgenPrintAndDiagFile("### LEK_CS_CENTER_STRAT pick runId=" .. tostring(_lek_run_id or "na")
+			.. " rank=" .. tostring(i)
+			.. " cs=" .. tostring(ent.cs)
+			.. " at=" .. tostring(ent.x) .. "," .. tostring(ent.y)
+			.. " dCenter=" .. tostring(ent.d));
+		local luxury_plot_lists = self:GenerateLuxuryPlotListsAtCitySite(ent.x, ent.y, 3, false);
+		for _, k in ipairs(kinds) do
+			if Map.Rand(100, "Lek CS center strat coin " .. k.name) < 20 then
+				rolls = rolls + 1;
+				local qty, szTag = self:LekStratPickMajorOrMinorQty(k.maj, k.sm);
+				self._lek_strat_audit_context = "cs_center:" .. k.name .. "_" .. tostring(szTag)
+					.. ":cs=" .. tostring(ent.cs);
+				local left = 1;
+				for _, li in ipairs(k.lists) do
+					if left <= 0 then
+						break;
+					end
+					if type(li) == "number" and li > 0 and luxury_plot_lists[li] ~= nil then
+						local shuf = GetShuffledCopyOfTable(luxury_plot_lists[li]);
+						left = self:PlaceSpecificNumberOfResources(k.id, qty, left, 1, k.impact, 0, 0, shuf);
+					end
+				end
+				if left == 0 then
+					placed = placed + 1;
+					LekMapgenPrintAndDiagFile("### LEK_CS_CENTER_STRAT hit runId=" .. tostring(_lek_run_id or "na")
+						.. " cs=" .. tostring(ent.cs)
+						.. " res=" .. k.name
+						.. " size=" .. tostring(szTag)
+						.. " qty=" .. tostring(qty)
+						.. " ok=true");
+				else
+					failed = failed + 1;
+					LekMapgenPrintAndDiagFile("### LEK_CS_CENTER_STRAT hit runId=" .. tostring(_lek_run_id or "na")
+						.. " cs=" .. tostring(ent.cs)
+						.. " res=" .. k.name
+						.. " size=" .. tostring(szTag)
+						.. " qty=" .. tostring(qty)
+						.. " ok=false");
+				end
+			end
+		end
+	end
+	self._lek_strat_audit_context = prevStratAuditCtx;
+	LekMapgenPrintAndDiagFile("### LEK_CS_CENTER_STRAT done runId=" .. tostring(_lek_run_id or "na")
+		.. " rolls=" .. tostring(rolls)
+		.. " placed=" .. tostring(placed)
+		.. " failed=" .. tostring(failed)
+		.. " expected_mean_rolls=" .. string.format("%.1f", nPick * 3 * 0.20));
 end
 ------------------------------------------------------------------------------
 function AssignStartingPlots:PlaceOilInTheSea()
@@ -23312,13 +23493,17 @@ function AssignStartingPlots:FixResourceGraphics()
 						plot:SetTerrainType(TerrainTypes.TERRAIN_PLAINS, false, true)
 					end
 				end
-				if res_ID == self.ivory_ID or res_ID == self.incense_ID then
-					local tt0 = plot:GetTerrainType()
-					local ft0 = plot:GetFeatureType()
-					local pt0 = plot:GetPlotType()
-					if tt0 == TerrainTypes.TERRAIN_DESERT and ft0 ~= FeatureTypes.FEATURE_FLOOD_PLAINS and pt0 ~= PlotTypes.PLOT_HILLS then
-						plot:SetPlotType(PlotTypes.PLOT_HILLS, false, true)
-					end
+			end
+
+			-- Any luxury left on featureless flat desert → hills (covers mined + open, e.g. silver/gold/incense).
+			if res_ID ~= nil and res_ID >= 0 and self:LekResourceIsLuxury(res_ID) then
+				local ttD = plot:GetTerrainType();
+				local ftD = plot:GetFeatureType();
+				local ptD = plot:GetPlotType();
+				if ttD == TerrainTypes.TERRAIN_DESERT
+					and ftD == FeatureTypes.NO_FEATURE
+					and ptD == PlotTypes.PLOT_LAND then
+					plot:SetPlotType(PlotTypes.PLOT_HILLS, false, true);
 				end
 			end
 		end
@@ -23785,9 +23970,11 @@ function AssignStartingPlots:PlaceStrategicAndBonusResources()
 		-- Final oil includes sea; uranium unchanged. Prefer this stage for OU baseline totals.
 		AssignStartingPlots.LekStratAuditPrintSummary(self, "after_PlaceOilInTheSea");
 	end
-
-	
-	-- Place Bonus Resources
+	-- Extra center-CS strategics after all other strategic placement (does not interfere with prior passes).
+	self:LekAddCenterCityStateStrategics();
+	if self.resource_setting == 5 then
+		AssignStartingPlots.LekStratAuditPrintSummary(self, "after_cs_center_strat");
+	end
 	print("Map Generation - Placing Bonuses");
 	local lake_fish_full = GetShuffledCopyOfTable(
 		self:LekFilterLakeFishIndicesAwayFromMajorStarts(self.lake_coast_fish_list or {}, 4));

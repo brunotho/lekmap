@@ -541,5 +541,5 @@ function TryPlaceWrapSoftLandbridge(plotTypes, opts)
 		end
 	end
 
-	return true;
+	return true, tiles[1][1], tiles[1][2];
 end

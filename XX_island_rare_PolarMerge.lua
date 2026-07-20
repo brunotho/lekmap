@@ -1144,7 +1144,7 @@ local function drawPangaeaEmbrace(plotTypes, iW, iH, wrapX, wrapY)
 		end
 	end
 
-	return true;
+oh i se	return true, westAnchor, edgeY;
 end
 
 --[==[
@@ -1371,10 +1371,11 @@ function TryPlacePolarMerge(plotTypes, opts)
 	if wrapY then return false; end
 
 	if Map.Rand(100, "") < CONFIG.EMBRACE_ODDS then
-		if drawPangaeaEmbrace(plotTypes, iW, iH, wrapX, wrapY) then
+		local ok, px, py = drawPangaeaEmbrace(plotTypes, iW, iH, wrapX, wrapY);
+		if ok then
 			if not _island_placed then _island_placed = {}; end
 			_island_placed.polarMerge = true;
-			return true;
+			return true, px, py;
 		end
 	end
 	return false;
