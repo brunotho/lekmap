@@ -1119,25 +1119,26 @@ function AssignStartingPlots:LekStratPlaceOuBandsForRegion(region_number)
 		end
 	end
 
-	-- Uranium: 1 deposit r1-5 + 1 r6-8. Qty=1 (OG balance) so unit floor still yields ~21 nodes.
-	-- Strategic impact so globals/backfill do not stack into the same start rings.
-	local uran_band_qty = 1;
+	-- Uranium: 1 deposit r3-5 (50/50 major/minor) + 1 r6-8 (qty=1). Avoid r1-2 for the close node.
+	-- Uranium-only impact layer (9) so deadzone does not block coal/alum/other strategics.
 	local uran_band_impact_min, uran_band_impact_max = 4, 6;
 	do
-		local uran_list, uran_fallback = self:LekStratBuildUranListsForRingBand(x, y, 1, 5);
+		local qty, szTag = self:LekStratPickMajorOrMinorQty(uran_major, uran_small);
+		local uran_list, uran_fallback = self:LekStratBuildUranListsForRingBand(x, y, 3, 5);
 		if self:LekStratPlaceOneWithPrimaryFallback(
-			self.uranium_ID, uran_band_qty, uran_list, uran_fallback,
-			"guaranteed_band:uran_r1-5_qty1:region=" .. tostring(region_number),
-			1, uran_band_impact_min, uran_band_impact_max) then
+			self.uranium_ID, qty, uran_list, uran_fallback,
+			"guaranteed_band:uran_r3-5_" .. szTag .. ":region=" .. tostring(region_number),
+			9, uran_band_impact_min, uran_band_impact_max) then
 			uranOk = uranOk + 1;
 		end
 	end
 	do
+		local uran_band_qty = 1;
 		local uran_list, uran_fallback = self:LekStratBuildUranListsForRingBand(x, y, 6, 8);
 		if self:LekStratPlaceOneWithPrimaryFallback(
 			self.uranium_ID, uran_band_qty, uran_list, uran_fallback,
 			"guaranteed_band:uran_r6-8_qty1:region=" .. tostring(region_number),
-			1, uran_band_impact_min, uran_band_impact_max) then
+			9, uran_band_impact_min, uran_band_impact_max) then
 			uranOk = uranOk + 1;
 		end
 	end
@@ -1494,6 +1495,7 @@ function AssignStartingPlots.Create()
 		bonusData = table.fill(0, iW * iH), -- Stores "impact and ripple" data in the bonus resources layer
 		fishData = table.fill(0, iW * iH), -- Stores "impact and ripple" data in the fish layer
 		seaOilData = table.fill(0, iW * iH), -- Stores "impact and ripple" data in the sea oil layer
+		uraniumData = table.fill(0, iW * iH), -- Uranium-only impact (layer 9); does not block other strategics
 		marbleData = table.fill(0, iW * iH), -- Stores "impact and ripple" data in the marble layer
 		sheepData = table.fill(0, iW * iH), -- Stores "impact and ripple" data in the sheep layer -- Sheep use regular bonus layer PLUS this one
 		regions_sorted_by_type = {},	-- Stores table that includes region number and Luxury ID (this is where the two are first matched)
@@ -7484,6 +7486,7 @@ local function LekGlobalSix_CopyBufferFields()
 		"naturalWondersData",
 		"marbleData",
 		"seaOilData",
+		"uraniumData",
 		"sheepData",
 	};
 end
@@ -10887,7 +10890,7 @@ function AssignStartingPlots:AddStrategicBalanceResources(region_number)
 						.. " primaryN=" .. tostring(table.maxn(uran_list));
 				end
 				shuf_list = GetShuffledCopyOfTable(uran_list)
-				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(self.uranium_ID, uran_amt, 2, 1, 1, 0, 0, shuf_list);
+				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(self.uranium_ID, uran_amt, 2, 1, 9, 0, 0, shuf_list);
 				if iNumLeftToPlace == 0 then
 					placed_uran = true;
 				end
@@ -10898,7 +10901,7 @@ function AssignStartingPlots:AddStrategicBalanceResources(region_number)
 	if self.start_locations == 5 or self.start_locations == 6 or self.start_locations == 1 or self.start_locations == 2 then
 		if table.maxn(alum_list) > 0 then
 			shuf_list = GetShuffledCopyOfTable(alum_list)
-			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(self.aluminum_ID, alum_amt, 1, 1, 1, 0, 0, shuf_list);
+			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(self.aluminum_ID, alum_amt, 1, 1, -1, 0, 0, shuf_list);
 			if iNumLeftToPlace == 0 then
 				placed_alum = true;
 			end
@@ -10908,7 +10911,7 @@ function AssignStartingPlots:AddStrategicBalanceResources(region_number)
 	if self.start_locations == 4 or self.start_locations == 6 or self.start_locations == 1  or self.start_locations == 2 then
 		if table.maxn(coal_list) > 0 then
 			shuf_list = GetShuffledCopyOfTable(coal_list)
-			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(self.coal_ID, coal_amt, 1, 1, 1, 0, 0, shuf_list);
+			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(self.coal_ID, coal_amt, 1, 1, -1, 0, 0, shuf_list);
 			if iNumLeftToPlace == 0 then
 				placed_coal = true;
 			end
@@ -10975,14 +10978,14 @@ function AssignStartingPlots:AddStrategicBalanceResources(region_number)
 	end
 	if self.start_locations == 5 or self.start_locations == 6 or self.start_locations == 1 or self.start_locations == 2 then
 		if placed_alum == false and table.maxn(alum_fallback) > 0 then
-			shuf_list = GetShuffledCopyOfTable(horse_fallback)
-			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(self.aluminum_ID, alum_amt, 1, 1, 1, 0, 0, shuf_list);
+			shuf_list = GetShuffledCopyOfTable(alum_fallback)
+			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(self.aluminum_ID, alum_amt, 1, 1, -1, 0, 0, shuf_list);
 		end
 	end
 	if self.start_locations == 4 or self.start_locations == 6 or self.start_locations == 1 or self.start_locations == 2 then
 		if placed_coal == false and table.maxn(coal_fallback) > 0 then
 			shuf_list = GetShuffledCopyOfTable(coal_fallback)
-			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(self.coal_ID, coal_amt, 1, 1, 1, 0, 0, shuf_list);
+			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(self.coal_ID, coal_amt, 1, 1, -1, 0, 0, shuf_list);
 		end
 	end
 	if not useOuBands and self.start_locations == 2 then
@@ -10992,7 +10995,7 @@ function AssignStartingPlots:AddStrategicBalanceResources(region_number)
 					.. " fallbackN=" .. tostring(table.maxn(uran_fallback));
 			end
 			shuf_list = GetShuffledCopyOfTable(uran_fallback)
-			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(self.uranium_ID, uran_amt, 2, 1, 1, 0, 0, shuf_list);
+			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(self.uranium_ID, uran_amt, 2, 1, 9, 0, 0, shuf_list);
 			if iNumLeftToPlace == 0 then
 				placed_uran = true;
 			end
@@ -15918,7 +15921,7 @@ end
 function AssignStartingPlots:PlaceResourceImpact(x, y, impact_table_number, radius)
 	-- This function operates upon one of the "impact and ripple" data overlays for resources.
 	-- These data layers are a primary way of preventing assignments from clustering too much.
-	-- Impact #s - 1 strategic - 2 luxury - 3 bonus - 4 fish - 5 city states - 6 natural wonders - 7 marble - 8 sheep
+	-- Impact #s - 1 strategic - 2 luxury - 3 bonus - 4 fish - 5 city states - 6 natural wonders - 7 marble - 8 sea oil - 9 uranium
 	local iW, iH = Map.GetGridSize();
 	local wrapX = Map:IsWrapX();
 	local wrapY = Map:IsWrapY();
@@ -15944,6 +15947,12 @@ function AssignStartingPlots:PlaceResourceImpact(x, y, impact_table_number, radi
 		self.marbleData[impactPlotIndex] = 1;
 	elseif impact_table_number == 8 then
 		self.seaOilData[impactPlotIndex] = 99;
+	elseif impact_table_number == 9 then
+		if self.uraniumData == nil then
+			local iw, ih = Map.GetGridSize();
+			self.uraniumData = table.fill(0, iw * ih);
+		end
+		self.uraniumData[impactPlotIndex] = impact_value;
 	end
 	if radius == 0 then
 		return
@@ -16046,6 +16055,14 @@ function AssignStartingPlots:PlaceResourceImpact(x, y, impact_table_number, radi
 							self.marbleData[ringPlotIndex] = 1;
 						elseif impact_table_number == 8 then
 							self.seaOilData[ringPlotIndex] = 1;
+						elseif impact_table_number == 9 then
+							if self.uraniumData[ringPlotIndex] > 0 then
+								local stronger_value = math.max(self.uraniumData[ringPlotIndex], ripple_value);
+								local overlap_value = math.min(50, stronger_value + 2);
+								self.uraniumData[ringPlotIndex] = overlap_value;
+							else
+								self.uraniumData[ringPlotIndex] = ripple_value;
+							end
 						end
 					end
 					currentX, currentY = nextX, nextY;
@@ -16157,6 +16174,23 @@ function AssignStartingPlots:ProcessResourceList(frequency, impact_table_number,
 							self.amounts_of_resources_placed[res_ID[use_this_res_index] + 1] = self.amounts_of_resources_placed[res_ID[use_this_res_index] + 1] + res_quantity[use_this_res_index];
 						end
 					end
+				elseif impact_table_number == 9 then
+					if self.uraniumData[plotIndex] == 0 then
+						local x = (plotIndex - 1) % iW;
+						local y = (plotIndex - x - 1) / iW;
+						local res_plot = Map.GetPlot(x, y)
+						if res_plot:GetResourceType(-1) == -1 then
+							local res_addition = 0;
+							if res_range[use_this_res_index] ~= -1 then
+								res_addition = Map.Rand(res_range[use_this_res_index], "Resource Radius - Place Resource LUA");
+							end
+							res_plot:SetResourceType(res_ID[use_this_res_index], res_quantity[use_this_res_index]);
+							AssignStartingPlots.LekStratAuditRecordHorseIron(self, res_ID[use_this_res_index], res_quantity[use_this_res_index], res_plot, x, y);
+							self:PlaceResourceImpact(x, y, impact_table_number, res_min[use_this_res_index] + res_addition);
+							placed_this_res = true;
+							self.amounts_of_resources_placed[res_ID[use_this_res_index] + 1] = self.amounts_of_resources_placed[res_ID[use_this_res_index] + 1] + res_quantity[use_this_res_index];
+						end
+					end
 				elseif impact_table_number == 2 then
 					if self.luxuryData[plotIndex] == 0 then
 						local x = (plotIndex - 1) % iW;
@@ -16208,6 +16242,16 @@ function AssignStartingPlots:ProcessResourceList(frequency, impact_table_number,
 							best_plot = plotIndex;
 						end
 					end
+				elseif impact_table_number == 9 then
+					if lowest_impact > self.uraniumData[plotIndex] then
+						local x = (plotIndex - 1) % iW;
+						local y = (plotIndex - x - 1) / iW;
+						local res_plot = Map.GetPlot(x, y)
+						if res_plot:GetResourceType(-1) == -1 then
+							lowest_impact = self.uraniumData[plotIndex];
+							best_plot = plotIndex;
+						end
+					end
 				elseif impact_table_number == 2 then
 					if lowest_impact > self.luxuryData[plotIndex] then
 						local x = (plotIndex - 1) % iW;
@@ -16241,6 +16285,8 @@ function AssignStartingPlots:ProcessResourceList(frequency, impact_table_number,
 				--print("ProcessResourceList backup, Resource: " .. res_ID[use_this_res_index] .. ", Quantity: " .. res_quantity[use_this_res_index]);
 				res_plot:SetResourceType(res_ID[use_this_res_index], res_quantity[use_this_res_index]);
 				if impact_table_number == 1 then
+					AssignStartingPlots.LekStratAuditRecordHorseIron(self, res_ID[use_this_res_index], res_quantity[use_this_res_index], res_plot, x, y);
+				elseif impact_table_number == 9 then
 					AssignStartingPlots.LekStratAuditRecordHorseIron(self, res_ID[use_this_res_index], res_quantity[use_this_res_index], res_plot, x, y);
 				end
 				self:PlaceResourceImpact(x, y, impact_table_number, res_min[use_this_res_index] + res_addition);
@@ -16300,6 +16346,9 @@ function AssignStartingPlots:PlaceSpecificNumberOfResources(resource_ID, quantit
 	elseif impact_table_number == 8 then
 		bCheckImpact = true;
 		impact_table = self.seaOilData;
+	elseif impact_table_number == 9 then
+		bCheckImpact = true;
+		impact_table = self.uraniumData;
 	end
 	local iW, iH = Map.GetGridSize();
 	local iNumLeftToPlace = amount;
@@ -21789,7 +21838,13 @@ function AssignStartingPlots:PlaceSmallQuantitiesOfStrategics(frequency, plot_li
 							and AssignStartingPlots.LekStratOuBandsEnabled() then
 							selected_ID = -1;
 						end
-						-- Now place the resource, then impact the strategic data layer.
+						-- Now place the resource, then impact the strategic data layer
+						-- (uranium uses uranium-only layer 9 so it does not deadzone other strategics).
+						if selected_ID ~= -1 then
+							if selected_ID == self.uranium_ID and self.uraniumData and self.uraniumData[plotIndex] > 0 then
+								selected_ID = -1;
+							end
+						end
 						if selected_ID ~= -1 then	
 							local strat_radius = Map.Rand(4, "Resource Radius - Place Small Quantities LUA");
 							if strat_radius > 2 then
@@ -21797,7 +21852,8 @@ function AssignStartingPlots:PlaceSmallQuantitiesOfStrategics(frequency, plot_li
 							end
 							res_plot:SetResourceType(selected_ID, selected_quantity);
 							AssignStartingPlots.LekStratAuditRecordHorseIron(self, selected_ID, selected_quantity, res_plot, x, y);
-							self:PlaceResourceImpact(x, y, 1, strat_radius);
+							local impactLayer = (selected_ID == self.uranium_ID) and 9 or 1;
+							self:PlaceResourceImpact(x, y, impactLayer, strat_radius);
 							placed_this_res = true;
 							self.amounts_of_resources_placed[selected_ID + 1] = self.amounts_of_resources_placed[selected_ID + 1] + selected_quantity;
 						end
@@ -23465,8 +23521,12 @@ function AssignStartingPlots:PlaceStrategicAndBonusResources()
 
 	local rs5_fq_horse_dgf, rs5_fq_horse_pln, rs5_fq_horse_tdf = 10, 10, 100;
 	local rs5_fq_iron_tdf, rs5_fq_iron_snf, rs5_fq_iron_ddf, rs5_fq_iron_hl = 16, 15, 11, 22;
+	-- Coal/alum keep OG-ish freqs even when RS5 thins iron (do not inherit rs5_fq_iron_*).
+	local rs5_fq_alum_tdf, rs5_fq_alum_snf, rs5_fq_coal_alum_hl = 16, 15, 22;
+	local rs5_fq_coal_jungle, rs5_fq_coal_forest = 33, 39;
 	local rs5_small_freq_base = 23;
-	local rs5_fq_marsh, rs5_fq_jungle, rs5_fq_forest = 7, 33, 39;
+	local rs5_fq_marsh = 7;
+	local rs5_fq_uran_marsh, rs5_fq_uran_jungle, rs5_fq_uran_forest = 7, 33, 39;
 	local rs5_oil_w_marsh, rs5_oil_w_tundra, rs5_oil_w_snow, rs5_oil_w_desert, rs5_oil_w_forest = 65, 55, 65, 70, 25;
 	local rs5_uran_w_marsh, rs5_uran_w_jungle, rs5_uran_w_forest = 35, 70, 50;
 	local rs5_uran_impact_min, rs5_uran_impact_max = 1, 4;
@@ -23482,7 +23542,9 @@ function AssignStartingPlots:PlaceStrategicAndBonusResources()
 	if ouBands then
 		-- Land oil target ≈ OG (~17 nodes): player bands = 18, so omit global land oil majors.
 		-- Uran band qty=1 (OG); keep spaced majors + backfill toward ~21 nodes / 30 units.
-		rs5_fq_marsh, rs5_fq_jungle, rs5_fq_forest = 18, 55, 70;
+		-- Thin uran-only freqs; coal/alum freqs stay at OG defaults above.
+		rs5_fq_marsh = 18;
+		rs5_fq_uran_marsh, rs5_fq_uran_jungle, rs5_fq_uran_forest = 18, 55, 70;
 		rs5_oil_w_marsh, rs5_oil_w_tundra, rs5_oil_w_snow, rs5_oil_w_desert, rs5_oil_w_forest = 0, 0, 0, 0, 0;
 		rs5_uran_w_marsh, rs5_uran_w_jungle, rs5_uran_w_forest = 20, 35, 25;
 		-- Slightly wider than band impact so interstitial globals/backfill favor sparse land.
@@ -23503,72 +23565,112 @@ function AssignStartingPlots:PlaceStrategicAndBonusResources()
 			.. " skip_global_horse_iron=" .. tostring(skipGlobalHorseIron)
 			.. " ou_bands=" .. tostring(ouBands));
 	end
-	local resources_to_place = {
-	{self.uranium_ID, uran_amt, rs5_uran_w_marsh, rs5_uran_impact_min, rs5_uran_impact_max} };
-	if not ouBands then
-		table.insert(resources_to_place, 1, {self.oil_ID, oil_amt, rs5_oil_w_marsh, 1, 4});
-	end
-	self._lek_strat_audit_context = ouBands and "major:marsh_list_f7_uran" or "major:marsh_list_f7_oil+uran";
-	self:ProcessResourceList(rs5_fq_marsh, 1, self.marsh_list, resources_to_place)
 
-	local resources_to_place = {
-	{self.aluminum_ID, alum_amt, 15, 1, 2} };
+	-- Marsh: oil on strategic layer; uranium on uranium-only layer 9.
 	if not ouBands then
-		table.insert(resources_to_place, 1, {self.oil_ID, oil_amt, rs5_oil_w_tundra, 1, 5});
+		local resources_to_place = {
+		{self.oil_ID, oil_amt, rs5_oil_w_marsh, 1, 4} };
+		self._lek_strat_audit_context = "major:marsh_list_oil";
+		self:ProcessResourceList(rs5_fq_marsh, 1, self.marsh_list, resources_to_place)
+	end
+	do
+		local resources_to_place = {
+		{self.uranium_ID, uran_amt, rs5_uran_w_marsh, rs5_uran_impact_min, rs5_uran_impact_max} };
+		self._lek_strat_audit_context = "major:marsh_list_uran_L9";
+		self:ProcessResourceList(rs5_fq_uran_marsh, 9, self.marsh_list, resources_to_place)
+	end
+
+	-- Tundra: alum (+oil) at alum freq; iron separately at iron freq.
+	do
+		local resources_to_place = {
+		{self.aluminum_ID, alum_amt, 15, 1, 2} };
+		if not ouBands then
+			table.insert(resources_to_place, 1, {self.oil_ID, oil_amt, rs5_oil_w_tundra, 1, 5});
+		end
+		self._lek_strat_audit_context = ouBands and "major:tundra_flat_alum" or "major:tundra_flat_oil+alum";
+		self:ProcessResourceList(rs5_fq_alum_tdf, 1, self.tundra_flat_no_feature, resources_to_place)
 	end
 	if not skipGlobalHorseIron then
-		table.insert(resources_to_place, {self.iron_ID, iron_amt, 35, 1, 2});
+		local resources_to_place = {
+		{self.iron_ID, iron_amt, 35, 1, 2} };
+		self._lek_strat_audit_context = "major:tundra_flat_iron";
+		self:ProcessResourceList(rs5_fq_iron_tdf, 1, self.tundra_flat_no_feature, resources_to_place)
 	end
-	self._lek_strat_audit_context = (ouBands and "major:tundra_flat_f16_alum" or "major:tundra_flat_f16_oil+alum")
-		.. (skipGlobalHorseIron and "" or "+iron");
-	self:ProcessResourceList(rs5_fq_iron_tdf, 1, self.tundra_flat_no_feature, resources_to_place)
 
-	local resources_to_place = {
-	{self.aluminum_ID, alum_amt, 15, 1, 2} };
-	if not ouBands then
-		table.insert(resources_to_place, 1, {self.oil_ID, oil_amt, rs5_oil_w_snow, 1, 5});
+	-- Snow: alum (+oil) then iron.
+	do
+		local resources_to_place = {
+		{self.aluminum_ID, alum_amt, 15, 1, 2} };
+		if not ouBands then
+			table.insert(resources_to_place, 1, {self.oil_ID, oil_amt, rs5_oil_w_snow, 1, 5});
+		end
+		self._lek_strat_audit_context = ouBands and "major:snow_flat_alum" or "major:snow_flat_oil+alum";
+		self:ProcessResourceList(rs5_fq_alum_snf, 1, self.snow_flat_list, resources_to_place)
 	end
 	if not skipGlobalHorseIron then
-		table.insert(resources_to_place, {self.iron_ID, iron_amt, 20, 1, 2});
+		local resources_to_place = {
+		{self.iron_ID, iron_amt, 20, 1, 2} };
+		self._lek_strat_audit_context = "major:snow_flat_iron";
+		self:ProcessResourceList(rs5_fq_iron_snf, 1, self.snow_flat_list, resources_to_place)
 	end
-	self._lek_strat_audit_context = (ouBands and "major:snow_flat_f15_alum" or "major:snow_flat_f15_oil+alum")
-		.. (skipGlobalHorseIron and "" or "+iron");
-	self:ProcessResourceList(rs5_fq_iron_snf, 1, self.snow_flat_list, resources_to_place)
 
-	local resources_to_place = {};
-	if not ouBands then
-		table.insert(resources_to_place, {self.oil_ID, oil_amt, rs5_oil_w_desert, 1, 2});
+	do
+		local resources_to_place = {};
+		if not ouBands then
+			table.insert(resources_to_place, {self.oil_ID, oil_amt, rs5_oil_w_desert, 1, 2});
+		end
+		if not skipGlobalHorseIron then
+			table.insert(resources_to_place, {self.iron_ID, iron_amt, 30, 1, 2});
+		end
+		if table.maxn(resources_to_place) > 0 then
+			self._lek_strat_audit_context = ouBands and "major:desert_flat_iron" or (skipGlobalHorseIron and "major:desert_flat_oil" or "major:desert_flat_oil+iron");
+			self:ProcessResourceList(rs5_fq_iron_ddf, 1, self.desert_flat_no_feature, resources_to_place)
+		end
+	end
+
+	-- Hills: coal+alum at OG-ish freq; iron separately when globals on.
+	do
+		local resources_to_place = {
+		{self.coal_ID, coal_amt, 35, 1, 3},
+		{self.aluminum_ID, alum_amt, 39, 1, 3} };
+		self._lek_strat_audit_context = "major:hills_list_coal+alum";
+		self:ProcessResourceList(rs5_fq_coal_alum_hl, 1, self.hills_list, resources_to_place)
 	end
 	if not skipGlobalHorseIron then
-		table.insert(resources_to_place, {self.iron_ID, iron_amt, 30, 1, 2});
-	end
-	if table.maxn(resources_to_place) > 0 then
-		self._lek_strat_audit_context = ouBands and "major:desert_flat_f11_iron" or (skipGlobalHorseIron and "major:desert_flat_f11_oil" or "major:desert_flat_f11_oil+iron");
-		self:ProcessResourceList(rs5_fq_iron_ddf, 1, self.desert_flat_no_feature, resources_to_place)
+		local resources_to_place = {
+		{self.iron_ID, iron_amt, 26, 1, 3} };
+		self._lek_strat_audit_context = "major:hills_list_iron";
+		self:ProcessResourceList(rs5_fq_iron_hl, 1, self.hills_list, resources_to_place)
 	end
 
-	local resources_to_place = {
-	{self.coal_ID, coal_amt, 35, 1, 3},
-	{self.aluminum_ID, alum_amt, 39, 1, 3} };
-	if not skipGlobalHorseIron then
-		table.insert(resources_to_place, {self.iron_ID, iron_amt, 26, 1, 3});
+	-- Jungle/forest: coal on strategic layer; uranium on layer 9 (split so freq thinning does not starve coal).
+	do
+		local resources_to_place = {
+		{self.coal_ID, coal_amt, 30, 1, 2} };
+		self._lek_strat_audit_context = "major:jungle_flat_coal";
+		self:ProcessResourceList(rs5_fq_coal_jungle, 1, self.jungle_flat_list, resources_to_place)
 	end
-	self._lek_strat_audit_context = skipGlobalHorseIron and "major:hills_list_f22_coal+alum" or "major:hills_list_f22_iron+coal+alum";
-	self:ProcessResourceList(rs5_fq_iron_hl, 1, self.hills_list, resources_to_place)
-
-	local resources_to_place = {
-	{self.coal_ID, coal_amt, 30, 1, 2},
-	{self.uranium_ID, uran_amt, rs5_uran_w_jungle, rs5_uran_impact_min, rs5_uran_impact_max} };
-	self._lek_strat_audit_context = "major:jungle_flat_f33_coal+uran";
-	self:ProcessResourceList(rs5_fq_jungle, 1, self.jungle_flat_list, resources_to_place)
-	local resources_to_place = {
-	{self.coal_ID, coal_amt, 25, 1, 2},
-	{self.uranium_ID, uran_amt, rs5_uran_w_forest, rs5_uran_impact_min, rs5_uran_impact_max} };
-	if not ouBands then
-		table.insert(resources_to_place, 2, {self.oil_ID, oil_amt, rs5_oil_w_forest, 1, 5});
+	do
+		local resources_to_place = {
+		{self.uranium_ID, uran_amt, rs5_uran_w_jungle, rs5_uran_impact_min, rs5_uran_impact_max} };
+		self._lek_strat_audit_context = "major:jungle_flat_uran_L9";
+		self:ProcessResourceList(rs5_fq_uran_jungle, 9, self.jungle_flat_list, resources_to_place)
 	end
-	self._lek_strat_audit_context = ouBands and "major:forest_flat_f39_coal+uran" or "major:forest_flat_f39_coal+oil+uran";
-	self:ProcessResourceList(rs5_fq_forest, 1, self.forest_flat_list, resources_to_place)
+	do
+		local resources_to_place = {
+		{self.coal_ID, coal_amt, 25, 1, 2} };
+		if not ouBands then
+			table.insert(resources_to_place, {self.oil_ID, oil_amt, rs5_oil_w_forest, 1, 5});
+		end
+		self._lek_strat_audit_context = ouBands and "major:forest_flat_coal" or "major:forest_flat_coal+oil";
+		self:ProcessResourceList(rs5_fq_coal_forest, 1, self.forest_flat_list, resources_to_place)
+	end
+	do
+		local resources_to_place = {
+		{self.uranium_ID, uran_amt, rs5_uran_w_forest, rs5_uran_impact_min, rs5_uran_impact_max} };
+		self._lek_strat_audit_context = "major:forest_flat_uran_L9";
+		self:ProcessResourceList(rs5_fq_uran_forest, 9, self.forest_flat_list, resources_to_place)
+	end
 
 	if not skipGlobalHorseIron then
 		local resources_to_place = {
@@ -23652,14 +23754,14 @@ function AssignStartingPlots:PlaceStrategicAndBonusResources()
 			local beforeU = self.amounts_of_resources_placed[self.uranium_ID + 1];
 			local resources_to_place = { {self.uranium_ID, uran_amt, 100, urMinR, urMaxR} };
 			self._lek_strat_audit_context = "backfill:uran_lt_" .. tostring(urTarget) .. "_land_i" .. tostring(urIter);
-			self:ProcessResourceList(99999, 1, self.land_list, resources_to_place);
+			self:ProcessResourceList(99999, 9, self.land_list, resources_to_place);
 			if self.amounts_of_resources_placed[self.uranium_ID + 1] == beforeU then
 				self._lek_strat_audit_context = "backfill:uran_lt_" .. tostring(urTarget) .. "_hills_i" .. tostring(urIter);
-				self:ProcessResourceList(99999, 1, self.hills_list, resources_to_place);
+				self:ProcessResourceList(99999, 9, self.hills_list, resources_to_place);
 			end
 			if self.amounts_of_resources_placed[self.uranium_ID + 1] == beforeU then
 				self._lek_strat_audit_context = "backfill:uran_lt_" .. tostring(urTarget) .. "_forest_i" .. tostring(urIter);
-				self:ProcessResourceList(99999, 1, self.forest_flat_list, resources_to_place);
+				self:ProcessResourceList(99999, 9, self.forest_flat_list, resources_to_place);
 			end
 			if self.amounts_of_resources_placed[self.uranium_ID + 1] == beforeU then
 				break;
