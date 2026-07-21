@@ -1144,7 +1144,7 @@ local function drawPangaeaEmbrace(plotTypes, iW, iH, wrapX, wrapY)
 		end
 	end
 
-oh i se	return true, westAnchor, edgeY;
+	return true, westAnchor, edgeY;
 end
 
 --[==[

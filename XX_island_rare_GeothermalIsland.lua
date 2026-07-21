@@ -186,12 +186,13 @@ function DrawGeothermalIsland(plotTypes, landTiles, landSet, cx, cy, iW, iH, wra
 		return;
 	end
 
-	-- Crater (default) variant below.
+	-- Crater / Barringer variant: keep a denser core than Krakatoa, but splash more water
+	-- so the footprint reads less like a solid land disk.
 	local function randOuter()
 		local r = Map.Rand(100, "");
-		if r < 40 then return PlotTypes.PLOT_OCEAN;
-		elseif r < 60 then return PlotTypes.PLOT_LAND;
-		elseif r < 80 then return PlotTypes.PLOT_HILLS;
+		if r < 52 then return PlotTypes.PLOT_OCEAN;
+		elseif r < 70 then return PlotTypes.PLOT_LAND;
+		elseif r < 88 then return PlotTypes.PLOT_HILLS;
 		else return PlotTypes.PLOT_MOUNTAIN; end
 	end
 

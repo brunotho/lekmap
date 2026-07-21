@@ -13854,9 +13854,7 @@ function AssignStartingPlots:AttemptToPlaceNaturalWonder(wonder_number, row_numb
 				nwRipple = math.max(5, nwRipple);
 			end
 			self:PlaceResourceImpact(x, y, 6, nwRipple)	-- Natural Wonders layer
-			self:PlaceResourceImpact(x, y, 1, 1)					-- Strategic layer
-			self:PlaceResourceImpact(x, y, 2, 1)					-- Luxury layer
-			self:PlaceResourceImpact(x, y, 3, 1)					-- Bonus layer
+			-- No r1 strategic/luxury/bonus ban around NWs (fish never used those layers anyway — layer 4).
 			self:PlaceResourceImpact(x, y, 5, 2)					-- City State layer
 			self:PlaceResourceImpact(x, y, 7, 1)					-- Marble layer
 			local plotIndex = y * iW + x + 1;
@@ -13869,9 +13867,6 @@ function AssignStartingPlots:AttemptToPlaceNaturalWonder(wonder_number, row_numb
 				local SEPlot = Map.PlotDirection(x, y, DirectionTypes.DIRECTION_SOUTHEAST)
 				local southeastX = SEPlot:GetX()
 				local southeastY = SEPlot:GetY()
-				self:PlaceResourceImpact(southeastX, southeastY, 1, 1)		-- Strategic layer
-				self:PlaceResourceImpact(southeastX, southeastY, 2, 1)		-- Luxury layer
-				self:PlaceResourceImpact(southeastX, southeastY, 3, 1)		-- Bonus layer
 				local SEplotIndex = southeastY * iW + southeastX + 1
 				self.playerCollisionData[SEplotIndex] = true				-- Record exact plot of wonder in the collision list.
 			end

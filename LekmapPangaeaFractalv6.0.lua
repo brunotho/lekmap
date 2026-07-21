@@ -36,6 +36,7 @@ _lek_strat_audit_log_each_hit = true;
 -- Start Quality (legacy index 5) is stubbed in _lek_map_hidden_option_defaults, not shown in Advanced Setup.
 -- All other legacy indices return fixed defaults matching the former full menu DefaultValues.
 _lek_map_visible_ui_order = { 13, 17 }
+-- World Age (UI hidden): 1=3By young/more peaks, 2=4By default, 3=5By old/fewer, 4=no mountains, 5=random 1-3.
 _lek_map_hidden_option_defaults = {
 	[1] = 2, [2] = 2, [3] = 2, [4] = 2,
 	[5] = 2,
@@ -308,6 +309,262 @@ function LekDemoteRing4CoastalMountainsNearCoastalMajors(start_plot_database)
 end
 
 ------------------------------------------------------------------------------
+-- After majors are placed: coastal starts only —
+--   ring 1: at most 1 mountain
+--   within r4 (PlotDistance 1..4): at most 4 mountains
+-- Excess demoted to hills (random). r4 applied first, then r1.
+------------------------------------------------------------------------------
+function LekCapRing1MountainsNearCoastalMajors(start_plot_database)
+	if not start_plot_database or not GetHexNeighbor then
+		return 0, 0;
+	end
+	local iW, iH = Map.GetGridSize();
+	if not iW or not iH then
+		return 0, 0;
+	end
+	local wrapX = Map.IsWrapX and Map:IsWrapX() or false;
+	local wrapY = Map.IsWrapY and Map:IsWrapY() or false;
+	local function pd(x1, y1, x2, y2)
+		if Map.PlotDistance then
+			return Map.PlotDistance(x1, y1, x2, y2);
+		end
+		if PlotDistance then
+			return PlotDistance(x1, y1, x2, y2);
+		end
+		return nil;
+	end
+	local nR1, nR4 = 0, 0;
+	for loop = 1, start_plot_database.iNumCivs or 0 do
+		local pid = start_plot_database.player_ID_list[loop];
+		local pl = pid and Players[pid];
+		if pl and pl:IsEverAlive() and not pl:IsMinorCiv() then
+			local sp = pl:GetStartingPlot();
+			if sp and sp:IsCoastalLand() then
+				local sx, sy = sp:GetX(), sp:GetY();
+				local mtnsR4 = {};
+				for y = 0, iH - 1 do
+					for x = 0, iW - 1 do
+						local d = pd(x, y, sx, sy);
+						if d ~= nil and d >= 1 and d <= 4 then
+							local plot = Map.GetPlot(x, y);
+							if plot and plot:GetPlotType() == PlotTypes.PLOT_MOUNTAIN then
+								mtnsR4[#mtnsR4 + 1] = plot;
+							end
+						end
+					end
+				end
+				while #mtnsR4 > 4 do
+					local idx = 1 + Map.Rand(#mtnsR4, "lek_cap_r4_mtn");
+					mtnsR4[idx]:SetPlotType(PlotTypes.PLOT_HILLS, false, true);
+					nR4 = nR4 + 1;
+					table.remove(mtnsR4, idx);
+				end
+				local mtnsR1 = {};
+				for d = 1, 6 do
+					local nx, ny = GetHexNeighbor(sx, sy, d, iW, iH, wrapX, wrapY);
+					if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+						local plot = Map.GetPlot(nx, ny);
+						if plot and plot:GetPlotType() == PlotTypes.PLOT_MOUNTAIN then
+							mtnsR1[#mtnsR1 + 1] = plot;
+						end
+					end
+				end
+				while #mtnsR1 > 1 do
+					local idx = 1 + Map.Rand(#mtnsR1, "lek_cap_r1_mtn");
+					mtnsR1[idx]:SetPlotType(PlotTypes.PLOT_HILLS, false, true);
+					nR1 = nR1 + 1;
+					table.remove(mtnsR1, idx);
+				end
+			end
+		end
+	end
+	return nR1, nR4;
+end
+
+------------------------------------------------------------------------------
+-- Break oversized connected mountain blobs (6-neighbor). Demote highest-degree
+-- peaks to hills until each component is <= maxCompSize. Returns tiles demoted.
+------------------------------------------------------------------------------
+function LekBreakLargeMountainComponents(plotTypes, iW, iH, wrapX, wrapY, maxCompSize)
+	if not GetHexNeighbor or not plotTypes or type(maxCompSize) ~= "number" or maxCompSize < 1 then
+		return 0;
+	end
+	wrapX = wrapX or false;
+	wrapY = wrapY or false;
+	local function pidx(x, y) return y * iW + x + 1; end
+	local function isMtn(x, y)
+		if x < 0 or x >= iW or y < 0 or y >= iH then return false; end
+		return plotTypes[pidx(x, y)] == PlotTypes.PLOT_MOUNTAIN;
+	end
+	local function mtnDegree(x, y)
+		local d = 0;
+		for dir = 1, 6 do
+			local nx, ny = GetHexNeighbor(x, y, dir, iW, iH, wrapX, wrapY);
+			if isMtn(nx, ny) then d = d + 1; end
+		end
+		return d;
+	end
+	local demoted = 0;
+	local guard = 0;
+	local maxGuard = iW * iH;
+	while guard < maxGuard do
+		guard = guard + 1;
+		local seen = {};
+		local victim = nil;
+		local victimDeg = -1;
+		local victimTies = {};
+		for y = 0, iH - 1 do
+			for x = 0, iW - 1 do
+				local k0 = y * iW + x;
+				if isMtn(x, y) and not seen[k0] then
+					local comp = {};
+					local queue = {{x, y}};
+					seen[k0] = true;
+					comp[#comp + 1] = {x, y};
+					local q = 1;
+					while q <= #queue do
+						local cx, cy = queue[q][1], queue[q][2];
+						q = q + 1;
+						for dir = 1, 6 do
+							local nx, ny = GetHexNeighbor(cx, cy, dir, iW, iH, wrapX, wrapY);
+							if isMtn(nx, ny) then
+								local nk = ny * iW + nx;
+								if not seen[nk] then
+									seen[nk] = true;
+									queue[#queue + 1] = {nx, ny};
+									comp[#comp + 1] = {nx, ny};
+								end
+							end
+						end
+					end
+					if #comp > maxCompSize then
+						for i = 1, #comp do
+							local deg = mtnDegree(comp[i][1], comp[i][2]);
+							local tile = comp[i];
+							if deg > victimDeg then
+								victimDeg = deg;
+								victimTies = {tile};
+							elseif deg == victimDeg then
+								victimTies[#victimTies + 1] = tile;
+							end
+						end
+					end
+				end
+			end
+		end
+		if #victimTies == 0 then
+			break;
+		end
+		victim = victimTies[1 + Map.Rand(#victimTies, "lek_mtn_clump_break")];
+		plotTypes[pidx(victim[1], victim[2])] = PlotTypes.PLOT_HILLS;
+		demoted = demoted + 1;
+	end
+	return demoted;
+end
+
+------------------------------------------------------------------------------
+-- Mountain + inland-water barriers (not open ocean). If a connected hard body
+-- (mountains OR inland water) has >= minMtn mountains, keep one mountain and
+-- demote the rest to hills. Inland water unchanged. Returns mountains demoted.
+------------------------------------------------------------------------------
+function LekBreakMountainInlandWaterBarriers(plotTypes, iW, iH, wrapX, wrapY, minMtn)
+	if not GetHexNeighbor or not plotTypes then
+		return 0;
+	end
+	minMtn = minMtn or 3;
+	wrapX = wrapX or false;
+	wrapY = wrapY or false;
+	local function pidx(x, y) return y * iW + x + 1; end
+	local function isOcean(x, y)
+		if x < 0 or x >= iW or y < 0 or y >= iH then return false; end
+		return plotTypes[pidx(x, y)] == PlotTypes.PLOT_OCEAN;
+	end
+	local function isMtn(x, y)
+		if x < 0 or x >= iW or y < 0 or y >= iH then return false; end
+		return plotTypes[pidx(x, y)] == PlotTypes.PLOT_MOUNTAIN;
+	end
+
+	local openOcean = {};
+	local queue = {};
+	for x = 0, iW - 1 do
+		for _, edgeY in ipairs({0, iH - 1}) do
+			if isOcean(x, edgeY) then
+				local k = edgeY * iW + x;
+				if not openOcean[k] then
+					openOcean[k] = true;
+					queue[#queue + 1] = {x, edgeY};
+				end
+			end
+		end
+	end
+	local q = 1;
+	while q <= #queue do
+		local cx, cy = queue[q][1], queue[q][2];
+		q = q + 1;
+		for d = 1, 6 do
+			local nx, ny = GetHexNeighbor(cx, cy, d, iW, iH, wrapX, wrapY);
+			if nx >= 0 and nx < iW and ny >= 0 and ny < iH and isOcean(nx, ny) then
+				local nk = ny * iW + nx;
+				if not openOcean[nk] then
+					openOcean[nk] = true;
+					queue[#queue + 1] = {nx, ny};
+				end
+			end
+		end
+	end
+
+	local function isHard(x, y)
+		if isMtn(x, y) then return true; end
+		if not isOcean(x, y) then return false; end
+		return openOcean[y * iW + x] ~= true;
+	end
+
+	local demoted = 0;
+	local seen = {};
+	for y = 0, iH - 1 do
+		for x = 0, iW - 1 do
+			local k0 = y * iW + x;
+			if isHard(x, y) and not seen[k0] then
+				local mtns = {};
+				local hasInlandWater = false;
+				local queue2 = {{x, y}};
+				seen[k0] = true;
+				local qi = 1;
+				while qi <= #queue2 do
+					local cx, cy = queue2[qi][1], queue2[qi][2];
+					qi = qi + 1;
+					if isMtn(cx, cy) then
+						mtns[#mtns + 1] = {cx, cy};
+					elseif isOcean(cx, cy) and openOcean[cy * iW + cx] ~= true then
+						hasInlandWater = true;
+					end
+					for d = 1, 6 do
+						local nx, ny = GetHexNeighbor(cx, cy, d, iW, iH, wrapX, wrapY);
+						if isHard(nx, ny) then
+							local nk = ny * iW + nx;
+							if not seen[nk] then
+								seen[nk] = true;
+								queue2[#queue2 + 1] = {nx, ny};
+							end
+						end
+					end
+				end
+				if hasInlandWater and #mtns >= minMtn then
+					local keep = 1 + Map.Rand(#mtns, "lek_mtn_inland_keep");
+					for i = 1, #mtns do
+						if i ~= keep then
+							plotTypes[pidx(mtns[i][1], mtns[i][2])] = PlotTypes.PLOT_HILLS;
+							demoted = demoted + 1;
+						end
+					end
+				end
+			end
+		end
+	end
+	return demoted;
+end
+
+------------------------------------------------------------------------------
 -- Round thin inland seas (Lua 5.1 compatible: no goto). Inland-sea islands are sprayed during this pass.
 ------------------------------------------------------------------------------
 function RoundInlandSeas(self)
@@ -495,7 +752,7 @@ function RoundInlandSeas(self)
 	local MIN_SIZE = 6;
 	local MIN_DIST_FROM_OPEN_OCEAN = 6;
 	local BLOB_PAINT_ITERS = 12;
-	local BLOB_EDGE_PAINT_PCT = 76;
+	local BLOB_EDGE_PAINT_PCT = 70;
 	for _, comp in ipairs(components) do
 		local tiles = {};
 		for k in pairs(comp) do
@@ -615,7 +872,7 @@ function RoundInlandSeas(self)
 			-- Spray inland islands: blob pass widens seas; allow slightly elongated bodies (was 2.2).
 			local doSpray = (aspectX < 2.85 and aspectY < 2.85);
 			if doSpray then
-				local SPRAY_CHANCE = 100;  -- was 90; set to 100 to verify spray logic (eligible = all painted)
+				local SPRAY_CHANCE = 85;
 				local MIN_DIST = 2;       -- tiles 2+ from mainland shore eligible (islands don't block)
 				for _, t in ipairs(tiles) do
 					local x, y = t[1], t[2];
@@ -749,7 +1006,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		local world_age_normal = 4;
 		local world_age_new = 5;
 		--
-		local extra_mountains = 6;
+		local extra_mountains = 4;
 		local grain_amount = 0;
 		local adjust_plates = 1.3;
 		local shift_plot_types = true;
@@ -1909,9 +2166,15 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 	end
 
 	if allcomplete then
+		local nClump = LekBreakLargeMountainComponents(
+			self.plotTypes, self.iNumPlotsX, self.iNumPlotsY, Map:IsWrapX(), false, 4);
+		local nInland = LekBreakMountainInlandWaterBarriers(
+			self.plotTypes, self.iNumPlotsX, self.iNumPlotsY, Map:IsWrapX(), false, 3);
 		LekPangaeaProbeLog("### LekPangaeaPlotTypesProbe islandOuterRegen_summary layoutAttempt=" .. tostring(laProbe)
 			.. " outcome=pass outerAttemptsToPass=" .. tostring(outerAttempts)
-			.. " outerRedrawsBeforePass=" .. tostring(math.max(0, outerAttempts - 1)), 2);
+			.. " outerRedrawsBeforePass=" .. tostring(math.max(0, outerAttempts - 1))
+			.. " mtnClumpBreak_demoted=" .. tostring(nClump) .. " maxComp=4"
+			.. " mtnInlandBarrier_demoted=" .. tostring(nInland) .. " minMtn=3", 2);
 	elseif outerAttempts > MAX_OUTER then
 		LekPangaeaProbeLog("### LekPangaeaPlotTypesProbe islandOuterRegen_summary layoutAttempt=" .. tostring(laProbe)
 			.. " outcome=max_outer_no_pass outerAttempts=" .. tostring(outerAttempts), 1);
@@ -2879,9 +3142,12 @@ function StartPlotSystem()
 	end
 
 	do
-		local nR4 = LekDemoteRing4CoastalMountainsNearCoastalMajors(start_plot_database);
+		local nR4Coast = LekDemoteRing4CoastalMountainsNearCoastalMajors(start_plot_database);
+		local nR1, nR4Cap = LekCapRing1MountainsNearCoastalMajors(start_plot_database);
 		if not _lek_mapgen_tuple_benchmark_mode then
-			local msg = "### LekMapGen demote_ring4_coastal_mtn n=" .. tostring(nR4)
+			local msg = "### LekMapGen demote_ring4_coastal_mtn n=" .. tostring(nR4Coast)
+				.. " cap_r1_coastal_mtn n=" .. tostring(nR1)
+				.. " cap_r4_coastal_mtn n=" .. tostring(nR4Cap)
 				.. " runId=" .. tostring(_lek_run_id or "na");
 			print(msg);
 			appendLekLog({ msg });
