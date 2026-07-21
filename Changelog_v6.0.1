@@ -1,7 +1,21 @@
-Lekmap v6.0 (since v5.3)
-========================
+Lekmap v6.0.1 (since v6.0)
+==========================
 
-Version bump from the v5.2/v5.3 line. Player-facing map name and script file are v6.0.
+Version bump from v6.0. Player-facing map name and script file are v6.0.1.
+
+Notable in v6.0.1
+-----------------
+- Mountain post-process: break connected clumps >4 to hills; demote mountains that form hard barriers with inland water/lakes (keep 1 peak).
+- Coastal starts: cap mountains to <=1 in r1 and <=4 within r4 (excess -> hills).
+- Inland seas: thicken paint 70%; island spray chance 85%.
+- Slightly fewer base mountains (extra_mountains 4).
+- Natural wonders: no longer ban strategic/luxury/bonus resources in r1.
+- Barringer geothermal: more ocean splash in outer rings.
+- Strat audit: coal/alum + CS-center labels; island placement coords in logs.
+
+Carried from Changelog_v6.0
+---------------------------
+Version bump from the v5.2/v5.3 line. Player-facing map name and script file were v6.0.
 
 Notable since late v5.3
 -----------------------
@@ -11,7 +25,7 @@ Notable since late v5.3
 
 Carried from Changelog_v5.3
 ---------------------------
-Fractal / pipeline (LekmapPangaeaFractalv6.0.lua)
+Fractal / pipeline (LekmapPangaeaFractalv6.0.1.lua)
 - plotTypes writes use 1-based indices (y*iW+x+1) wherever they must match 4_HBMapGenerator.SetPlotTypes.
 - Inland sea spray: after rounding, eligible tiles are rebuilt from the full connected component, not only the last rounding pass.
 

@@ -779,14 +779,14 @@ function AssignStartingPlots:LekStratPostProcessForResourceSettingFive()
 	AssignStartingPlots.LekStratAuditRescanHorseIronFromMap(self, "final_map_after_rs5_tune");
 end
 
--- TEST ONLY (see LekmapPangaeaFractalv6.0.lua `_lek_strat_extra_balance_smalls`).
+-- TEST ONLY (see LekmapPangaeaFractalv6.0.1.lua `_lek_strat_extra_balance_smalls`).
 -- After OG AddStrategicBalanceResources majors: place 1 small iron + 1 small horse in r4-5
 -- and again in r6-7. Horse uses OG flat primary; small iron uses flat-only (not OG hills primary).
 function AssignStartingPlots.LekStratExtraBalanceSmallsEnabled()
 	return _lek_strat_extra_balance_smalls == true;
 end
 
--- TEST ONLY (see LekmapPangaeaFractalv6.0.lua `_lek_strat_skip_global_horse_iron`).
+-- TEST ONLY (see LekmapPangaeaFractalv6.0.1.lua `_lek_strat_skip_global_horse_iron`).
 function AssignStartingPlots.LekStratSkipGlobalHorseIronEnabled()
 	return _lek_strat_skip_global_horse_iron == true;
 end
@@ -8822,7 +8822,7 @@ function AssignStartingPlots.LekGlobalSix_DefaultTupleRelaxationPhases()
 end
 
 --[[
-	Geometry UI — LekMapGetCustomOption(13) in LekmapPangaeaFractalv6.0.lua StartPlotSystem:
+	Geometry UI — LekMapGetCustomOption(13) in LekmapPangaeaFractalv6.0.1.lua StartPlotSystem:
 
 	1 Legacy: _lek_global_six_skip_tuple_use_legacy = true; tuple skipped; HB legacy placement.
 	2 Global six: _lek_global_six_force_geometry_only = true uses sampled force-geometry packs (no tuple DFS). With force off and
@@ -15113,7 +15113,7 @@ function AssignStartingPlots:PlaceCityStates()
 			" refineReached=" .. tostring(self._lek_cs_refine_reached or 0) ..
 			" placeSuccess=" .. tostring(self._lek_cs_place_success or 0) ..
 			" selectedNil=" .. tostring(self._lek_cs_selected_nil or 0);
-		local line3 = "### LekBuildPing after_CS_refine_debug repo=v6.0";
+		local line3 = "### LekBuildPing after_CS_refine_debug repo=v6.0.1";
 		if not LekMapgenTupleBenchmarkMode() then
 			LekMapgenDiagLogAppend({ line, line2, line3 });
 		end

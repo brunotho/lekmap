@@ -1,5 +1,5 @@
 ------------------------------------------------------------------------------
---	FILE:	 LekmapPangaeaFractalv6.0.lua (Modified Pangaea_Plus.lua)
+--	FILE:	 LekmapPangaeaFractalv6.0.1.lua (Modified Pangaea_Plus.lua)
 --	AUTHOR:  Original Bob Thomas, Changes HellBlazer, lek10, EnormousApplePie, Cirra, Meota, t0mtezuma
 --	PURPOSE: Global map script - Simulates a Pan-Earth Supercontinent, with
 --           numerous tectonic island chains.
@@ -93,7 +93,7 @@ _lek_global_six_request_map_regen = false;
 function GetMapScriptInfo()
 	local world_age, temperature, rainfall, sea_level, resources = GetCoreMapOptions()
 	return {
-		Name = "## Lekmap 6.0 -- Fractal Pangaea",
+		Name = "## Lekmap 6.0.1 -- Fractal Pangaea",
 		Description = "A map script made for Lekmod based of HB's Mapscript v8.1. Pangaea - Fractal",
 		IsAdvancedMap = false,
 		IconIndex = 0,
