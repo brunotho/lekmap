@@ -873,11 +873,11 @@ function RoundInlandSeas(self)
 			local function distFromShore(x, y)
 				return distToShore[y * iW + x] or 99;
 			end
-			-- Spray inland islands: blob pass widens seas; allow slightly elongated bodies (was 2.2).
+			-- Spray inland islands (single pass; no grow-fill — that erased spray variance).
 			local doSpray = (aspectX < 2.85 and aspectY < 2.85);
 			if doSpray then
 				local SPRAY_CHANCE = 85;
-				local MIN_DIST = 2;       -- tiles 2+ from mainland shore eligible (islands don't block)
+				local MIN_DIST = 2;       -- tiles 2+ from mainland shore eligible
 				for _, t in ipairs(tiles) do
 					local x, y = t[1], t[2];
 					if plotTypes[pidx(x, y)] == PlotTypes.PLOT_OCEAN and distFromShore(x, y) >= MIN_DIST then
@@ -886,32 +886,6 @@ function RoundInlandSeas(self)
 							if r < 3 then plotTypes[pidx(x, y)] = PlotTypes.PLOT_MOUNTAIN;
 							else plotTypes[pidx(x, y)] = (r < 53) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND; end
 						end
-					end
-				end
-				local function isSprayLand(px, py)
-					if px < 0 or px >= iW or py < 0 or py >= iH then return false; end
-					local pt = plotTypes[pidx(px, py)];
-					return pt == PlotTypes.PLOT_LAND or pt == PlotTypes.PLOT_HILLS or pt == PlotTypes.PLOT_MOUNTAIN;
-				end
-				for _ = 1, 3 do
-					local grown = {};
-					for _, t in ipairs(tiles) do
-						local x, y = t[1], t[2];
-						if plotTypes[pidx(x, y)] == PlotTypes.PLOT_OCEAN and distFromShore(x, y) >= MIN_DIST then
-							local landNeighbors = 0;
-							for d = 1, 6 do
-								local nx, ny = GetHexNeighbor(x, y, d, iW, iH, wrapX, wrapY);
-								if isSprayLand(nx, ny) then landNeighbors = landNeighbors + 1; end
-							end
-							if landNeighbors >= 1 and Map.Rand(100, "inland_blob") < 72 then
-								grown[#grown + 1] = { x, y };
-							end
-						end
-					end
-					for _, t in ipairs(grown) do
-						local r = Map.Rand(100, "");
-						if r < 3 then plotTypes[pidx(t[1], t[2])] = PlotTypes.PLOT_MOUNTAIN;
-						else plotTypes[pidx(t[1], t[2])] = (r < 53) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND; end
 					end
 				end
 			end
