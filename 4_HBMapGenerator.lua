@@ -798,8 +798,8 @@ function StartPlotSystem()
 			.. " skip=BalanceAndAssign_NW_resources mapScript=HB_default";
 		if LekPlacementProbeAt then
 			LekPlacementProbeAt(1, msg);
-		else
-			print(msg);
+		elseif LekMapgenPrint then
+			LekMapgenPrint(msg);
 		end
 		return;
 	end
@@ -818,8 +818,8 @@ function StartPlotSystem()
 			.. " skip=after_BalanceAndAssign_NW_resources mapScript=HB_default";
 		if LekPlacementProbeAt then
 			LekPlacementProbeAt(1, msg);
-		else
-			print(msg);
+		elseif LekMapgenPrint then
+			LekMapgenPrint(msg);
 		end
 		return;
 	end
@@ -875,8 +875,8 @@ function LekHB_GenerateMap_Core()
 		.. " dt_os_clock=" .. tostring(dtPlotTypes);
 	if LekPlacementProbeAt then
 		LekPlacementProbeAt(1, ptLine);
-	else
-		print(ptLine);
+	elseif LekMapgenPrint then
+		LekMapgenPrint(ptLine);
 		pcall(function()
 			if LekMapgenDiagLogAppend then
 				LekMapgenDiagLogAppend({ ptLine });
@@ -927,8 +927,8 @@ function LekHB_GenerateMap_Core()
 			.. " layoutAttempt=" .. tostring(_lek_map_layout_attempt or 0);
 		if LekPlacementProbeAt then
 			LekPlacementProbeAt(1, sk);
-		else
-			print(sk);
+		elseif LekMapgenPrint then
+			LekMapgenPrint(sk);
 			pcall(function()
 				if LekMapgenDiagLogAppend then
 					LekMapgenDiagLogAppend({ sk });
@@ -956,8 +956,8 @@ function LekHB_GenerateMap_Core()
 	if LekPlacementProbeAt then
 		LekPlacementProbeAt(2, "### LekGlobalSix mapRegen MARKER core_full_return runId=" .. tostring(_lek_run_id or "na")
 			.. " requestRegen=" .. ((_lek_global_six_request_map_regen == true) and "1" or "0"));
-	else
-		print("### LekGlobalSix mapRegen MARKER core_full_return runId=" .. tostring(_lek_run_id or "na")
+	elseif LekMapgenPrint then
+		LekMapgenPrint("### LekGlobalSix mapRegen MARKER core_full_return runId=" .. tostring(_lek_run_id or "na")
 			.. " requestRegen=" .. ((_lek_global_six_request_map_regen == true) and "1" or "0"));
 	end
 	do
@@ -966,12 +966,16 @@ function LekHB_GenerateMap_Core()
 		local coreEnd = "### LekMapGen LekHB_GenerateMap_Core_end layoutAttempt="
 			.. tostring(la1) .. " t=" .. tostring(tCore1)
 			.. " dt_os_clock=" .. tostring(tCore1 - tCore0);
-		print(coreEnd);
-		pcall(function()
-			if LekMapgenDiagLogAppend then
-				LekMapgenDiagLogAppend({ coreEnd });
-			end
-		end);
+		if LekMapgenPrintAndDiagFile then
+			LekMapgenPrintAndDiagFile(coreEnd);
+		elseif LekMapgenLogsEnabled and LekMapgenLogsEnabled() then
+			print(coreEnd);
+			pcall(function()
+				if LekMapgenDiagLogAppend then
+					LekMapgenDiagLogAppend({ coreEnd });
+				end
+			end);
+		end
 	end
 	stage("core_end");
 end
@@ -997,8 +1001,8 @@ function GenerateMap()
 	end
 	if LekPlacementProbeAt then
 		LekPlacementProbeAt(benchRegenNoiseProbeLevel(genEntry), genEntry);
-	else
-		print(genEntry);
+	elseif LekMapgenPrint then
+		LekMapgenPrint(genEntry);
 	end
 
 	local function logPostCore(layoutAttempt, maxL, req, regenLoopActive)
@@ -1021,8 +1025,8 @@ function GenerateMap()
 			LekPlacementProbeAt(lvl, msg);
 		elseif LekPlacementProbeLog then
 			LekPlacementProbeLog(msg);
-		else
-			print(msg);
+		elseif LekMapgenPrint then
+			LekMapgenPrint(msg);
 			if LekMapgenDiagLogAppend then
 				LekMapgenDiagLogAppend({ msg });
 			end
@@ -1092,11 +1096,8 @@ function GenerateMap()
 				LekPlacementProbeAt(1, msg);
 			elseif LekPlacementProbeLog then
 				LekPlacementProbeLog(msg);
-			else
-				print(msg);
-				if LekMapgenDiagLogAppend then
-					LekMapgenDiagLogAppend({ msg });
-				end
+			elseif LekMapgenPrintAndDiagFile then
+				LekMapgenPrintAndDiagFile(msg);
 			end
 			break;
 		end
@@ -1105,8 +1106,8 @@ function GenerateMap()
 			LekPlacementProbeAt(1, msg);
 		elseif LekPlacementProbeLog then
 			LekPlacementProbeLog(msg);
-		else
-			print(msg);
+		elseif LekMapgenPrint then
+			LekMapgenPrint(msg);
 			if LekMapgenDiagLogAppend then
 				LekMapgenDiagLogAppend({ msg });
 			end

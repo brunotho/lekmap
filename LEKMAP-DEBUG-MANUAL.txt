@@ -19,13 +19,20 @@ Also see Pangaea appendLekLog() inside StartPlotSystem — tuple_benchmark_mode 
 
 Verbosity & benchmark globals (common knobs)
 --------------------------------------------
-4a_HBAssignStartingPlots.lua (loaded early):
-  _lek_mapgen_log_verbosity   -- 1 = milestones; 2 = + placement probe detail; 3 = more tuple noise
+LekmapPangaeaFractal.lua top (single soft-deploy switch):
+  _lek_mapgen_logs = false   -- MASTER: false = soft deploy quiet; true = enable Lek ### logs + diag file
+                             -- All LekMapgen* print/diag helpers honor this; infrastructure stays in place.
+
+4a_HBAssignStartingPlots.lua (loaded early; defaults if unset):
+  _lek_mapgen_logs            -- same master flag (Pangaea sets it before includes)
+  _lek_mapgen_log_verbosity   -- 1 = milestones; 2 = + placement probe detail; 3 = more tuple noise (only if logs on)
   _lek_mapgen_tuple_benchmark_mode  -- set by Pangaea after GenerateRegions when using Global Six pace
   _lek_strat_audit_log_each_hit     -- false = no per-tile ### LEK_STRAT_HIT; true = every audited strategic placement
+                                    -- (HIT lines also require _lek_mapgen_logs = true)
 
-LekmapPangaeaFractal.lua top:
+LekmapPangaeaFractal.lua:
   _lek_mapgen_log_verbosity = 1   -- default for this map script
+  _lek_mapgen_logs = false        -- flip to true when tuning locally
 
 
 Snow paint — region rectangles & centers (visual only)

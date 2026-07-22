@@ -13,6 +13,8 @@
 
 -- 1=progress milestones (tuple vs legacy, outcomes) | 2=+ ChooseLocations / feasibility | 3=tuple phases, pools, DFS detail
 _lek_mapgen_log_verbosity = 1;
+-- Master switch for Lek ### diagnostics + LekmapStartSpacing6P.log. Soft deploy: false. Local tuning: true.
+_lek_mapgen_logs = false;
 -- Small map: softer Pangaea/island tracing (outer loop + per-island spam). Tuple bench line (`LekBench6`): on for Global six pace (option 13 = 2), off for Legacy pace (13 = 1).
 _lek_mapgen_world_is_small = false;
 
@@ -73,7 +75,9 @@ include("IslandMaker");
 include("MultilayeredFractal");
 include("3_PangaeaIslands");
 include("X_IslandHelpers");
-print("### LekmapPangaeaFractal: includes done ###");
+if LekMapgenPrint then
+	LekMapgenPrint("### LekmapPangaeaFractal: includes done ###");
+end
 
 -- Option 13 "Geometric Balance": Legacy = HB only. Global six = one-map tuple: extra relax phases on the current landmask,
 -- no HB layout regen from tuple/placement/lux gates (see _lek_global_six_one_map_placement_mode); fractal+Pangaea outer redraw unchanged.
@@ -921,6 +925,9 @@ end
 ------------------------------------------------------------------------------
 local function LekPangaeaProbeLog(msg, minVerb)
 	minVerb = minVerb or 2;
+	if LekMapgenLogsEnabled and not LekMapgenLogsEnabled() then
+		return;
+	end
 	if _lek_mapgen_world_is_small == true and minVerb < 3 then
 		minVerb = 3;
 	end
@@ -977,7 +984,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		outerAttempts = outerAttempts + 1;
 		_lek_pangaea_outer_attempt = outerAttempts;
 		if not _lek_mapgen_world_is_small then
-			print("### Pangaea attempt " .. outerAttempts .. "/" .. MAX_OUTER .. " ###");
+			if LekMapgenPrint then LekMapgenPrint("### Pangaea attempt " .. outerAttempts .. "/" .. MAX_OUTER .. " ###"); end
 		end
 		if outerAttempts > MAX_OUTER then
 			_lek_pangaea_max_outer_failed = true;
@@ -2111,7 +2118,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 			.. " generatePangaeaIslands_dt=" .. tostring(tIs1 - tIs0)
 			.. " islandsOk=" .. (ok and "1" or "0"), 1);
 		if not ok then
-			print("### GeneratePangaeaIslands ERROR (islands skipped): " .. tostring(retPlaced) .. " ###");
+			if LekMapgenPrint then LekMapgenPrint("### GeneratePangaeaIslands ERROR (islands skipped): " .. tostring(retPlaced) .. " ###"); end
 			islandsPlaced = 0;
 			islandsBudgetOk = false;
 		else
@@ -2189,11 +2196,17 @@ end
 ------------------------------------------------------------------------------
 
 ------------------------------------------------------------------------------
-local function dbg(msg) print(msg); end
+local function dbg(msg)
+	if LekMapgenPrint then
+		LekMapgenPrint(msg);
+	elseif LekMapgenLogsEnabled and LekMapgenLogsEnabled() then
+		print(msg);
+	end
+end
 
 function GeneratePlotTypes()
 	if not _lek_mapgen_world_is_small then
-		print("### STAGE: GeneratePlotTypes ENTRY ###");
+		dbg("### STAGE: GeneratePlotTypes ENTRY ###");
 		dbg("### STAGE: GeneratePlotTypes start ###");
 	end
 	local laTop = _lek_map_layout_attempt or 0;
@@ -2201,7 +2214,7 @@ function GeneratePlotTypes()
 	local fractal_world = PangaeaFractalWorld.Create();
 	if not _lek_mapgen_world_is_small then
 		dbg("### STAGE: fractal created ###");
-		print("### STAGE: calling fractal_world:GeneratePlotTypes (may take 1-2 min) ###");
+		dbg("### STAGE: calling fractal_world:GeneratePlotTypes (may take 1-2 min) ###");
 	end
 	local tF0 = (os and os.clock) and os.clock() or 0;
 	local plotTypes = fractal_world:GeneratePlotTypes();
@@ -2599,7 +2612,7 @@ function LekPurgeIceAdjacentMainlandNearPoles(edgeRows)
 		end
 	end
 	if removed > 0 then
-		print("### LekPurgeIceAdjacentMainlandNearPoles removed=" .. tostring(removed) .. " edgeRows=" .. tostring(edgeRows));
+		if LekMapgenPrint then LekMapgenPrint("### LekPurgeIceAdjacentMainlandNearPoles removed=" .. tostring(removed) .. " edgeRows=" .. tostring(edgeRows)); end
 	end
 end
 ------------------------------------------------------------------------------
@@ -2642,6 +2655,9 @@ end
 function StartPlotSystem()
 	_lek_run_id = tostring(math.floor((os.clock and os.clock() or 0) * 1000));
 	local function appendLekLog(lines)
+		if LekMapgenLogsEnabled and not LekMapgenLogsEnabled() then
+			return;
+		end
 		if _lek_mapgen_tuple_benchmark_mode or _lek_mapgen_world_is_small then
 			return;
 		end
@@ -2714,7 +2730,11 @@ function StartPlotSystem()
 			.. " regenReq=" .. tostring(_lek_global_six_request_map_regen == true)
 			.. " | " .. table.concat(bits, " ");
 		if not _lek_mapgen_tuple_benchmark_mode then
-			print(msg);
+			if LekMapgenPrint then
+				LekMapgenPrint(msg);
+			elseif LekMapgenLogsEnabled and LekMapgenLogsEnabled() then
+				print(msg);
+			end
 			appendLekLog({ msg });
 		end
 	end
@@ -2727,7 +2747,9 @@ function StartPlotSystem()
 	local function DebugPaintRegionsTerrains(start_plot_database)
 		if not start_plot_database or not start_plot_database.regionData then return; end
 		local regionCount = table.maxn(start_plot_database.regionData);
-		print("### DebugPaintRegionsTerrains: regionCount=", tostring(regionCount));
+		if LekMapgenPrint then
+			LekMapgenPrint("### DebugPaintRegionsTerrains: regionCount=", tostring(regionCount));
+		end
 
 		local iW, iH = Map.GetGridSize();
 		local function paintIfLand(x, y, terrain)
@@ -2812,9 +2834,9 @@ function StartPlotSystem()
 			local rcx, rcy = regionCenter(region);
 			local ok = paintNearestLand(rcx, rcy, targetTerrain, 1);
 			if ok then
-				print("### DebugPaintRegionsTerrains: region", tostring(idx), "center approx", tostring(rcx), tostring(rcy), "painted")
+				if LekMapgenPrint then LekMapgenPrint("### DebugPaintRegionsTerrains: region", tostring(idx), "center approx", tostring(rcx), tostring(rcy), "painted"); end
 			else
-				print("### DebugPaintRegionsTerrains: region", tostring(idx), "center approx", tostring(rcx), tostring(rcy), "no land found")
+				if LekMapgenPrint then LekMapgenPrint("### DebugPaintRegionsTerrains: region", tostring(idx), "center approx", tostring(rcx), tostring(rcy), "no land found"); end
 			end
 
 			local stepX = math.max(1, math.floor(width / 25));
@@ -2902,8 +2924,11 @@ function StartPlotSystem()
 		elseif LekPlacementProbeLog then
 			LekPlacementProbeLog(msg);
 		else
-			print(msg);
-			appendLekLog({ msg });
+			if LekMapgenPrintAndDiagFile then
+				LekMapgenPrintAndDiagFile(msg);
+			else
+				appendLekLog({ msg });
+			end
 		end
 		if LekMapgenFormatBench6SummaryLine and LekMapgenEmitBench6OneLine then
 			local benchLine = LekMapgenFormatBench6SummaryLine(start_plot_database);
@@ -3016,7 +3041,7 @@ function StartPlotSystem()
 		local ok, err = pcall(function() start_plot_database:GenerateRegions(args) end);
 		if not ok then
 			local msg = "### GenerateRegions CRASH runId=" .. tostring(_lek_run_id or "na") .. " err=" .. tostring(err);
-			print(msg); appendLekLog({ msg });
+			if LekMapgenPrintAndDiagFile then LekMapgenPrintAndDiagFile(msg); else appendLekLog({ msg }); end
 		end
 	end
 
@@ -3067,7 +3092,7 @@ function StartPlotSystem()
 		local ok, err = pcall(function() start_plot_database:ChooseLocations() end);
 		if not ok then
 			local msg = "### ChooseLocations CRASH runId=" .. tostring(_lek_run_id or "na") .. " err=" .. tostring(err);
-			print(msg); appendLekLog({ msg });
+			if LekMapgenPrintAndDiagFile then LekMapgenPrintAndDiagFile(msg); else appendLekLog({ msg }); end
 			local maxRegenL = _lek_global_six_regen_max_layouts;
 			if type(maxRegenL) ~= "number" or maxRegenL < 1 then
 				maxRegenL = 4;
@@ -3112,8 +3137,11 @@ function StartPlotSystem()
 		local ok, err = pcall(function() start_plot_database:BalanceAndAssign(args) end);
 		if not ok then
 			local msg = "### BalanceAndAssign CRASH runId=" .. tostring(_lek_run_id or "na") .. " err=" .. tostring(err);
-			print(msg);
-			appendLekLog({ msg });
+			if LekMapgenPrintAndDiagFile then
+				LekMapgenPrintAndDiagFile(msg);
+			else
+				appendLekLog({ msg });
+			end
 		end
 	end
 	do
@@ -3124,8 +3152,11 @@ function StartPlotSystem()
 		end);
 		if not ok then
 			local msg = "### LekGlobalSix forceBiasApply CRASH runId=" .. tostring(_lek_run_id or "na") .. " err=" .. tostring(err);
-			print(msg);
-			appendLekLog({ msg });
+			if LekMapgenPrintAndDiagFile then
+				LekMapgenPrintAndDiagFile(msg);
+			else
+				appendLekLog({ msg });
+			end
 		end
 	end
 	do
@@ -3136,8 +3167,11 @@ function StartPlotSystem()
 		end);
 		if not ok then
 			local msg = "### LekGlobalSix forceBiasAudit CRASH runId=" .. tostring(_lek_run_id or "na") .. " err=" .. tostring(err);
-			print(msg);
-			appendLekLog({ msg });
+			if LekMapgenPrintAndDiagFile then
+				LekMapgenPrintAndDiagFile(msg);
+			else
+				appendLekLog({ msg });
+			end
 		end
 	end
 
@@ -3149,8 +3183,11 @@ function StartPlotSystem()
 				.. " cap_r1_coastal_mtn n=" .. tostring(nR1)
 				.. " cap_r4_coastal_mtn n=" .. tostring(nR4Cap)
 				.. " runId=" .. tostring(_lek_run_id or "na");
-			print(msg);
-			appendLekLog({ msg });
+			if LekMapgenPrintAndDiagFile then
+				LekMapgenPrintAndDiagFile(msg);
+			else
+				appendLekLog({ msg });
+			end
 		end
 	end
 
@@ -3231,8 +3268,11 @@ function StartPlotSystem()
 			local msg = "### StartPlotSystem RESCUE runId=" .. tostring(_lek_run_id or "na")
 				.. " rescued=" .. #missing_pids .. " " .. table.concat(rescue_log, " | ");
 			if not _lek_mapgen_tuple_benchmark_mode then
-				print(msg);
-				appendLekLog({ msg });
+				if LekMapgenPrintAndDiagFile then
+					LekMapgenPrintAndDiagFile(msg);
+				else
+					appendLekLog({ msg });
+				end
 			end
 			if strictSix then
 				local anyNil = false;
@@ -3288,6 +3328,7 @@ function StartPlotSystem()
 		end
 		if #problems > 0 then
 			local msg = "### Lekmap FATAL runId=" .. tostring(_lek_run_id or "na") .. " post-rescue issues: " .. table.concat(problems, "; ");
+			-- Always surface fatal placement failure even when diagnostic logs are off.
 			print(msg);
 			if not _lek_mapgen_tuple_benchmark_mode then
 				appendLekLog({ msg });
@@ -3432,8 +3473,11 @@ function StartPlotSystem()
 				local short = "### StartSpacing6P: could not collect 6 start plots, got " .. tostring(#starts)
 					.. " runId=" .. tostring(_lek_run_id or "na");
 				if not _lek_mapgen_tuple_benchmark_mode then
-					print(short);
-					appendLekLog({ short });
+					if LekMapgenPrintAndDiagFile then
+						LekMapgenPrintAndDiagFile(short);
+					else
+						appendLekLog({ short });
+					end
 				elseif LekMapgenEmitBench6OneLine then
 					LekMapgenEmitBench6OneLine(short);
 				end
@@ -3499,8 +3543,11 @@ function StartPlotSystem()
 		elseif LekPlacementProbeLog then
 			LekPlacementProbeLog(msg);
 		else
-			print(msg);
-			appendLekLog({ msg });
+			if LekMapgenPrintAndDiagFile then
+				LekMapgenPrintAndDiagFile(msg);
+			else
+				appendLekLog({ msg });
+			end
 		end
 		return;
 	end

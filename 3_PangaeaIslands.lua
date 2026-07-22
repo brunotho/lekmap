@@ -1,5 +1,9 @@
 -- Drafts and places pangaea-fractal islands on plotTypes.
-print("### PangaeaIslands: loading ###");
+if LekMapgenPrint then
+	LekMapgenPrint("### PangaeaIslands: loading ###");
+elseif _lek_mapgen_logs == true then
+	print("### PangaeaIslands: loading ###");
+end
 include("X_IslandHelpers");
 include("XX_island_common_Dot");
 include("XX_island_common_Pebble");
@@ -161,6 +165,9 @@ local PANGAEA_BUDGET_FAST_FAIL_SPENT_FRAC = 0.68;
 
 local function LekIslandProbeLog(msg, minVerb)
 	minVerb = minVerb or 2;
+	if LekMapgenLogsEnabled and not LekMapgenLogsEnabled() then
+		return;
+	end
 	if _lek_mapgen_world_is_small == true and minVerb < 3 then
 		minVerb = 3;
 	end
@@ -283,7 +290,13 @@ function GeneratePangaeaIslands(self, genOpts)
 	local fastFailStopCount = 0;
 	local nominalBudget = PANGAEA_ISLAND_TOTAL_BUDGET;
 
-	local function dbg2(msg) print(msg); end
+	local function dbg2(msg)
+		if LekMapgenPrint then
+			LekMapgenPrint(msg);
+		elseif LekMapgenLogsEnabled and LekMapgenLogsEnabled() then
+			print(msg);
+		end
+	end
 	dbg2("### GeneratePangaeaIslands: start [" .. os.date("%H:%M:%S") .. "] ###");
 	local iW, iH = Map.GetGridSize();
 	local n = iW * iH;

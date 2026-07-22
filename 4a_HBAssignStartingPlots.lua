@@ -14,6 +14,15 @@
 
 include("1_HBMapmakerUtilities");
 
+-- Soft deploy: false. Local tuning: true (LekmapPangaeaFractal.lua overrides).
+if _lek_mapgen_logs == nil then
+	_lek_mapgen_logs = false;
+end
+
+function LekMapgenLogsEnabled()
+	return _lek_mapgen_logs == true;
+end
+
 function LekMapgenDiagLogPath()
 	if not (os and os.getenv) then
 		return nil;
@@ -30,6 +39,9 @@ function LekMapgenDiagLogPath()
 end
 
 function LekMapgenDiagLogAppend(lineOrLines)
+	if not LekMapgenLogsEnabled() then
+		return;
+	end
 	local path = LekMapgenDiagLogPath();
 	if not path or not (io and io.open) then
 		return;
@@ -71,7 +83,7 @@ function LekMapgenTupleBenchmarkMode()
 end
 
 function LekMapgenEmitBench6OneLine(line)
-	if not LekMapgenTupleBenchmarkMode() then
+	if not LekMapgenLogsEnabled() or not LekMapgenTupleBenchmarkMode() then
 		return;
 	end
 	print(line);
@@ -173,6 +185,9 @@ function LekMapgenVerbosity()
 end
 
 function LekMapgenLogAtLeast(minLevel)
+	if not LekMapgenLogsEnabled() then
+		return false;
+	end
 	return LekMapgenVerbosity() >= minLevel;
 end
 
@@ -187,10 +202,21 @@ function LekPlacementProbeAt(minLevel, msg)
 end
 
 function LekMapgenPrintAndDiagFile(msg)
+	if not LekMapgenLogsEnabled() then
+		return;
+	end
 	print(msg);
 	pcall(function()
 		LekMapgenDiagLogAppend(msg);
 	end);
+end
+
+-- Optional print-only path for Lek diagnostics (still gated by master flag).
+function LekMapgenPrint(...)
+	if not LekMapgenLogsEnabled() then
+		return;
+	end
+	print(...);
 end
 
 function LekPlacementProbeLog(msg)
@@ -205,7 +231,7 @@ function LekMapgenDiagAt(minLevel, lineOrLines)
 end
 
 function LekMapgenFileTrace(...)
-	if LekMapgenTupleBenchmarkMode() then
+	if not LekMapgenLogsEnabled() or LekMapgenTupleBenchmarkMode() then
 		return;
 	end
 	local n = select("#", ...);
@@ -10184,19 +10210,17 @@ function AssignStartingPlots:ChooseLocations(args)
 					self:PlaceImpactAndRipples(t[1], t[2]);
 				end
 			end
-			print("### LekVirtualSix: picked minNearestCombo=" .. tostring(bestScore) .. " undesirableTotal=" .. tostring(bestUndesirable));
-			print("### LekVirtualSix: undesirableDetail " .. tostring(bestUndesirableDetail));
-			LekMapgenDiagLogAppend({
-				"### LekVirtualSix: picked minNearestCombo=" .. tostring(bestScore) .. " undesirableTotal=" .. tostring(bestUndesirable),
-				"### LekVirtualSix: undesirableDetail " .. tostring(bestUndesirableDetail),
-			});
+			if LekMapgenPrintAndDiagFile then
+				LekMapgenPrintAndDiagFile("### LekVirtualSix: picked minNearestCombo=" .. tostring(bestScore) .. " undesirableTotal=" .. tostring(bestUndesirable));
+				LekMapgenPrintAndDiagFile("### LekVirtualSix: undesirableDetail " .. tostring(bestUndesirableDetail));
+			end
 		else
 			local order = {};
 			for i = 1, #regionAssignList do
 				order[i] = regionAssignList[i];
 			end
 			self:LekRunOneStartPlacementPass(order, iNumRegions, res_reg, coastBudgetOrig);
-			print("### LekVirtualSix: fallback vanilla order (no successful retry set)");
+			if LekMapgenPrint then LekMapgenPrint("### LekVirtualSix: fallback vanilla order (no successful retry set)"); end
 		end
 	else
 		local order = {};
@@ -12105,7 +12129,7 @@ function AssignStartingPlots:BalanceAndAssign(args)
 		end
 		_lek_global_six_request_map_regen_reason = "pangaea_max_inner_redraws_failure";
 		_lek_global_six_request_map_regen = true;
-		print("### LEKMAP: Pangaea max-inner-redraws failure — request regen, skip nil SetStartingPlot.");
+		if LekMapgenPrint then LekMapgenPrint("### LEKMAP: Pangaea max-inner-redraws failure — request regen, skip nil SetStartingPlot."); end
 		_lek_pangaea_max_outer_failed = false;
 		return;
 	end
@@ -14023,10 +14047,12 @@ function AssignStartingPlots:PlaceNaturalWonders(wonderargs)
 	else
 		print("-- Not all NW targets placed --"); print("-"); print("-");
 	end
-	print("### LekNaturalWonders effective_placed=" .. tostring(iNumPlaced)
-		.. " target_attempts=" .. tostring(iNumNWtoPlace)
-		.. " candidates=" .. tostring(iNumNWCandidates)
-		.. " wonderamt_arg=" .. tostring(wonderargs and wonderargs.wonderamt or "nil"));
+	if LekMapgenPrint then
+		LekMapgenPrint("### LekNaturalWonders effective_placed=" .. tostring(iNumPlaced)
+			.. " target_attempts=" .. tostring(iNumNWtoPlace)
+			.. " candidates=" .. tostring(iNumNWCandidates)
+			.. " wonderamt_arg=" .. tostring(wonderargs and wonderargs.wonderamt or "nil"));
+	end
 end
 ------------------------------------------------------------------------------
 -- Start of functions tied to PlaceCityStates()

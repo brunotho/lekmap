@@ -521,7 +521,9 @@ function TryPlaceWrapSoftLandbridge(plotTypes, opts)
 		return false;
 	end
 
-	print("### WrapSoftLandbridge: avgStraitEst=" .. string.format("%.1f", avgStrait) .. " brushScale=" .. string.format("%.2f", scale) .. " waterGaps=" .. (gapsApplied and "on" or "off") .. " paintTiles=" .. tostring(#tiles));
+	if LekMapgenPrint then
+		LekMapgenPrint("### WrapSoftLandbridge: avgStraitEst=" .. string.format("%.1f", avgStrait) .. " brushScale=" .. string.format("%.2f", scale) .. " waterGaps=" .. (gapsApplied and "on" or "off") .. " paintTiles=" .. tostring(#tiles));
+	end
 
 	for _, t in ipairs(tiles) do
 		if not isOcean(plotTypes, t[1], t[2], iW, iH) then
