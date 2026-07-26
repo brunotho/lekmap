@@ -2975,7 +2975,8 @@ function StartPlotSystem()
 	     start_plot_database._lek_global_six_force_geometry_only = true;
 	     start_plot_database._lek_global_six_force_geometry_sample_count = 1000;
 	     start_plot_database._lek_global_six_force_geometry_candidate_cap = 36;
-	     start_plot_database._lek_global_six_force_geometry_center_band_min = 11;
+	     -- Center deadzone floor only (outer band / target / hex ring unchanged).
+	     start_plot_database._lek_global_six_force_geometry_center_band_min = 9;
 	     start_plot_database._lek_global_six_force_geometry_center_band_max = 16;
 	     start_plot_database._lek_global_six_force_geometry_target_center_d = 13;
 	     start_plot_database._lek_enable_virtual_six_retries = false;
