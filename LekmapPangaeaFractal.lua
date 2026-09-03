@@ -18,7 +18,7 @@
 -- =============================================================================
 -- 1=progress milestones | 2=+ ChooseLocations / feasibility | 3=tuple phases/pools/DFS
 _lek_mapgen_log_verbosity = 1;
-_lek_mapgen_logs = true;
+_lek_mapgen_logs = false;
 _lek_mapgen_log_channels = {
 	islands = true,      -- ### LekIslandPlaced / RollSummary / Probe
 	islands_tiles = true, -- ### LekIslandTile / LekIslandFootprint (every painted land xy)
@@ -111,7 +111,7 @@ _lek_global_six_request_map_regen = false;
 function GetMapScriptInfo()
 	local world_age, temperature, rainfall, sea_level, resources = GetCoreMapOptions()
 	return {
-		Name = "[COLOR_PLAYER_PURPLE_TEXT]## Lekmap 6.0.2 -- Fractal Pangaea[ENDCOLOR]",
+		Name = "[COLOR_PLAYER_PURPLE_TEXT]Lekmap 6.0.2 -- Fractal Pangaea[ENDCOLOR]",
 		Description = "A map script made for Lekmod based of HB's Mapscript v8.1. Pangaea - Fractal",
 		IsAdvancedMap = false,
 		IconIndex = 0,
