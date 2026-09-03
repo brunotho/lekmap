@@ -18,9 +18,67 @@ include("1_HBMapmakerUtilities");
 if _lek_mapgen_logs == nil then
 	_lek_mapgen_logs = false;
 end
+-- Per-channel toggles (PangaeaFractal sets the table). Nil table = all channels on when master on.
+if _lek_mapgen_log_channels == nil then
+	_lek_mapgen_log_channels = nil;
+end
 
 function LekMapgenLogsEnabled()
 	return _lek_mapgen_logs == true;
+end
+
+function LekMapgenChannelEnabled(channel)
+	if not LekMapgenLogsEnabled() then
+		return false;
+	end
+	local t = _lek_mapgen_log_channels;
+	if type(t) ~= "table" then
+		return true;
+	end
+	local key = channel or "other";
+	local v = t[key];
+	if v == nil then
+		return t.other == true;
+	end
+	return v == true;
+end
+
+function LekMapgenInferChannel(msg)
+	local s;
+	if type(msg) == "table" then
+		s = tostring(msg[1] or "");
+	else
+		s = tostring(msg or "");
+	end
+	if string.find(s, "LekIslandTile", 1, true) or string.find(s, "LekIslandFootprint", 1, true) then
+		return "islands_tiles";
+	end
+	if string.find(s, "LekIsland", 1, true) then
+		return "islands";
+	end
+	if string.find(s, "LEK_STRAT", 1, true) or string.find(s, "LEK_RESOURCE_SETTING", 1, true) then
+		return "strategics";
+	end
+	if string.find(s, "LekBench6", 1, true) then
+		return "bench";
+	end
+	if string.find(s, "LekMapGen", 1, true) then
+		return "mapgen";
+	end
+	if string.find(s, "LekPangaea", 1, true) then
+		return "pangaea";
+	end
+	if string.find(s, "LekGlobalSix", 1, true)
+		or string.find(s, "ChooseLocations", 1, true)
+		or string.find(s, "StartSpacing", 1, true)
+		or string.find(s, "forceGeom", 1, true) then
+		return "starts";
+	end
+	return "other";
+end
+
+function LekMapgenAllowMsg(msg)
+	return LekMapgenChannelEnabled(LekMapgenInferChannel(msg));
 end
 
 function LekMapgenDiagLogPath()
@@ -39,7 +97,7 @@ function LekMapgenDiagLogPath()
 end
 
 function LekMapgenDiagLogAppend(lineOrLines)
-	if not LekMapgenLogsEnabled() then
+	if not LekMapgenAllowMsg(lineOrLines) then
 		return;
 	end
 	local path = LekMapgenDiagLogPath();
@@ -83,7 +141,7 @@ function LekMapgenTupleBenchmarkMode()
 end
 
 function LekMapgenEmitBench6OneLine(line)
-	if not LekMapgenLogsEnabled() or not LekMapgenTupleBenchmarkMode() then
+	if not LekMapgenTupleBenchmarkMode() or not LekMapgenChannelEnabled("bench") then
 		return;
 	end
 	print(line);
@@ -192,7 +250,7 @@ function LekMapgenLogAtLeast(minLevel)
 end
 
 function LekPlacementProbeAt(minLevel, msg)
-	if not LekMapgenLogAtLeast(minLevel) then
+	if not LekMapgenLogAtLeast(minLevel) or not LekMapgenAllowMsg(msg) then
 		return;
 	end
 	print(msg);
@@ -202,7 +260,7 @@ function LekPlacementProbeAt(minLevel, msg)
 end
 
 function LekMapgenPrintAndDiagFile(msg)
-	if not LekMapgenLogsEnabled() then
+	if not LekMapgenAllowMsg(msg) then
 		return;
 	end
 	print(msg);
@@ -211,9 +269,13 @@ function LekMapgenPrintAndDiagFile(msg)
 	end);
 end
 
--- Optional print-only path for Lek diagnostics (still gated by master flag).
+-- Optional print-only path (master + channel inferred from first arg when string).
 function LekMapgenPrint(...)
 	if not LekMapgenLogsEnabled() then
+		return;
+	end
+	local first = select(1, ...);
+	if first ~= nil and not LekMapgenAllowMsg(first) then
 		return;
 	end
 	print(...);
@@ -242,8 +304,12 @@ function LekMapgenFileTrace(...)
 	for i = 1, n do
 		parts[i] = tostring(select(i, ...));
 	end
+	local line = table.concat(parts, " ");
+	if not LekMapgenAllowMsg(line) then
+		return;
+	end
 	pcall(function()
-		LekMapgenDiagLogAppend(table.concat(parts, " "));
+		LekMapgenDiagLogAppend(line);
 	end);
 end
 
@@ -15139,7 +15205,7 @@ function AssignStartingPlots:PlaceCityStates()
 			" refineReached=" .. tostring(self._lek_cs_refine_reached or 0) ..
 			" placeSuccess=" .. tostring(self._lek_cs_place_success or 0) ..
 			" selectedNil=" .. tostring(self._lek_cs_selected_nil or 0);
-		local line3 = "### LekBuildPing after_CS_refine_debug repo=v6.0.1";
+		local line3 = "### LekBuildPing after_CS_refine_debug repo=v6.0.2";
 		if not LekMapgenTupleBenchmarkMode() then
 			LekMapgenDiagLogAppend({ line, line2, line3 });
 		end

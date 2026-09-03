@@ -17,22 +17,31 @@ Not everything uses that append — anything that only calls print() may appear 
 Also see Pangaea appendLekLog() inside StartPlotSystem — tuple_benchmark_mode / small-world gates may skip some append paths.
 
 
-Verbosity & benchmark globals (common knobs)
---------------------------------------------
-LekmapPangaeaFractal.lua top (single soft-deploy switch):
-  _lek_mapgen_logs = false   -- MASTER: false = soft deploy quiet; true = enable Lek ### logs + diag file
-                             -- All LekMapgen* print/diag helpers honor this; infrastructure stays in place.
+Verbosity & log channels (source of truth)
+-----------------------------------------
+Edit only LekmapPangaeaFractal.lua top block:
 
-4a_HBAssignStartingPlots.lua (loaded early; defaults if unset):
-  _lek_mapgen_logs            -- same master flag (Pangaea sets it before includes)
-  _lek_mapgen_log_verbosity   -- 1 = milestones; 2 = + placement probe detail; 3 = more tuple noise (only if logs on)
-  _lek_mapgen_tuple_benchmark_mode  -- set by Pangaea after GenerateRegions when using Global Six pace
-  _lek_strat_audit_log_each_hit     -- false = no per-tile ### LEK_STRAT_HIT; true = every audited strategic placement
-                                    -- (HIT lines also require _lek_mapgen_logs = true)
+  _lek_mapgen_logs = false/true     -- MASTER: false = soft deploy quiet
+  _lek_mapgen_log_verbosity = 1..3  -- detail within an enabled channel
+  _lek_mapgen_log_channels = {      -- only when master true; flip per topic
+    islands = true/false,           -- ### LekIslandPlaced / RollSummary / Probe
+    islands_tiles = true/false,     -- ### LekIslandTile (xy=…) + LekIslandFootprint per place
+    strategics = true/false,        -- ### LEK_STRAT* / LEK_RESOURCE_SETTING
+    starts = true/false,            -- ### LekGlobalSix* / ChooseLocations / StartSpacing
+    mapgen = true/false,            -- ### LekMapGen*
+    pangaea = true/false,           -- ### LekPangaea*
+    bench = true/false,             -- ### LekBench6
+    other = true/false,             -- leftover Lek ### lines
+  }
 
-LekmapPangaeaFractal.lua:
-  _lek_mapgen_log_verbosity = 1   -- default for this map script
-  _lek_mapgen_logs = false        -- flip to true when tuning locally
+  Island tile lookup: grep LekIslandTile xy=3,19 (use final outerAttempt=… block).
+  nLand/bbox on ### LekIslandFootprint. overwrite= means a later island repainted a tile.
+
+Helpers in 4a_HBAssignStartingPlots.lua infer channel from the ### prefix
+(LekMapgenInferChannel / LekMapgenAllowMsg) and gate print + diag file.
+
+  _lek_strat_audit_log_each_hit     -- sub-toggle for ### LEK_STRAT_HIT (also needs strategics channel)
+  _lek_mapgen_tuple_benchmark_mode  -- set by Pangaea for Global Six; LekBench6 also needs bench=true
 
 
 Snow paint — region rectangles & centers (visual only)
@@ -77,6 +86,8 @@ Greppable log prefixes (selection)
 ### LEK_STRAT_PHASE            — all six strategics broken down by placement pass label (pass=...).
 
 ### LekIslandPlaced           — one successful island paint: type=… at=x,y [nearLand=x,y].
+### LekIslandTile              — one land tile painted by that place: type=… xy=x,y plot=land|hills|mtn.
+### LekIslandFootprint         — nLand + bbox after that place (use with Tile lines).
 ### LekIslandRollSummary       — per budget-try: order=type1,type2… + countsByType (final accepted try is the map).
 
 Stages (resource_setting=5): after_strategics_pre_rs5_post (live pass labels, incl. cs_modern);

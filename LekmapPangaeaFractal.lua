@@ -11,11 +11,25 @@
 -- :2863 using Hax function if coastal
 -- :9291 call to expand coastal plots
 
--- 1=progress milestones (tuple vs legacy, outcomes) | 2=+ ChooseLocations / feasibility | 3=tuple phases, pools, DFS detail
+-- =============================================================================
+-- Lek mapgen logs — source of truth (edit here)
+-- Master off = silence. Master on = only channels set true below emit.
+-- Soft deploy: master false. Local tuning: master true + flip channels.
+-- =============================================================================
+-- 1=progress milestones | 2=+ ChooseLocations / feasibility | 3=tuple phases/pools/DFS
 _lek_mapgen_log_verbosity = 1;
--- Master switch for Lek ### diagnostics + LekmapStartSpacing6P.log. Soft deploy: false. Local tuning: true.
-_lek_mapgen_logs = false;
--- Small map: softer Pangaea/island tracing (outer loop + per-island spam). Tuple bench line (`LekBench6`): on for Global six pace (option 13 = 2), off for Legacy pace (13 = 1).
+_lek_mapgen_logs = true;
+_lek_mapgen_log_channels = {
+	islands = true,      -- ### LekIslandPlaced / RollSummary / Probe
+	islands_tiles = true, -- ### LekIslandTile / LekIslandFootprint (every painted land xy)
+	strategics = false,  -- ### LEK_STRAT* / LEK_RESOURCE_SETTING
+	starts = false,      -- ### LekGlobalSix* / ChooseLocations / StartSpacing
+	mapgen = false,      -- ### LekMapGen*
+	pangaea = false,     -- ### LekPangaea*
+	bench = false,       -- ### LekBench6
+	other = false,       -- remaining Lek ### lines
+};
+-- Small map: softer Pangaea/island tracing. Tuple bench (`LekBench6`): Global six pace on, Legacy off.
 _lek_mapgen_world_is_small = false;
 
 -- TEST ONLY: not used in normal maps. When true, PlaceResources ends with LekTestCopperOnAllWater (ocean/lake copper); engine may skip tiles.
@@ -97,7 +111,7 @@ _lek_global_six_request_map_regen = false;
 function GetMapScriptInfo()
 	local world_age, temperature, rainfall, sea_level, resources = GetCoreMapOptions()
 	return {
-		Name = "## Lekmap 6.0.1 -- Fractal Pangaea",
+		Name = "[COLOR_PLAYER_PURPLE_TEXT]## Lekmap 6.0.2 -- Fractal Pangaea[ENDCOLOR]",
 		Description = "A map script made for Lekmod based of HB's Mapscript v8.1. Pangaea - Fractal",
 		IsAdvancedMap = false,
 		IconIndex = 0,
@@ -106,21 +120,21 @@ function GetMapScriptInfo()
 	-- Two rows in Advanced Setup; Start Quality (legacy 5) stubbed — see _lek_map_hidden_option_defaults.
 	CustomOptions = {
 			{
-				Name = "Starting Locations",
+				Name = "[COLOR_PLAYER_PURPLE_TEXT]Starting Locations[ENDCOLOR]",
 				Values = {
-					"Legacy (fast)",
-					"Geometric Balance (slow)",
+					"[COLOR_PLAYER_PURPLE_TEXT]Legacy (fast)[ENDCOLOR]",
+					"[COLOR_PLAYER_PURPLE_TEXT]Geometric Balance (slow)[ENDCOLOR]",
 				},
 				DefaultValue = 2,
 				SortPriority = -100,
 			},
 			{
-				Name = "Coastal Spawns",
+				Name = "[COLOR_PLAYER_PURPLE_TEXT]Coastal Spawns[ENDCOLOR]",
 				Values = {
-					"Coastal Civs Only",
-					"Force 2 Coastals",
-					"All Inland",
-					"Pure Random",
+					"[COLOR_PLAYER_PURPLE_TEXT]Coastal Civs Only[ENDCOLOR]",
+					"[COLOR_PLAYER_PURPLE_TEXT]Force 2 Coastals[ENDCOLOR]",
+					"[COLOR_PLAYER_PURPLE_TEXT]All Inland[ENDCOLOR]",
+					"[COLOR_PLAYER_PURPLE_TEXT]Pure Random[ENDCOLOR]",
 				},
 				DefaultValue = 1,
 				SortPriority = -98,
@@ -899,7 +913,11 @@ end
 ------------------------------------------------------------------------------
 local function LekPangaeaProbeLog(msg, minVerb)
 	minVerb = minVerb or 2;
-	if LekMapgenLogsEnabled and not LekMapgenLogsEnabled() then
+	if LekMapgenChannelEnabled then
+		if not LekMapgenChannelEnabled("pangaea") then
+			return;
+		end
+	elseif LekMapgenLogsEnabled and not LekMapgenLogsEnabled() then
 		return;
 	end
 	if _lek_mapgen_world_is_small == true and minVerb < 3 then
@@ -2629,7 +2647,9 @@ end
 function StartPlotSystem()
 	_lek_run_id = tostring(math.floor((os.clock and os.clock() or 0) * 1000));
 	local function appendLekLog(lines)
-		if LekMapgenLogsEnabled and not LekMapgenLogsEnabled() then
+		if LekMapgenAllowMsg and not LekMapgenAllowMsg(lines) then
+			return;
+		elseif (not LekMapgenAllowMsg) and LekMapgenLogsEnabled and not LekMapgenLogsEnabled() then
 			return;
 		end
 		if _lek_mapgen_tuple_benchmark_mode or _lek_mapgen_world_is_small then

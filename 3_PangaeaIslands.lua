@@ -133,8 +133,12 @@ local AllIslandTypeTables = {
 };
 
 local PANGAEA_ISLAND_TOTAL_BUDGET = 8;
--- Bespoke / anchor placers run first; then ~this much common budget before other drafted rare/uncommon.
-local PANGAEA_ISLAND_SPECIAL_THEN_COMMON_BOOTSTRAP = 1;
+-- After specials: soft-spend up to this much on dot/strip only, before remaining draft + common fill.
+local PANGAEA_ISLAND_DOT_STRIP_EARLY_BUDGET = 2;
+local DotStripEarlyPool = {
+	{ type = "dot", odds = 5, budget = 0.09 },
+	{ type = "strip", odds = 2, budget = 0.39 },
+};
 local IslandSpecialPhaseTypes = {
 	polarMerge = true,
 	steppingStone = true,
@@ -165,7 +169,11 @@ local PANGAEA_BUDGET_FAST_FAIL_SPENT_FRAC = 0.68;
 
 local function LekIslandProbeLog(msg, minVerb)
 	minVerb = minVerb or 2;
-	if LekMapgenLogsEnabled and not LekMapgenLogsEnabled() then
+	if LekMapgenChannelEnabled then
+		if not LekMapgenChannelEnabled("islands") then
+			return;
+		end
+	elseif LekMapgenLogsEnabled and not LekMapgenLogsEnabled() then
 		return;
 	end
 	if _lek_mapgen_world_is_small == true and minVerb < 3 then
@@ -431,26 +439,17 @@ function GeneratePangaeaIslands(self, genOpts)
 	local rollIslandCounts = {};
 	local lastTryOceanSeedX, lastTryOceanSeedY;
 	local lastTryLandX, lastTryLandY;
-	-- Fired only when a placer returns true (budget retries may wipe later; match final LekIslandRollSummary).
-	local function recordIslandPlaced(islandType, atX, atY, nearLandX, nearLandY)
-		rollIslandSequence[#rollIslandSequence + 1] = islandType;
-		rollIslandCounts[islandType] = (rollIslandCounts[islandType] or 0) + 1;
-		local atPart = " at=na";
-		if atX ~= nil and atY ~= nil then
-			atPart = " at=" .. tostring(atX) .. "," .. tostring(atY);
+	local lastPaintBefore = nil;
+	local tileOwnerByIndex = {};
+
+	local function islandTilesLogEnabled()
+		if LekMapgenChannelEnabled then
+			return LekMapgenChannelEnabled("islands_tiles");
 		end
-		local nearPart = "";
-		if nearLandX ~= nil and nearLandY ~= nil then
-			nearPart = " nearLand=" .. tostring(nearLandX) .. "," .. tostring(nearLandY);
-		end
-		local msg = "### LekIslandPlaced runId=" .. tostring(_lek_run_id or "na")
-			.. " layoutAttempt=" .. tostring(laIsland)
-			.. " outerAttempt=" .. tostring(outerIsland)
-			.. " budgetTry=" .. tostring(islandRunTry)
-			.. " seq=" .. tostring(#rollIslandSequence)
-			.. " type=" .. tostring(islandType)
-			.. atPart
-			.. nearPart;
+		return LekMapgenLogsEnabled and LekMapgenLogsEnabled();
+	end
+
+	local function emitIslandLogLine(msg)
 		if LekMapgenPrintAndDiagFile then
 			LekMapgenPrintAndDiagFile(msg);
 		else
@@ -461,6 +460,120 @@ function GeneratePangaeaIslands(self, genOpts)
 				end
 			end);
 		end
+	end
+
+	local function isIslandLandPlotType(t)
+		return t == PlotTypes.PLOT_LAND or t == PlotTypes.PLOT_HILLS or t == PlotTypes.PLOT_MOUNTAIN;
+	end
+
+	local function islandPlotTypeTag(t)
+		if t == PlotTypes.PLOT_MOUNTAIN then
+			return "mtn";
+		elseif t == PlotTypes.PLOT_HILLS then
+			return "hills";
+		elseif t == PlotTypes.PLOT_LAND then
+			return "land";
+		end
+		return "other";
+	end
+
+	local function captureIslandLandState()
+		local s = {};
+		for i = 1, n do
+			local t = self.plotTypes[i];
+			if isIslandLandPlotType(t) then
+				s[i] = t;
+			end
+		end
+		return s;
+	end
+
+	local function markIslandPaintBefore()
+		if islandTilesLogEnabled() then
+			lastPaintBefore = captureIslandLandState();
+		else
+			lastPaintBefore = nil;
+		end
+	end
+
+	local function logIslandPaintedTiles(islandType, seq)
+		if not lastPaintBefore or not islandTilesLogEnabled() then
+			lastPaintBefore = nil;
+			return;
+		end
+		local before = lastPaintBefore;
+		lastPaintBefore = nil;
+		local added = {};
+		for i = 1, n do
+			local t = self.plotTypes[i];
+			if isIslandLandPlotType(t) and before[i] == nil then
+				local i0 = i - 1;
+				local x = i0 % iW;
+				local y = math.floor(i0 / iW);
+				added[#added + 1] = { x = x, y = y, t = t, i = i };
+			end
+		end
+		table.sort(added, function(a, b)
+			if a.y ~= b.y then
+				return a.y < b.y;
+			end
+			return a.x < b.x;
+		end);
+		local minX, maxX, minY, maxY = nil, nil, nil, nil;
+		for _, row in ipairs(added) do
+			local prev = tileOwnerByIndex[row.i];
+			tileOwnerByIndex[row.i] = islandType;
+			if minX == nil or row.x < minX then minX = row.x; end
+			if maxX == nil or row.x > maxX then maxX = row.x; end
+			if minY == nil or row.y < minY then minY = row.y; end
+			if maxY == nil or row.y > maxY then maxY = row.y; end
+			local prevPart = "";
+			if prev ~= nil then
+				prevPart = " overwrite=" .. tostring(prev);
+			end
+			emitIslandLogLine("### LekIslandTile runId=" .. tostring(_lek_run_id or "na")
+				.. " layoutAttempt=" .. tostring(laIsland)
+				.. " outerAttempt=" .. tostring(outerIsland)
+				.. " budgetTry=" .. tostring(islandRunTry)
+				.. " seq=" .. tostring(seq)
+				.. " type=" .. tostring(islandType)
+				.. " xy=" .. tostring(row.x) .. "," .. tostring(row.y)
+				.. " plot=" .. islandPlotTypeTag(row.t)
+				.. prevPart);
+		end
+		emitIslandLogLine("### LekIslandFootprint runId=" .. tostring(_lek_run_id or "na")
+			.. " layoutAttempt=" .. tostring(laIsland)
+			.. " outerAttempt=" .. tostring(outerIsland)
+			.. " budgetTry=" .. tostring(islandRunTry)
+			.. " seq=" .. tostring(seq)
+			.. " type=" .. tostring(islandType)
+			.. " nLand=" .. tostring(#added)
+			.. " bbox=" .. tostring(minX or "na") .. "," .. tostring(minY or "na")
+			.. "-" .. tostring(maxX or "na") .. "," .. tostring(maxY or "na"));
+	end
+
+	-- Fired only when a placer returns true (budget retries may wipe later; match final LekIslandRollSummary).
+	local function recordIslandPlaced(islandType, atX, atY, nearLandX, nearLandY)
+		rollIslandSequence[#rollIslandSequence + 1] = islandType;
+		rollIslandCounts[islandType] = (rollIslandCounts[islandType] or 0) + 1;
+		local seq = #rollIslandSequence;
+		local atPart = " at=na";
+		if atX ~= nil and atY ~= nil then
+			atPart = " at=" .. tostring(atX) .. "," .. tostring(atY);
+		end
+		local nearPart = "";
+		if nearLandX ~= nil and nearLandY ~= nil then
+			nearPart = " nearLand=" .. tostring(nearLandX) .. "," .. tostring(nearLandY);
+		end
+		emitIslandLogLine("### LekIslandPlaced runId=" .. tostring(_lek_run_id or "na")
+			.. " layoutAttempt=" .. tostring(laIsland)
+			.. " outerAttempt=" .. tostring(outerIsland)
+			.. " budgetTry=" .. tostring(islandRunTry)
+			.. " seq=" .. tostring(seq)
+			.. " type=" .. tostring(islandType)
+			.. atPart
+			.. nearPart);
+		logIslandPaintedTiles(islandType, seq);
 	end
 	local function logRollIslandSummary(spent, target)
 		local keys = {};
@@ -481,16 +594,7 @@ function GeneratePangaeaIslands(self, genOpts)
 			.. " placedN=" .. tostring(#rollIslandSequence)
 			.. " order=" .. table.concat(rollIslandSequence, ",")
 			.. " countsByType=" .. table.concat(countParts, ";");
-		if LekMapgenPrintAndDiagFile then
-			LekMapgenPrintAndDiagFile(summary);
-		else
-			print(summary);
-			pcall(function()
-				if LekMapgenDiagLogAppend then
-					LekMapgenDiagLogAppend(summary);
-				end
-			end);
-		end
+		emitIslandLogLine(summary);
 	end
 	local function tryOneSpot(forceType, attempt, overrideSpot)
 		local x, y;
@@ -639,6 +743,7 @@ function GeneratePangaeaIslands(self, genOpts)
 			if runOnceClockExpired() then
 				break;
 			end
+			markIslandPaintBefore();
 			placed = tryOneSpot(islandType, attempts);
 			attempts = attempts + 1;
 		end
@@ -646,6 +751,8 @@ function GeneratePangaeaIslands(self, genOpts)
 			recordIslandPlaced(islandType, lastTryOceanSeedX, lastTryOceanSeedY, lastTryLandX, lastTryLandY);
 			spentBudget = spentBudget + GetBudget(islandType);
 			islandsPlaced = islandsPlaced + 1;
+		else
+			lastPaintBefore = nil;
 		end
 		return placed;
 	end
@@ -658,11 +765,14 @@ function GeneratePangaeaIslands(self, genOpts)
 		end
 		dbg2("### placing: " .. tostring(islandType) .. " ###");
 		if islandType == "polarMerge" then
+			markIslandPaintBefore();
 			local ok, px, py = TryPlacePolarMerge(self.plotTypes, opts);
 			if ok then
 				recordIslandPlaced("polarMerge", px, py);
 				spentBudget = spentBudget + GetBudget(islandType);
 				islandsPlaced = islandsPlaced + 1;
+			else
+				lastPaintBefore = nil;
 			end
 		--[[ elseif islandType == "fjordPeninsula" then
 			local placedFjord = false;
@@ -678,11 +788,14 @@ function GeneratePangaeaIslands(self, genOpts)
 			end
 		]]
 		elseif islandType == "steppingStone" then
+			markIslandPaintBefore();
 			local ok, px, py = TryPlaceSteppingStoneIsland(self.plotTypes, opts);
 			if ok then
 				recordIslandPlaced("steppingStone", px, py);
 				spentBudget = spentBudget + GetBudget(islandType);
 				islandsPlaced = islandsPlaced + 1;
+			else
+				lastPaintBefore = nil;
 			end
 		elseif islandType == "wrapSoftLandbridge" then
 			local placedBridge = false;
@@ -691,11 +804,14 @@ function GeneratePangaeaIslands(self, genOpts)
 				if runOnceClockExpired() then
 					break;
 				end
+				markIslandPaintBefore();
 				local ok, px, py = TryPlaceWrapSoftLandbridge(self.plotTypes, opts);
 				if ok then
 					placedBridge = true;
 					bx, by = px, py;
 					break;
+				else
+					lastPaintBefore = nil;
 				end
 			end
 			if placedBridge then
@@ -704,18 +820,24 @@ function GeneratePangaeaIslands(self, genOpts)
 				islandsPlaced = islandsPlaced + 1;
 			end
 		elseif islandType == "mainlandRidge" then
+			markIslandPaintBefore();
 			local ok, px, py = TryPlaceMainlandRidge(self.plotTypes, opts);
 			if ok then
 				recordIslandPlaced("mainlandRidge", px, py);
 				spentBudget = spentBudget + GetBudget(islandType);
 				islandsPlaced = islandsPlaced + 1;
+			else
+				lastPaintBefore = nil;
 			end
 		elseif islandType == "lakeRidge" then
+			markIslandPaintBefore();
 			local ok, px, py = TryPlaceLakeRidge(self.plotTypes, opts);
 			if ok then
 				recordIslandPlaced("lakeRidge", px, py);
 				spentBudget = spentBudget + GetBudget(islandType);
 				islandsPlaced = islandsPlaced + 1;
+			else
+				lastPaintBefore = nil;
 			end
 		elseif IslandTypePlace[islandType] then
 			local maxAttempts = 180;
@@ -730,16 +852,22 @@ function GeneratePangaeaIslands(self, genOpts)
 		placeDraftedOne(islandType);
 	end
 
-	dbg2("### GeneratePangaeaIslands: common bootstrap after specials (target budget "
-		.. tostring(PANGAEA_ISLAND_SPECIAL_THEN_COMMON_BOOTSTRAP or 1) .. ") ###");
-	local bootstrapTarget = PANGAEA_ISLAND_SPECIAL_THEN_COMMON_BOOTSTRAP or 1;
-	local bootstrapSpent = 0;
-	while bootstrapSpent + 0.001 < bootstrapTarget
+	dbg2("### GeneratePangaeaIslands: early dot/strip after specials (target budget "
+		.. tostring(PANGAEA_ISLAND_DOT_STRIP_EARLY_BUDGET or 2) .. ") ###");
+	local earlyTarget = PANGAEA_ISLAND_DOT_STRIP_EARLY_BUDGET or 2;
+	local earlySpent = 0;
+	while earlySpent + 0.001 < earlyTarget
 		and spentBudget + 0.004 < TOTAL_BUDGET do
 		if runOnceClockExpired() then
 			break;
 		end
-		local islandType = DraftOneFromTier(CommonIslands, {});
+		local remainingEarly = earlyTarget - earlySpent;
+		local islandType;
+		if remainingEarly < 0.39 then
+			islandType = "dot";
+		else
+			islandType = DraftOneFromTier(DotStripEarlyPool, {});
+		end
 		if not islandType then
 			break;
 		end
@@ -748,15 +876,18 @@ function GeneratePangaeaIslands(self, genOpts)
 			if (i % 40 == 0) and runOnceClockExpired() then
 				break;
 			end
+			markIslandPaintBefore();
 			placed = tryOneSpot(islandType, nil, nil);
 			if placed then
 				break;
+			else
+				lastPaintBefore = nil;
 			end
 		end
 		if placed then
 			recordIslandPlaced(islandType, lastTryOceanSeedX, lastTryOceanSeedY, lastTryLandX, lastTryLandY);
 			local b = GetBudget(islandType);
-			bootstrapSpent = bootstrapSpent + b;
+			earlySpent = earlySpent + b;
 			spentBudget = spentBudget + b;
 			islandsPlaced = islandsPlaced + 1;
 		else
@@ -800,8 +931,13 @@ function GeneratePangaeaIslands(self, genOpts)
 				if (i % 40 == 0) and runOnceClockExpired() then
 					break;
 				end
+				markIslandPaintBefore();
 				placed = tryOneSpot(islandType, nil, nil);
-				if placed then break; end
+				if placed then
+					break;
+				else
+					lastPaintBefore = nil;
+				end
 			end
 			if placed then
 				recordIslandPlaced(islandType, lastTryOceanSeedX, lastTryOceanSeedY, lastTryLandX, lastTryLandY);

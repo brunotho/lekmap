@@ -1,30 +1,22 @@
+-- Broken coastal cliff escarpment: thin mountain segments with water gaps + detached peaklets.
+-- Stays shore-close via pullBack/eff* from the island table; grows along-shore, not as a filled oval.
+
 include("X_IslandHelpers");
 
 local CONFIG = {
-	RIDGE_LEN_MIN = 4,
-	RIDGE_LEN_MAX = 7,
-	RIDGE_TURN_PCT = 46,
-	RIDGE_DOUBLE_TURN_PCT = 15,
-	RIDGE_SKIP_STEP_PCT = 11,
-	RIDGE_WIGGLE_PCT = 20,
-	RIDGE_WIDTH_MIN = 1,
-	RIDGE_WIDTH_MAX = 3,
-	PAD1_PCT = 84,
-	PAD2_PCT = 46,
-	PAD_GAP_PCT = 14,
-	FOOTHOLD_GAP_PCT = 11,
-	SPRAY_BRANCH_MIN = 2,
-	SPRAY_BRANCH_MAX = 4,
-	SPRAY_BRANCH_LEN_MIN = 1,
-	SPRAY_BRANCH_LEN_MAX = 3,
-	SPRAY_STAY_DIR_PCT = 58,
-	FOOTHOLD_COUNT_MIN = 3,
-	FOOTHOLD_COUNT_MAX = 7,
-	FOOTHOLD_ATTACH_PCT = 72,
-	OVAL_SEMI_MAJOR = 8,
-	OVAL_SEMI_MINOR = 5,
-	MOUNTAIN_PCT_MIN = 20,
-	MOUNTAIN_PCT_MAX = 35,
+	SPINE_LEN_MIN = 7,
+	SPINE_LEN_MAX = 11,
+	GAP_COUNT_MIN = 1,
+	GAP_COUNT_MAX = 2,
+	PEAK_BUMP_PCT = 28,
+	TURN_PCT = 38,
+	SEAWARD_NUDGE_PCT = 22,
+	DETACHED_MIN = 2,
+	DETACHED_MAX = 4,
+	DETACHED_CLUSTER_MAX = 2,
+	FOOT_HILL_PCT = 24,
+	MIN_MOUNTAINS = 8,
+	MAX_LAND_TILES = 22,
 };
 
 local function isLand(plotTypes, x, y, iW, iH)
@@ -40,237 +32,210 @@ local function footprintClear(plotTypes, tiles, iW, iH)
 	return true;
 end
 
-local function kxy(x, y) return x .. "," .. y; end
-
 local function rotDir(d, delta)
 	return ((d - 1 + delta) % 6 + 6) % 6 + 1;
 end
 
-local function addTile(allSet, allTiles, x, y)
-	local k = kxy(x, y);
-	if not allSet[k] then
-		allSet[k] = true;
-		allTiles[#allTiles + 1] = { x, y };
-	end
+local function kxy(x, y)
+	return x .. "," .. y;
 end
 
-local function dirTowardSpray(baseDir)
-	local r = Map.Rand(100, "");
-	if r < CONFIG.SPRAY_STAY_DIR_PCT then return baseDir; end
-	if r < CONFIG.SPRAY_STAY_DIR_PCT + 18 then return rotDir(baseDir, -1); end
-	if r < CONFIG.SPRAY_STAY_DIR_PCT + 36 then return rotDir(baseDir, 1); end
-	return rotDir(baseDir, Map.Rand(2, "") == 0 and 2 or -2);
+local function wrapDelta(a, b, size, doWrap)
+	local d = b - a;
+	if doWrap and size > 0 then
+		if d > size / 2 then d = d - size; end
+		if d < -size / 2 then d = d + size; end
+	end
+	return d;
 end
 
-local function ridgeWidthNow()
-	return CONFIG.RIDGE_WIDTH_MIN + Map.Rand(CONFIG.RIDGE_WIDTH_MAX - CONFIG.RIDGE_WIDTH_MIN + 1, "scW");
+local function hexDistApprox(ax, ay, bx, by, iW, iH, wrapX, wrapY)
+	local dx = wrapDelta(ax, bx, iW, wrapX);
+	local dy = wrapDelta(ay, by, iH, wrapY);
+	return math.abs(dx) + math.abs(dy);
 end
 
-function DrawSplinteredCliffsIsland(plotTypes, allTiles, coreSet, ridgeSet, iW)
-	local count = #allTiles;
-	local mtnPct = CONFIG.MOUNTAIN_PCT_MIN + Map.Rand(CONFIG.MOUNTAIN_PCT_MAX - CONFIG.MOUNTAIN_PCT_MIN + 1, "");
-	local targetMtn = math.max(1, math.floor(count * mtnPct / 100 + 0.5));
-	local mountainSet = {};
-	local mountainCount = 0;
-
-	for _, t in ipairs(allTiles) do
-		local k = kxy(t[1], t[2]);
-		if coreSet[k] then
-			mountainSet[k] = true;
-			mountainCount = mountainCount + 1;
+local function bestDirToward(x, y, tx, ty, iW, iH, wrapX, wrapY)
+	local bestDir, bestDist = 1, 9999;
+	for d = 1, 6 do
+		local nx, ny = GetHexNeighbor(x, y, d, iW, iH, wrapX, wrapY);
+		local dist = hexDistApprox(nx, ny, tx, ty, iW, iH, wrapX, wrapY);
+		if dist < bestDist then
+			bestDist = dist;
+			bestDir = d;
 		end
 	end
-
-	local extra = {};
-	for _, t in ipairs(allTiles) do
-		local k = kxy(t[1], t[2]);
-		if not mountainSet[k] then extra[#extra + 1] = t; end
-	end
-	for i = #extra, 2, -1 do
-		local j = 1 + Map.Rand(i, "");
-		extra[i], extra[j] = extra[j], extra[i];
-	end
-	local ei = 1;
-	while mountainCount < targetMtn and ei <= #extra do
-		local t = extra[ei];
-		local k = kxy(t[1], t[2]);
-		if ridgeSet[k] then
-			mountainSet[k] = true;
-			mountainCount = mountainCount + 1;
-		end
-		ei = ei + 1;
-	end
-
-	for _, t in ipairs(allTiles) do
-		local x, y = t[1], t[2];
-		local idx = y * iW + x;
-		if mountainSet[kxy(x, y)] then
-			plotTypes[idx] = PlotTypes.PLOT_MOUNTAIN;
-		else
-			local h = 36 + Map.Rand(32, "");
-			plotTypes[idx] = (Map.Rand(100, "") < h) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
-		end
-	end
+	return bestDir;
 end
 
 function TryPlaceSplinteredCliffsIsland(plotTypes, centerX, centerY, islLandInRing, params)
 	if _island_placed and _island_placed.splinteredCliffs then return false; end
-	local pullBack = params.pullBack or 2;
-	local effMin = params.effMin or 2;
-	local effMax = params.effMax or 6;
+
+	local pullBack = params.pullBack or 0;
+	local effMin = params.effMin or 1;
+	local effMax = params.effMax or 2;
 	local effRadius = islLandInRing - pullBack;
 	if effRadius < effMin or effRadius > effMax then return false; end
 
 	local cx = WrapCoord(centerX, params.iW, params.wrapX);
 	local cy = WrapCoord(centerY, params.iH, params.wrapY);
 	if cx < 0 or cx >= params.iW or cy < 0 or cy >= params.iH then return false; end
-	local ovalOrient = Map.Rand(2, "");
 
-	local function inOval(tx, ty)
-		local dx = tx - cx;
-		local dy = ty - cy;
-		if params.wrapX and math.abs(dx) > params.iW / 2 then
-			dx = dx - (dx > 0 and params.iW or -params.iW);
-		end
-		local ex, ey;
-		if ovalOrient == 0 then
-			ex = dx / CONFIG.OVAL_SEMI_MAJOR;
-			ey = dy / CONFIG.OVAL_SEMI_MINOR;
+	local landX = params.landX or cx;
+	local landY = params.landY or cy;
+	local towardLand = bestDirToward(cx, cy, landX, landY, params.iW, params.iH, params.wrapX, params.wrapY);
+	local seaward = rotDir(towardLand, 3);
+	local alongA = rotDir(towardLand, 2);
+	local alongB = rotDir(towardLand, -2);
+	local walkDir = (Map.Rand(2, "scAlong") == 0) and alongA or alongB;
+
+	local mountainSet = {};
+	local hillSet = {};
+	local allSet = {};
+	local allTiles = {};
+	local spine = {};
+
+	local function tryAdd(x, y, asMountain)
+		if x < 0 or x >= params.iW or y < 0 or y >= params.iH then return false; end
+		local k = kxy(x, y);
+		if allSet[k] then return false; end
+		if #allTiles >= CONFIG.MAX_LAND_TILES then return false; end
+		allSet[k] = true;
+		allTiles[#allTiles + 1] = { x, y };
+		if asMountain then
+			mountainSet[k] = true;
 		else
-			ex = dy / CONFIG.OVAL_SEMI_MAJOR;
-			ey = dx / CONFIG.OVAL_SEMI_MINOR;
+			hillSet[k] = true;
 		end
-		return (ex * ex + ey * ey) <= 1.04;
+		return true;
 	end
 
-	local allSet, allTiles = {}, {};
-	local ridgeSet = {};
-	local coreSet = {};
+	local spineLen = CONFIG.SPINE_LEN_MIN + Map.Rand(CONFIG.SPINE_LEN_MAX - CONFIG.SPINE_LEN_MIN + 1, "scLen");
+	local gapCount = CONFIG.GAP_COUNT_MIN + Map.Rand(CONFIG.GAP_COUNT_MAX - CONFIG.GAP_COUNT_MIN + 1, "scGaps");
+	local gapSlots = {};
+	do
+		local candidates = {};
+		for i = 3, spineLen - 2 do
+			candidates[#candidates + 1] = i;
+		end
+		for i = #candidates, 2, -1 do
+			local j = 1 + Map.Rand(i, "scGapShuf");
+			candidates[i], candidates[j] = candidates[j], candidates[i];
+		end
+		local used = {};
+		local placed = 0;
+		for _, slot in ipairs(candidates) do
+			if placed >= gapCount then break; end
+			if not used[slot - 1] and not used[slot + 1] then
+				gapSlots[slot] = true;
+				used[slot] = true;
+				placed = placed + 1;
+			end
+		end
+	end
 
-	local ridgeDir = Map.Rand(6, "") + 1;
-	local sprayDir = rotDir(ridgeDir, 2 + Map.Rand(2, ""));
 	local x, y = cx, cy;
-	addTile(allSet, allTiles, x, y);
-	ridgeSet[kxy(x, y)] = true;
-	coreSet[kxy(x, y)] = true;
+	for step = 1, spineLen do
+		local isGap = gapSlots[step] == true;
+		if not isGap then
+			if tryAdd(x, y, true) then
+				spine[#spine + 1] = { x, y };
+				if Map.Rand(100, "scBump") < CONFIG.PEAK_BUMP_PCT then
+					local bumpDir = (Map.Rand(2, "scBumpSide") == 0) and seaward or rotDir(walkDir, Map.Rand(2, "") == 0 and 1 or -1);
+					local bx, by = GetHexNeighbor(x, y, bumpDir, params.iW, params.iH, params.wrapX, params.wrapY);
+					tryAdd(bx, by, true);
+				end
+			end
+		end
 
-	local ridgeLen = CONFIG.RIDGE_LEN_MIN + Map.Rand(CONFIG.RIDGE_LEN_MAX - CONFIG.RIDGE_LEN_MIN + 1, "");
-	for _ = 1, ridgeLen - 1 do
-		if Map.Rand(100, "") < CONFIG.RIDGE_SKIP_STEP_PCT then
+		if Map.Rand(100, "scTurn") < CONFIG.TURN_PCT then
+			walkDir = rotDir(walkDir, Map.Rand(2, "scTurnSign") == 0 and 1 or -1);
+		elseif Map.Rand(100, "scSea") < CONFIG.SEAWARD_NUDGE_PCT then
+			walkDir = seaward;
 		else
-			if Map.Rand(100, "") < CONFIG.RIDGE_TURN_PCT then
-				local delta = (Map.Rand(2, "") == 0) and -1 or 1;
-				ridgeDir = rotDir(ridgeDir, delta);
-				if Map.Rand(100, "") < CONFIG.RIDGE_DOUBLE_TURN_PCT then
-					ridgeDir = rotDir(ridgeDir, delta);
-				end
-			elseif Map.Rand(100, "") < CONFIG.RIDGE_WIGGLE_PCT then
-				ridgeDir = rotDir(ridgeDir, Map.Rand(2, "") == 0 and 1 or -1);
+			local preferAlong = (walkDir == alongA or walkDir == alongB) and walkDir or alongA;
+			if Map.Rand(2, "scReAlong") == 0 then preferAlong = alongA; else preferAlong = alongB; end
+			if Map.Rand(100, "scKeep") < 70 then
+				walkDir = preferAlong;
 			end
-			local nx, ny = GetHexNeighbor(x, y, ridgeDir, params.iW, params.iH, params.wrapX, params.wrapY);
+		end
+
+		local nx, ny = GetHexNeighbor(x, y, walkDir, params.iW, params.iH, params.wrapX, params.wrapY);
+		if nx < 0 or nx >= params.iW or ny < 0 or ny >= params.iH then break; end
+		if hexDistApprox(nx, ny, landX, landY, params.iW, params.iH, params.wrapX, params.wrapY)
+			< hexDistApprox(x, y, landX, landY, params.iW, params.iH, params.wrapX, params.wrapY)
+			and Map.Rand(100, "scAvoidLand") < 80 then
+			nx, ny = GetHexNeighbor(x, y, seaward, params.iW, params.iH, params.wrapX, params.wrapY);
+			walkDir = seaward;
 			if nx < 0 or nx >= params.iW or ny < 0 or ny >= params.iH then break; end
-			x, y = nx, ny;
-			addTile(allSet, allTiles, x, y);
-			ridgeSet[kxy(x, y)] = true;
-			coreSet[kxy(x, y)] = true;
-
-			local wband = ridgeWidthNow();
-			local left = rotDir(ridgeDir, 2);
-			local right = rotDir(ridgeDir, -2);
-			local lx, ly = x, y;
-			for s = 1, math.floor(wband / 2) do
-				lx, ly = GetHexNeighbor(lx, ly, left, params.iW, params.iH, params.wrapX, params.wrapY);
-				if lx >= 0 and lx < params.iW and ly >= 0 and ly < params.iH and inOval(lx, ly) then
-					addTile(allSet, allTiles, lx, ly);
-					ridgeSet[kxy(lx, ly)] = true;
-					coreSet[kxy(lx, ly)] = true;
-				end
-			end
-			local rx, ry = x, y;
-			for s = 1, math.floor((wband - 1) / 2) do
-				rx, ry = GetHexNeighbor(rx, ry, right, params.iW, params.iH, params.wrapX, params.wrapY);
-				if rx >= 0 and rx < params.iW and ry >= 0 and ry < params.iH and inOval(rx, ry) then
-					addTile(allSet, allTiles, rx, ry);
-					ridgeSet[kxy(rx, ry)] = true;
-					coreSet[kxy(rx, ry)] = true;
-				end
-			end
 		end
+		x, y = nx, ny;
 	end
 
-	local ridgeTiles = 0;
-	for k in pairs(ridgeSet) do
-		ridgeTiles = ridgeTiles + 1;
-	end
-	if ridgeTiles < 4 then return false; end
+	if #spine < 4 then return false; end
 
-	local function padLayer(padPct, isCoreNeighbor)
-		local toAdd = {};
-		for _, t in ipairs(allTiles) do
-			local k = kxy(t[1], t[2]);
-			local wantCore = isCoreNeighbor and coreSet[k] or (not isCoreNeighbor and not coreSet[k]);
-			if wantCore then
-				for d = 1, 6 do
-					local nx, ny = GetHexNeighbor(t[1], t[2], d, params.iW, params.iH, params.wrapX, params.wrapY);
-					if nx >= 0 and nx < params.iW and ny >= 0 and ny < params.iH and inOval(nx, ny) then
-						local nk = kxy(nx, ny);
-						if not allSet[nk] and Map.Rand(100, "") < padPct then
-							toAdd[#toAdd + 1] = { nx, ny };
-						end
-					end
+	local detachedN = CONFIG.DETACHED_MIN + Map.Rand(CONFIG.DETACHED_MAX - CONFIG.DETACHED_MIN + 1, "scDetN");
+	for _ = 1, detachedN do
+		if #spine == 0 then break; end
+		local seed = spine[1 + Map.Rand(#spine, "scDetSeed")];
+		local dx, dy = seed[1], seed[2];
+		local steps = 1 + Map.Rand(2, "scDetDist");
+		local ok = true;
+		for _s = 1, steps do
+			dx, dy = GetHexNeighbor(dx, dy, seaward, params.iW, params.iH, params.wrapX, params.wrapY);
+			if dx < 0 or dx >= params.iW or dy < 0 or dy >= params.iH then
+				ok = false;
+				break;
+			end
+			if Map.Rand(100, "scDetWiggle") < 35 then
+				local wdir = rotDir(seaward, Map.Rand(2, "") == 0 and 1 or -1);
+				local wx, wy = GetHexNeighbor(dx, dy, wdir, params.iW, params.iH, params.wrapX, params.wrapY);
+				if wx >= 0 and wx < params.iW and wy >= 0 and wy < params.iH then
+					dx, dy = wx, wy;
 				end
 			end
 		end
-		for _, row in ipairs(toAdd) do
-			if Map.Rand(100, "") < CONFIG.PAD_GAP_PCT then
-			else
-				addTile(allSet, allTiles, row[1], row[2]);
+		if ok and not allSet[kxy(dx, dy)] then
+			tryAdd(dx, dy, true);
+			local cluster = 1 + Map.Rand(CONFIG.DETACHED_CLUSTER_MAX, "scDetCl");
+			for _c = 2, cluster do
+				local cd = Map.Rand(6, "scDetAdj") + 1;
+				local ax, ay = GetHexNeighbor(dx, dy, cd, params.iW, params.iH, params.wrapX, params.wrapY);
+				tryAdd(ax, ay, true);
 			end
 		end
 	end
 
-	padLayer(CONFIG.PAD1_PCT, true);
-	padLayer(CONFIG.PAD2_PCT, false);
-
-	local branchCount = CONFIG.SPRAY_BRANCH_MIN + Map.Rand(CONFIG.SPRAY_BRANCH_MAX - CONFIG.SPRAY_BRANCH_MIN + 1, "");
-	for _ = 1, branchCount do
-		local seed = allTiles[1 + Map.Rand(#allTiles, "")];
-		local bx, by = seed[1], seed[2];
-		local bdir = dirTowardSpray(sprayDir);
-		local blen = CONFIG.SPRAY_BRANCH_LEN_MIN + Map.Rand(CONFIG.SPRAY_BRANCH_LEN_MAX - CONFIG.SPRAY_BRANCH_LEN_MIN + 1, "");
-		for _s = 1, blen do
-			local nx, ny = GetHexNeighbor(bx, by, bdir, params.iW, params.iH, params.wrapX, params.wrapY);
-			if nx < 0 or nx >= params.iW or ny < 0 or ny >= params.iH then break; end
-			bx, by = nx, ny;
-			if inOval(bx, by) and Map.Rand(100, "") < 74 then addTile(allSet, allTiles, bx, by); end
-			if Map.Rand(100, "") < 42 then
-				local near = rotDir(bdir, Map.Rand(2, "") == 0 and 2 or -2);
-				local sx, sy = GetHexNeighbor(bx, by, near, params.iW, params.iH, params.wrapX, params.wrapY);
-				if sx >= 0 and sx < params.iW and sy >= 0 and sy < params.iH and Map.Rand(100, "") < 36 then
-					if inOval(sx, sy) then addTile(allSet, allTiles, sx, sy); end
-				end
-			end
-			bdir = dirTowardSpray(sprayDir);
-		end
+	local mtnCount = 0;
+	for _ in pairs(mountainSet) do
+		mtnCount = mtnCount + 1;
 	end
+	if mtnCount < CONFIG.MIN_MOUNTAINS then return false; end
 
-	local footholdCount = CONFIG.FOOTHOLD_COUNT_MIN + Map.Rand(CONFIG.FOOTHOLD_COUNT_MAX - CONFIG.FOOTHOLD_COUNT_MIN + 1, "");
-	for _ = 1, footholdCount do
-		local seed = allTiles[1 + Map.Rand(#allTiles, "")];
-		local fdir = (Map.Rand(100, "") < CONFIG.FOOTHOLD_ATTACH_PCT) and dirTowardSpray(sprayDir) or (Map.Rand(6, "") + 1);
-		local fx, fy = GetHexNeighbor(seed[1], seed[2], fdir, params.iW, params.iH, params.wrapX, params.wrapY);
-		if fx >= 0 and fx < params.iW and fy >= 0 and fy < params.iH and Map.Rand(100, "") < 88 then
-			if Map.Rand(100, "") < CONFIG.FOOTHOLD_GAP_PCT then
-			else
-				if inOval(fx, fy) then addTile(allSet, allTiles, fx, fy); end
+	for _, t in ipairs(spine) do
+		if Map.Rand(100, "scFoot") < CONFIG.FOOT_HILL_PCT then
+			local fx, fy = GetHexNeighbor(t[1], t[2], seaward, params.iW, params.iH, params.wrapX, params.wrapY);
+			if fx >= 0 and fx < params.iW and fy >= 0 and fy < params.iH and not allSet[kxy(fx, fy)] then
+				tryAdd(fx, fy, false);
 			end
 		end
 	end
 
-	if #allTiles < 10 then return false; end
 	if not footprintClear(plotTypes, allTiles, params.iW, params.iH) then return false; end
 
-	DrawSplinteredCliffsIsland(plotTypes, allTiles, coreSet, ridgeSet, params.iW);
+	for _, t in ipairs(allTiles) do
+		local px, py = t[1], t[2];
+		local idx = py * params.iW + px;
+		local k = kxy(px, py);
+		if mountainSet[k] then
+			plotTypes[idx] = PlotTypes.PLOT_MOUNTAIN;
+		elseif hillSet[k] then
+			plotTypes[idx] = PlotTypes.PLOT_HILLS;
+		else
+			plotTypes[idx] = (Map.Rand(100, "scHill") < 55) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
+		end
+	end
+
 	if not _island_placed then _island_placed = {}; end
 	_island_placed.splinteredCliffs = true;
 	return true;
