@@ -162,7 +162,11 @@ function TerrainGenerator:GetLatitudeAtPlot(iX, iY)
 	-- Adjust latitude using self.variation fractal, to roughen the border between bands:
 	lat = lat + (128 - self.variation:GetHeight(iX, iY))/(255.0 * 5.0);
 	-- Limit to the range [0, 1]:
-	lat = math.clamp(lat, 0, 1);
+	if math.clamp then
+		lat = math.clamp(lat, 0, 1);
+	else
+		lat = math.max(0, math.min(1, lat));
+	end
 	
 	return lat;
 end

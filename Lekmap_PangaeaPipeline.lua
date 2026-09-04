@@ -1,36 +1,37 @@
 ------------------------------------------------------------------------------
---	FILE:	 LekmapPangaeaFractal.lua (Modified Pangaea_Plus.lua)
---	AUTHOR:  Original Bob Thomas, Changes HellBlazer, lek10, EnormousApplePie, Cirra, Meota, t0mtezuma
---	PURPOSE: Global map script - Simulates a Pan-Earth Supercontinent, with
---           numerous tectonic island chains.
+--	FILE:	 Lekmap_PangaeaPipeline.lua
+--	PURPOSE: Shared Lekmap pangaea pipeline (includes, plot types, terrain, starts).
+--	         Lobby leaves set _lek_pangaea_land_shape then include this file.
 ------------------------------------------------------------------------------
 --	Copyright (c) 2011 Firaxis Games, Inc. All rights reserved.
 ------------------------------------------------------------------------------
 
+-- Leaf may set these before include; defaults for soft deploy / local tuning.
+if _lek_mapgen_log_verbosity == nil then _lek_mapgen_log_verbosity = 1; end
+if _lek_mapgen_logs == nil then _lek_mapgen_logs = false; end
+if _lek_mapgen_log_channels == nil then
+	_lek_mapgen_log_channels = {
+		islands = true,
+		islands_tiles = true,
+		strategics = false,
+		starts = false,
+		mapgen = false,
+		pangaea = false,
+		bench = false,
+		other = false,
+	};
+end
+if _lek_pangaea_land_shape == nil then _lek_pangaea_land_shape = "compact"; end
+if _lek_mapgen_world_is_small == nil then _lek_mapgen_world_is_small = false; end
 
--- :2863 using Hax function if coastal
--- :9291 call to expand coastal plots
+-- Pipeline flow log (always on; dedicated LekmapPipelineFlow.log)
+if not LekPipelineFlow then
+	include("Lekmap_PipelineFlowLog");
+end
+if LekPipelineFlow then
+	LekPipelineFlow("pipeline_file_body_start");
+end
 
--- =============================================================================
--- Lek mapgen logs — source of truth (edit here)
--- Master off = silence. Master on = only channels set true below emit.
--- Soft deploy: master false. Local tuning: master true + flip channels.
--- =============================================================================
--- 1=progress milestones | 2=+ ChooseLocations / feasibility | 3=tuple phases/pools/DFS
-_lek_mapgen_log_verbosity = 1;
-_lek_mapgen_logs = false;
-_lek_mapgen_log_channels = {
-	islands = true,      -- ### LekIslandPlaced / RollSummary / Probe
-	islands_tiles = true, -- ### LekIslandTile / LekIslandFootprint (every painted land xy)
-	strategics = false,  -- ### LEK_STRAT* / LEK_RESOURCE_SETTING
-	starts = false,      -- ### LekGlobalSix* / ChooseLocations / StartSpacing
-	mapgen = false,      -- ### LekMapGen*
-	pangaea = false,     -- ### LekPangaea*
-	bench = false,       -- ### LekBench6
-	other = false,       -- remaining Lek ### lines
-};
--- Small map: softer Pangaea/island tracing. Tuple bench (`LekBench6`): Global six pace on, Legacy off.
-_lek_mapgen_world_is_small = false;
 
 -- TEST ONLY: not used in normal maps. When true, PlaceResources ends with LekTestCopperOnAllWater (ocean/lake copper); engine may skip tiles.
 _lek_test_copper_on_all_water = false;
@@ -81,16 +82,39 @@ function LekMapGetCustomOption(oldindex)
 	return 1
 end
 
+if LekPipelineFlow then LekPipelineFlow("include_begin", "4_HBMapGenerator"); end
 include("4_HBMapGenerator");
+if LekPipelineFlow then LekPipelineFlow("include_ok", "4_HBMapGenerator"); end
+if LekPipelineFlow then LekPipelineFlow("include_begin", "2_HBFractalWorld"); end
 include("2_HBFractalWorld");
+if LekPipelineFlow then LekPipelineFlow("include_ok", "2_HBFractalWorld"); end
+if LekPipelineFlow then LekPipelineFlow("include_begin", "6_HBFeatureGenerator"); end
 include("6_HBFeatureGenerator");
+if LekPipelineFlow then LekPipelineFlow("include_ok", "6_HBFeatureGenerator"); end
+if LekPipelineFlow then LekPipelineFlow("include_begin", "5_HBTerrainGenerator"); end
 include("5_HBTerrainGenerator");
+if LekPipelineFlow then LekPipelineFlow("include_ok", "5_HBTerrainGenerator"); end
+if LekPipelineFlow then LekPipelineFlow("include_begin", "IslandMaker"); end
 include("IslandMaker");
+if LekPipelineFlow then LekPipelineFlow("include_ok", "IslandMaker"); end
+if LekPipelineFlow then LekPipelineFlow("include_begin", "MultilayeredFractal"); end
 include("MultilayeredFractal");
+if LekPipelineFlow then LekPipelineFlow("include_ok", "MultilayeredFractal"); end
+if LekPipelineFlow then LekPipelineFlow("include_begin", "3_PangaeaIslands"); end
 include("3_PangaeaIslands");
+if LekPipelineFlow then LekPipelineFlow("include_ok", "3_PangaeaIslands"); end
+if LekPipelineFlow then LekPipelineFlow("include_begin", "X_IslandHelpers"); end
 include("X_IslandHelpers");
+if LekPipelineFlow then LekPipelineFlow("include_ok", "X_IslandHelpers"); end
+if LekPipelineFlow then LekPipelineFlow("include_begin", "Lekmap_Landmass_Compact"); end
+include("Lekmap_Landmass_Compact");
+if LekPipelineFlow then LekPipelineFlow("include_ok", "Lekmap_Landmass_Compact"); end
+if LekPipelineFlow then LekPipelineFlow("include_begin", "Lekmap_Landmass_EquatorRing"); end
+include("Lekmap_Landmass_EquatorRing");
+if LekPipelineFlow then LekPipelineFlow("include_ok", "Lekmap_Landmass_EquatorRing"); end
+if LekPipelineFlow then LekPipelineFlow("includes_all_done"); end
 if LekMapgenPrint then
-	LekMapgenPrint("### LekmapPangaeaFractal: includes done ###");
+	LekMapgenPrint("### Lekmap_PangaeaPipeline: includes done shape=" .. tostring(_lek_pangaea_land_shape) .. " ###");
 end
 
 -- Option 13 "Geometric Balance": Legacy = HB only. Global six = one-map tuple: extra relax phases on the current landmask,
@@ -108,42 +132,9 @@ _lek_map_layout_attempt = nil;
 _lek_global_six_request_map_regen = false;
 
 ------------------------------------------------------------------------------
-function GetMapScriptInfo()
-	local world_age, temperature, rainfall, sea_level, resources = GetCoreMapOptions()
-	return {
-		Name = "[COLOR_PLAYER_PURPLE_TEXT]Lekmap 6.0.2 -- Fractal Pangaea[ENDCOLOR]",
-		Description = "A map script made for Lekmod based of HB's Mapscript v8.1. Pangaea - Fractal",
-		IsAdvancedMap = false,
-		IconIndex = 0,
-		SortIndex = 2,
-		SupportsMultiplayer = true,
-	-- Two rows in Advanced Setup; Start Quality (legacy 5) stubbed — see _lek_map_hidden_option_defaults.
-	CustomOptions = {
-			{
-				Name = "[COLOR_PLAYER_PURPLE_TEXT]Starting Locations[ENDCOLOR]",
-				Values = {
-					"[COLOR_PLAYER_PURPLE_TEXT]Legacy (fast)[ENDCOLOR]",
-					"[COLOR_PLAYER_PURPLE_TEXT]Geometric Balance (slow)[ENDCOLOR]",
-				},
-				DefaultValue = 2,
-				SortPriority = -100,
-			},
-			{
-				Name = "[COLOR_PLAYER_PURPLE_TEXT]Coastal Spawns[ENDCOLOR]",
-				Values = {
-					"[COLOR_PLAYER_PURPLE_TEXT]Coastal Civs Only[ENDCOLOR]",
-					"[COLOR_PLAYER_PURPLE_TEXT]Force 2 Coastals[ENDCOLOR]",
-					"[COLOR_PLAYER_PURPLE_TEXT]All Inland[ENDCOLOR]",
-					"[COLOR_PLAYER_PURPLE_TEXT]Pure Random[ENDCOLOR]",
-				},
-				DefaultValue = 1,
-				SortPriority = -98,
-			},
-		},
-	};
-end
-------------------------------------------------------------------------------
 function GetMapInitData(worldSize)
+
+		if LekPipelineFlow then LekPipelineFlow("GetMapInitData_entry"); end
 	_lek_mapgen_world_is_small = false;
 
 	local LandSizeXDuel = 22 + (LekMapGetCustomOption(11) * 2);
@@ -965,6 +956,8 @@ local function LekPangaeaWaterSliceReject(plotTypes, iW, iH, thinMax, thickMin)
 end
 
 function PangaeaFractalWorld:GeneratePlotTypes(args)
+
+		if LekPipelineFlow then LekPipelineFlow("PangaeaFractalWorld_GeneratePlotTypes_entry"); end
 	if(args == nil) then args = {}; end
 	_lek_pangaea_max_outer_failed = false;
 
@@ -974,6 +967,8 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 
 	while allcomplete == false do
 		outerAttempts = outerAttempts + 1;
+
+		if LekPipelineFlow then LekPipelineFlow("outer_attempt_begin"); end
 		_lek_pangaea_outer_attempt = outerAttempts;
 		if not _lek_mapgen_world_is_small then
 			if LekMapgenPrint then LekMapgenPrint("### Pangaea attempt " .. outerAttempts .. "/" .. MAX_OUTER .. " ###"); end
@@ -1104,7 +1099,45 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		local bMapOK = false;
 		local middleAttempts = 0;
 		local MAX_MIDDLE = 20;
+		local ringSkipMargin = false;
+		if LekLandmass_IsEquatorRing and LekLandmass_IsEquatorRing() then
+
+		if LekPipelineFlow then LekPipelineFlow("landmass_branch_equator_ring"); end
+			local ringEnv = {
+				water_percent = water_percent,
+				grain = grain,
+				numPlates = numPlates,
+				adjustment = adjustment,
+				hills_ridge_flags = hills_ridge_flags,
+				peaks_ridge_flags = peaks_ridge_flags,
+				hillsBottom1 = hillsBottom1,
+				hillsTop1 = hillsTop1,
+				hillsBottom2 = hillsBottom2,
+				hillsTop2 = hillsTop2,
+				hillsClumps = hillsClumps,
+				hillsNearMountains = hillsNearMountains,
+				mountains = mountains,
+			};
+			local ringRes = LekLandmass_EquatorRing_Build(self, ringEnv);
+			if ringRes and ringRes.ok then
+				xshift = ringRes.xshift or 0;
+				yshift = ringRes.yshift or 0;
+				xshiftamt = ringRes.xshiftamt or 0;
+				yshiftamt = ringRes.yshiftamt or 0;
+				ringSkipMargin = ringRes.skipMarginClear == true;
+				xstart, xend = 0, self.iNumPlotsX - 1;
+				ystart, yend = 0, self.iNumPlotsY - 1;
+				bMapOK = true;
+				print("[PangaeaRing] equator ring mainland accepted");
+			else
+				print("[PangaeaRing] equator ring build failed; outer will redraw");
+				bMapOK = true; -- leave middle; outer land-% check will fail and redraw
+				ringSkipMargin = true;
+			end
+		else
 		while bMapOK == false do
+
+		if LekPipelineFlow then LekPipelineFlow("landmass_branch_compact"); end
 			middleAttempts = middleAttempts + 1;
 			if middleAttempts > MAX_MIDDLE then
 				print("[Pangaea] MAX_MIDDLE reached, accepting choke check");
@@ -1509,10 +1542,15 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 
 		
 		end
+		end -- compact vs equator_ring middle generation
 
+		if LekPipelineFlow then LekPipelineFlow("landmass_middle_done"); end
 		--####################################################
-		--clear area around pangaea
+		--clear area around pangaea (compact only; ring already wraps)
 		local iW, iH = Map.GetGridSize();
+		if not ringSkipMargin then
+
+		if LekPipelineFlow then LekPipelineFlow("margin_clear_begin"); end
 		for x = 0, xstart - 1 do --clear west side of map
 			for y = 0, iH - 1 do
 				destPlotIndex = iW * y + x + 1;
@@ -1542,8 +1580,12 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 			end
 		end
 
+		end -- not ringSkipMargin (EW/NS ocean margin clear)
+
+		if LekPipelineFlow then LekPipelineFlow("margin_clear_done"); end
 		--map generated now shift to center
-		-- Copy-on-shift: read from a scratch snapshot, write plotTypes. Avoids in-place races
+
+		if LekPipelineFlow then LekPipelineFlow("shift_begin"); end		-- Copy-on-shift: read from a scratch snapshot, write plotTypes. Avoids in-place races
 		-- and replaces nil/OOB reads (whole-row ocean "slices") with explicit margin ocean.
 		local plotCount = iW * iH;
 		local shiftScratch = {};
@@ -1643,6 +1685,8 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		end
 
 		--Fjordgenerator by t0m:
+
+		if LekPipelineFlow then LekPipelineFlow("fjords_begin"); end
 		fjord_distance_setting = _lek_fjord_distance_setting_fixed;
 		if fjord_distance_setting ~= 1 then
 			if fjord_distance_setting == 2 then
@@ -1896,7 +1940,8 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 				i = 0;
 			end
 		end --fjord-process ends
-		
+
+		if LekPipelineFlow then LekPipelineFlow("fjords_done"); end		
 		--#####################
 		--add bays to the outter edge of the biggest landmass
 		--[[
@@ -1922,15 +1967,23 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 
 
 		local iW, iH = Map.GetGridSize();
+		-- Compact ellipse "bays" carve assumes a centered blob; on equator_ring it
+		-- punches the belt and forces dozens of outer redraws. Skip for ring.
+		local skipBays = LekLandmass_IsEquatorRing and LekLandmass_IsEquatorRing();
+		if skipBays then
+			if LekPipelineFlow then LekPipelineFlow("bays_skipped_equator_ring"); end
+		else
 		local centerX = iW / 2;
 		local centerY = iH / 2;
 		local fracFlags = {FRAC_POLAR = true};
 		local baysFrac = Fractal.Create(iW, iH, 3, fracFlags, -1, -1);
+
+		if LekPipelineFlow then LekPipelineFlow("bays_begin"); end
 		local iBaysThreshold = baysFrac:GetHeight(96);  --lakes lavel size
 		local axis_list = {0.87, 0.81, 0.75};
 		local axis_multiplier = axis_list[sea_level];
 		local cohesion_list = {0.36, 0.33, 0.30};
-		local cohesion_multiplier = cohesion_list[sea_level];
+		local cohesion_multiplier = cohesion_list[sea_level] or cohesion_list[2];
 		majorAxis = centerX * cohesion_multiplier;
 		minorAxis = centerY * cohesion_multiplier;
 		majorAxisSquared = majorAxis * majorAxis;
@@ -2075,6 +2128,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 				end
 			end
 		end
+		end -- skipBays else (compact ellipse bay carve)
 
 		-- Round thin inland seas (elongated from BuildRidges) so center can fit islands.
 		local tBeforeRoundInland = (os and os.clock) and os.clock() or 0;
@@ -2082,6 +2136,8 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 			.. " layoutAttempt=" .. tostring(laProbe)
 			.. " preRoundInlandSeas_dt=" .. tostring(tBeforeRoundInland - tPass0), 2);
 		RoundInlandSeas(self);
+
+		if LekPipelineFlow then LekPipelineFlow("round_inland_seas_done"); end
 		local tAfterRoundInland = (os and os.clock) and os.clock() or 0;
 		LekPangaeaProbeLog("### LekPangaeaPlotTypesProbe outer=" .. tostring(outerAttempts)
 			.. " layoutAttempt=" .. tostring(laProbe)
@@ -2104,6 +2160,8 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		local islandsBudgetOk = true;
 		local tIs0 = (os and os.clock) and os.clock() or 0;
 		local ok, retPlaced, retBudgetOk = pcall(GeneratePangaeaIslands, self, islandGenOpts);
+
+		if LekPipelineFlow then LekPipelineFlow("islands_pcall_returned"); end
 		local tIs1 = (os and os.clock) and os.clock() or 0;
 		LekPangaeaProbeLog("### LekPangaeaPlotTypesProbe outer=" .. tostring(outerAttempts)
 			.. " layoutAttempt=" .. tostring(laProbe)
@@ -2141,13 +2199,18 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		end
 
 		local tPass1 = (os and os.clock) and os.clock() or 0;
-		local waterSliceBad = LekPangaeaWaterSliceReject(self.plotTypes, iW, iH, 10, 18);
+		local waterSliceBad = false;
+		if not (LekLandmass_IsEquatorRing and LekLandmass_IsEquatorRing()) then
+			waterSliceBad = LekPangaeaWaterSliceReject(self.plotTypes, iW, iH, 10, 18);
+		end
 		local basePass = (iNumLandTilesInUse >= iPercent and islandsPlaced >= minIslands and islandsBudgetOk);
 		if waterSliceBad and not _lek_mapgen_world_is_small then
 			print("######### Map Failure (water-slice heuristic) #########");
 		end
 		if basePass and not waterSliceBad then
 			allcomplete = true;
+
+		if LekPipelineFlow then LekPipelineFlow("outer_pass_ok"); end
 			_lek_bench_islands_dt = tIs1 - tIs0;
 			if not _lek_mapgen_world_is_small then
 				print("######### Map Pass #########");
@@ -2155,6 +2218,8 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		else
 			if not _lek_mapgen_world_is_small then
 				print("######### Map Failure #########");
+
+		if LekPipelineFlow then LekPipelineFlow("outer_pass_fail"); end
 			end
 		end
 		LekPangaeaProbeLog("### LekPangaeaPlotTypesProbe outer=" .. tostring(outerAttempts)
@@ -2179,11 +2244,9 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 			.. " outcome=max_outer_no_pass outerAttempts=" .. tostring(outerAttempts), 1);
 	end
 
+	if LekPipelineFlow then LekPipelineFlow("PangaeaFractalWorld_GeneratePlotTypes_return"); end
 	return self.plotTypes;
 end
-
-
-
 
 ------------------------------------------------------------------------------
 
@@ -2197,6 +2260,7 @@ local function dbg(msg)
 end
 
 function GeneratePlotTypes()
+	if LekPipelineFlow then LekPipelineFlow("GeneratePlotTypes_entry"); end
 	if not _lek_mapgen_world_is_small then
 		dbg("### STAGE: GeneratePlotTypes ENTRY ###");
 		dbg("### STAGE: GeneratePlotTypes start ###");
@@ -2204,24 +2268,32 @@ function GeneratePlotTypes()
 	local laTop = _lek_map_layout_attempt or 0;
 	local t0 = (os and os.clock) and os.clock() or 0;
 	local fractal_world = PangaeaFractalWorld.Create();
+
+		if LekPipelineFlow then LekPipelineFlow("GeneratePlotTypes_after_Create"); end
 	if not _lek_mapgen_world_is_small then
 		dbg("### STAGE: fractal created ###");
 		dbg("### STAGE: calling fractal_world:GeneratePlotTypes (may take 1-2 min) ###");
 	end
 	local tF0 = (os and os.clock) and os.clock() or 0;
 	local plotTypes = fractal_world:GeneratePlotTypes();
+
+		if LekPipelineFlow then LekPipelineFlow("GeneratePlotTypes_after_world_GeneratePlotTypes"); end
 	local tF1 = (os and os.clock) and os.clock() or 0;
 	if not _lek_mapgen_world_is_small then
 		dbg("### STAGE: plotTypes generated ###");
 	end
 	local tS0 = (os and os.clock) and os.clock() or 0;
 	SetPlotTypes(plotTypes);
+
+		if LekPipelineFlow then LekPipelineFlow("GeneratePlotTypes_after_SetPlotTypes"); end
 	local tS1 = (os and os.clock) and os.clock() or 0;
 	if not _lek_mapgen_world_is_small then
 		dbg("### STAGE: SetPlotTypes done ###");
 	end
 	local tC0 = (os and os.clock) and os.clock() or 0;
 	GenerateCoasts();
+
+		if LekPipelineFlow then LekPipelineFlow("GeneratePlotTypes_after_GenerateCoasts"); end
 	local tC1 = (os and os.clock) and os.clock() or 0;
 	if not _lek_mapgen_world_is_small then
 		dbg("### STAGE: GenerateCoasts done ###");
@@ -2237,6 +2309,7 @@ end
 ------------------------------------------------------------------------------
 function GenerateTerrain()
 
+		if LekPipelineFlow then LekPipelineFlow("GenerateTerrain_entry"); end
 	local DesertPercent = 22;
 
 	-- Get Temperature setting input by user.
@@ -2246,6 +2319,7 @@ function GenerateTerrain()
 	end
 
 	local grassMoist = LekMapGetCustomOption(8);
+	if LekPipelineFlow then LekPipelineFlow("GenerateTerrain_after_options", "temp=" .. tostring(temp)); end
 
 	local args = {
 			temperature = temp,
@@ -2253,22 +2327,47 @@ function GenerateTerrain()
 			iGrassMoist = grassMoist,
 			};
 
-	local terraingen = TerrainGenerator.Create(args);
+	local okCreate, terraingen = pcall(TerrainGenerator.Create, args);
+	if LekPipelineFlow then LekPipelineFlow("GenerateTerrain_after_Create", okCreate and "ok" or tostring(terraingen)); end
+	if not okCreate then
+		print("### GenerateTerrain TerrainGenerator.Create FAIL " .. tostring(terraingen));
+		return;
+	end
 	_lekmap_terrain_generator = terraingen;
 
-	terrainTypes = terraingen:GenerateTerrain();
+	local okGen, terrainTypesOrErr = pcall(function()
+		return terraingen:GenerateTerrain();
+	end);
+	if LekPipelineFlow then LekPipelineFlow("GenerateTerrain_after_GenerateTerrain", okGen and "ok" or tostring(terrainTypesOrErr)); end
+	if not okGen then
+		print("### GenerateTerrain GenerateTerrain FAIL " .. tostring(terrainTypesOrErr));
+		return;
+	end
+	local terrainTypes = terrainTypesOrErr;
 	
 	SetTerrainTypes(terrainTypes);
+	if LekPipelineFlow then LekPipelineFlow("GenerateTerrain_after_SetTerrainTypes"); end
 
 	-- MOD.EAP: New
-	FixCoastLine()
+	local okFix, errFix = pcall(FixCoastLine);
+	if LekPipelineFlow then LekPipelineFlow("GenerateTerrain_after_FixCoastLine", okFix and "ok" or tostring(errFix)); end
 	
-	FixIslands();
-	FixSolomonsMinesIslandDesert();
-	FixSinaiIslandDesert();
-	FixGeothermalIslandSnow();
-	FixGeothermalIslandForest();
+	okFix, errFix = pcall(FixIslands);
+	if LekPipelineFlow then LekPipelineFlow("GenerateTerrain_after_FixIslands", okFix and "ok" or tostring(errFix)); end
 
+	okFix, errFix = pcall(FixSolomonsMinesIslandDesert);
+	if LekPipelineFlow then LekPipelineFlow("GenerateTerrain_after_FixSolomons", okFix and "ok" or tostring(errFix)); end
+
+	okFix, errFix = pcall(FixSinaiIslandDesert);
+	if LekPipelineFlow then LekPipelineFlow("GenerateTerrain_after_FixSinai", okFix and "ok" or tostring(errFix)); end
+
+	okFix, errFix = pcall(FixGeothermalIslandSnow);
+	if LekPipelineFlow then LekPipelineFlow("GenerateTerrain_after_FixGeoSnow", okFix and "ok" or tostring(errFix)); end
+
+	okFix, errFix = pcall(FixGeothermalIslandForest);
+	if LekPipelineFlow then LekPipelineFlow("GenerateTerrain_after_FixGeoForest", okFix and "ok" or tostring(errFix)); end
+
+	if LekPipelineFlow then LekPipelineFlow("GenerateTerrain_done"); end
 end
 
 ------------------------------------------------------------------------------
@@ -2414,7 +2513,11 @@ end
 function FixIslands()
 	--function to change some of the flat land tundra on islands to plains tiles
 	local iW, iH = Map.GetGridSize();
-	local biggest_area = Map.FindBiggestArea(False);
+	local biggest_area = Map.FindBiggestArea(false);
+	if biggest_area == nil then
+		if LekPipelineFlow then LekPipelineFlow("FixIslands_no_biggest_area"); end
+		return;
+	end
 	local iAreaID = biggest_area:GetID();
 
 	for y = 0, iH - 1 do
@@ -2444,6 +2547,10 @@ function FixCoastLine()
 
 	local iW, iH = Map.GetGridSize();
 	local biggest_area = Map.FindBiggestArea(false);
+	if biggest_area == nil then
+		if LekPipelineFlow then LekPipelineFlow("FixCoastLine_no_biggest_area"); end
+		return;
+	end
 	local iAreaID = biggest_area:GetID();
 
 	-- Pass 1: collect all eligible flat coastal tiles.
@@ -2610,6 +2717,7 @@ end
 ------------------------------------------------------------------------------
 function AddFeatures()
 
+		if LekPipelineFlow then LekPipelineFlow("AddFeatures_entry"); end
 	-- Get Rainfall setting input by user.
 	local rain = LekMapGetCustomOption(3)
 	if rain == 4 then
@@ -2645,6 +2753,8 @@ end
 
 ------------------------------------------------------------------------------
 function StartPlotSystem()
+
+		if LekPipelineFlow then LekPipelineFlow("StartPlotSystem_entry"); end
 	_lek_run_id = tostring(math.floor((os.clock and os.clock() or 0) * 1000));
 	local function appendLekLog(lines)
 		if LekMapgenAllowMsg and not LekMapgenAllowMsg(lines) then
@@ -2820,7 +2930,7 @@ function StartPlotSystem()
 			return ay > by;
 		end);
 
-		--[[ Snow center + coarse rectangle outline per region (keep helper body for later diagnostics).
+		-- Snow center + coarse rectangle outline per region (AABB; wrong-looking on equator_ring until redesigned).
 		for idx, region in ipairs(regions) do
 			local westX, southY, width, height = region[1], region[2], region[3], region[4];
 			local targetTerrain = TerrainTypes.TERRAIN_SNOW;
@@ -2850,7 +2960,9 @@ function StartPlotSystem()
 				paintOutlineIfLand(rightX, y, targetTerrain);
 			end
 		end
-		--]]
+		if LekPipelineFlow then
+			LekPipelineFlow("region_snow_paint_done", "regions=" .. tostring(#regions) .. " outlineTiles=" .. tostring(outlinePaintCount));
+		end
 	end
 
 	-- Get Resources setting input by user.
@@ -2935,6 +3047,7 @@ function StartPlotSystem()
 
 	do
 		-- UI: 1 = Legacy, 2 = Global six. Older saves with value 3 map to 2.
+		-- Equator ring: Geometric Balance is blob-era; force Legacy until a ring-native placer exists.
 		local paceSel = 2;
 		local okP, vP = pcall(function()
 			return LekMapGetCustomOption(13);
@@ -2947,6 +3060,11 @@ function StartPlotSystem()
 		elseif paceSel > 2 then
 			paceSel = 2;
 		end
+		local ringForceLegacy = LekLandmass_IsEquatorRing and LekLandmass_IsEquatorRing();
+		if ringForceLegacy then
+			paceSel = 1;
+		end
+		start_plot_database._lek_ui_starting_locations_pace = paceSel;
 		start_plot_database._lek_global_six_skip_tuple_use_legacy = (paceSel == 1);
 		start_plot_database._lek_global_six_tuple_regen_on_solver_fail = false;
 		start_plot_database._lek_global_six_one_map_placement_mode = (paceSel == 2);
@@ -2965,6 +3083,11 @@ function StartPlotSystem()
 			start_plot_database._lek_global_six_tuple_relax_min_layout = false;
 			start_plot_database._lek_global_six_tuple_minimal_s2_fallback_max_layout = false;
 			-- nil relaxation_phases → 4a LekGlobalSix_DefaultTupleRelaxationPhases()
+		end
+		if LekPipelineFlow then
+			local pathName = (paceSel == 1) and "Legacy" or "GeometricBalance";
+			local extra = ringForceLegacy and " ringForceLegacy=1" or "";
+			LekPipelineFlow("geom_balance_ui", "pace=" .. tostring(paceSel) .. " path=" .. pathName .. extra);
 		end
 	end
 
@@ -3124,6 +3247,21 @@ function StartPlotSystem()
 	end
 
 	startPlacementSanity(start_plot_database, "after_ChooseLocations", false);
+	if LekPipelineFlow then
+		local pace = start_plot_database._lek_ui_starting_locations_pace or -1;
+		local pathName = (pace == 1) and "Legacy" or ((pace == 2) and "GeometricBalance" or "unknown");
+		local skipLegacy = (start_plot_database._lek_global_six_skip_tuple_use_legacy == true);
+		local forceGeom = (start_plot_database._lek_global_six_force_geometry_only == true);
+		local tier = tostring(start_plot_database._lek_global_six_placement_tier or "?");
+		-- ranGeom=1 means UI asked for Geometric Balance and ChooseLocations did not take the legacy-menu skip path.
+		local ranGeom = (pace == 2 and not skipLegacy and tier ~= "legacy_menu_skip_tuple") and "1" or "0";
+		LekPipelineFlow("geom_balance_after_ChooseLocations",
+			"path=" .. pathName
+			.. " ranGeom=" .. ranGeom
+			.. " forceGeom=" .. (forceGeom and "1" or "0")
+			.. " tier=" .. tier
+			.. " civs=" .. tostring(start_plot_database.iNumCivs or "?"));
+	end
 	
 	if not _lek_mapgen_tuple_benchmark_mode then
 		print("Normalizing start locations and assigning them to Players.");
@@ -3547,6 +3685,8 @@ function StartPlotSystem()
 		return;
 	end
 
-	-- Debug region repaint can be heavy; keep it off while we debug stalls.
-	-- DebugPaintRegionsTerrains(start_plot_database)
+	-- Region snow outline (AABB) for start-region tuning. Off-shape on equator_ring until redrawn.
+	if LekPipelineFlow then LekPipelineFlow("region_snow_paint_begin"); end
+	DebugPaintRegionsTerrains(start_plot_database)
+	if LekPipelineFlow then LekPipelineFlow("StartPlotSystem_done"); end
 end

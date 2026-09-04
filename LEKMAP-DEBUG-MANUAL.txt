@@ -16,10 +16,18 @@ Not everything uses that append — anything that only calls print() may appear 
 
 Also see Pangaea appendLekLog() inside StartPlotSystem — tuple_benchmark_mode / small-world gates may skip some append paths.
 
+Pipeline crash/flow trace (always on)
+------------------------------------
+File: .../Logs/LekmapPipelineFlow.log
+Helper: Lekmap_PipelineFlowLog.lua (not gated by _lek_mapgen_logs).
+Leaves call LekPipelineFlowReset on load (truncates file), then ### FLOW #N stage=... through includes + GeneratePlotTypes/Terrain/Features/StartPlotSystem.
+Last stage before a hard close is where it died.
+
 
 Verbosity & log channels (source of truth)
 -----------------------------------------
-Edit only LekmapPangaeaFractal.lua top block:
+Edit log knobs on the lobby leaf (Lekmap_CompactPangaea.lua / Lekmap_EquatorRing.lua)
+or defaults in Lekmap_PangaeaPipeline.lua:
 
   _lek_mapgen_logs = false/true     -- MASTER: false = soft deploy quiet
   _lek_mapgen_log_verbosity = 1..3  -- detail within an enabled channel
@@ -48,21 +56,26 @@ Snow paint — region rectangles & centers (visual only)
 --------------------------------------------------------
 Goal: paint terrain so each region’s bounding rectangle and approximate center are visible on the finished map (snow markers).
 
-Location: LekmapPangaeaFractal.lua
+Location: Lekmap_PangaeaPipeline.lua StartPlotSystem
 
   Function: DebugPaintRegionsTerrains(start_plot_database)
-    Declared inside StartPlotSystem(), before GenerateRegions args block (~line 2374).
+  Toggle: currently ON — called at end of StartPlotSystem (after PlaceResources).
+  Inner AABB snow center + outline loop is active (outlinePaintCountMax = 2000).
 
-  Inner painting loop (snow center + coarse rectangle outline): currently commented out as a block inside the function (--[[ ... ]] around ~2454–2484). Uncomment that block to enable the heavy outline pass.
+  LekPipelineFlow stages: region_snow_paint_begin / region_snow_paint_done
 
-  Outer call site (after GenerateRegions, before ChooseLocations): currently commented (--[[ ... ]] around ~2703–2707):
-      print("### DEBUG region markers paint START")
-      DebugPaintRegionsTerrains(start_plot_database)
-      print("### DEBUG region markers paint END")
+  Note: outlines are axis-aligned rectangles from HB regionData. Fine on compact pangaea;
+  on equator_ring they will look wrong until region drawing is redesigned for the belt.
 
-  Duplicate stub at bottom of StartPlotSystem (~3152): DebugPaintRegionsTerrains(start_plot_database) — optional late repaint.
+Warning: outline uses many SetTerrainType calls. Leave on only while diagnosing regions.
 
-Warning: outline uses many SetTerrainType calls (bounded by outlinePaintCountMax). Run only when diagnosing regions; can stall or clutter the map.
+
+Geometric Balance — LekPipelineFlow (same LekmapPipelineFlow.log)
+-----------------------------------------------------------------
+  geom_balance_ui                   — UI pace read (pace=1 Legacy / pace=2 GeometricBalance)
+  geom_balance_after_ChooseLocations — after ChooseLocations:
+      path=… ranGeom=0|1 forceGeom=0|1 tier=… civs=…
+      ranGeom=1 means Geometric Balance UI and not legacy_menu_skip_tuple.
 
 
 Greppable log prefixes (selection)
