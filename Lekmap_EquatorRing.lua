@@ -37,7 +37,7 @@ function GetMapScriptInfo()
 			{
 				Name = "[COLOR_PLAYER_PURPLE_TEXT]Starting Locations[ENDCOLOR]",
 				Values = {
-					"[COLOR_PLAYER_PURPLE_TEXT]Legacy (Equator Ring)[ENDCOLOR]",
+					"[COLOR_PLAYER_PURPLE_TEXT]Legacy[ENDCOLOR]",
 				},
 				DefaultValue = 1,
 				SortPriority = -100,

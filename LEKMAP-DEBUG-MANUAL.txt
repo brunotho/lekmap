@@ -65,7 +65,9 @@ Location: Lekmap_PangaeaPipeline.lua StartPlotSystem
   LekPipelineFlow stages: region_snow_paint_begin / region_snow_paint_done
 
   Note: outlines are axis-aligned rectangles from HB regionData. Fine on compact pangaea;
-  on equator_ring they will look wrong until region drawing is redesigned for the belt.
+  on equator_ring @ 6 civs, CustomOverride replaces chops with staggered 3×2 brick AABBs
+  (LekLandmass_EquatorRing_ApplyBrickRegions). Fertility is measured inside bricks only.
+  Flow: brick_regions_applied / brick_regions_skip / brick_regions_fail
 
 Warning: outline uses many SetTerrainType calls. Leave on only while diagnosing regions.
 

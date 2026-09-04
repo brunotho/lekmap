@@ -5170,6 +5170,13 @@ function AssignStartingPlots:LekErrorIfLegacyForbidForcedCorner(region_number, w
 	LekPlacementProbeLog("### LekGlobalSix FATAL runId=" .. rid ..
 		" legacy_forced_SW_corner_blocked region=" .. tostring(region_number) ..
 		" where=" .. tostring(where));
+	if self._lek_major_min_pairwise_soft == true
+		or (LekLandmass_IsEquatorRing and LekLandmass_IsEquatorRing()) then
+		if LekPipelineFlow then
+			LekPipelineFlow("legacy_force_corner_soft", "r=" .. tostring(region_number));
+		end
+		return;
+	end
 	error("Lekmap: start placement for region " .. tostring(region_number) .. " failed (" .. tostring(where) ..
 		"). Tuple solver already rejected this map; legacy HB would force the region rectangle SW corner. " ..
 		"Typical causes: no plot meets min inner/middle food-prod-good thresholds after ripples, coastal count too low for a coastal-bias region, " ..
@@ -19605,6 +19612,19 @@ function AssignStartingPlots:LekAssertGlobalSixPlayerMinPairwiseOrRegen()
 	if self._lek_global_six_one_map_placement_mode == true then
 		LekPlacementProbeAt(1, "### LEK MAJOR MIN PAIRWISE one_map_mode proceed runId=" .. tostring(_lek_run_id or "na")
 			.. " " .. reason .. " placement_tier=" .. ptier);
+		return;
+	end
+	-- Equator ring: Legacy on a narrow wrap; G6 pairwise floor often impossible. Soft-fail for now
+	-- (harsh min-distance is a deliberate follow-up — see SCRATCHPAD-equator-ring-followups).
+	if self._lek_major_min_pairwise_soft == true
+		or (LekLandmass_IsEquatorRing and LekLandmass_IsEquatorRing()) then
+		local soft = "### LEK MAJOR MIN PAIRWISE soft_proceed runId=" .. tostring(_lek_run_id or "na")
+			.. " " .. reason .. " placement_tier=" .. ptier .. " ring=1";
+		print(soft);
+		if LekPipelineFlow then LekPipelineFlow("min_pairwise_soft_proceed", reason); end
+		if LekPlacementProbeAt then
+			LekPlacementProbeAt(1, soft);
+		end
 		return;
 	end
 	error("Lekmap: capital spacing failed - " .. reason

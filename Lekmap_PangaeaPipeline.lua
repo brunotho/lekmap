@@ -131,10 +131,41 @@ _lek_enable_hb_generatemap_regen_loop = true;
 _lek_map_layout_attempt = nil;
 _lek_global_six_request_map_regen = false;
 
+-- Flow-log civ census. Does not change game state. iNumCivs for regions = same IsEverAlive rule.
+function LekPipelineLogCivCensus(tag)
+	if not LekPipelineFlow then return; end
+	local nEver, ids = 0, {};
+	local slotBits = {};
+	if GameDefines and Players then
+		local maxM = GameDefines.MAX_MAJOR_CIVS or 22;
+		local dumpN = math.min(maxM, 8);
+		for i = 0, maxM - 1 do
+			local pl = Players[i];
+			local ever = pl and pl.IsEverAlive and pl:IsEverAlive();
+			if ever then
+				nEver = nEver + 1;
+				ids[#ids + 1] = tostring(i);
+			end
+			if i < dumpN then
+				local hum = (pl and pl.IsHuman and pl:IsHuman()) and "H" or "-";
+				local ev = ever and "E" or "-";
+				local alive = (pl and pl.IsAlive and pl:IsAlive()) and "A" or "-";
+				slotBits[#slotBits + 1] = tostring(i) .. ":" .. hum .. ev .. alive;
+			end
+		end
+	end
+	LekPipelineFlow(tag or "civ_census",
+		"everAliveMajors=" .. tostring(nEver)
+		.. " ids=" .. table.concat(ids, ",")
+		.. " slots=[" .. table.concat(slotBits, " ") .. "]");
+end
+
 ------------------------------------------------------------------------------
 function GetMapInitData(worldSize)
 
 		if LekPipelineFlow then LekPipelineFlow("GetMapInitData_entry"); end
+	-- Early census: if this already shows 2, nothing later in our pipeline "turned 6 into 2".
+	LekPipelineLogCivCensus("GetMapInitData_civ_census");
 	_lek_mapgen_world_is_small = false;
 
 	local LandSizeXDuel = 22 + (LekMapGetCustomOption(11) * 2);
@@ -172,9 +203,20 @@ function GetMapInitData(worldSize)
 	local world = GameInfo.Worlds[worldSize];
 	_lek_mapgen_world_is_small = (world ~= nil and worldSize == GameInfo.Worlds.WORLDSIZE_SMALL.ID);
 	if (world ~= nil) then
+		local width = grid_size[1];
+		local height = grid_size[2];
+		-- Equator Ring: narrower canvas (no EW water gap); Compact keeps the classic sizes.
+		if LekLandmass_IsEquatorRing and LekLandmass_IsEquatorRing() then
+			width = math.max(16, width - 6);
+		end
+		if LekPipelineFlow then
+			LekPipelineFlow("GetMapInitData_size",
+				"shape=" .. tostring(_lek_pangaea_land_shape or "?")
+				.. " W=" .. tostring(width) .. " H=" .. tostring(height));
+		end
 		return {
-			Width = grid_size[1],
-			Height = grid_size[2],
+			Width = width,
+			Height = height,
 			WrapX = true,
 		}; 
 	end
@@ -662,6 +704,9 @@ function RoundInlandSeas(self)
 		end
 	end
 	if next(inlandSet) == nil then
+		if LekPipelineFlow then
+			LekPipelineFlow("round_inland_seas_noop", "no_enclosed_ocean (needs landlocked ocean pockets; ring solid belt + bays off usually empty)");
+		end
 		return;
 	end
 
@@ -2135,6 +2180,11 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		LekPangaeaProbeLog("### LekPangaeaPlotTypesProbe outer=" .. tostring(outerAttempts)
 			.. " layoutAttempt=" .. tostring(laProbe)
 			.. " preRoundInlandSeas_dt=" .. tostring(tBeforeRoundInland - tPass0), 2);
+		-- Equator ring: solid belt has no enclosed ocean — seed 0–2 landlocked pockets first.
+		if LekLandmass_IsEquatorRing and LekLandmass_IsEquatorRing()
+			and LekLandmass_EquatorRing_SeedInlandSeas then
+			LekLandmass_EquatorRing_SeedInlandSeas(self);
+		end
 		RoundInlandSeas(self);
 
 		if LekPipelineFlow then LekPipelineFlow("round_inland_seas_done"); end
@@ -2159,15 +2209,26 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		local islandsPlaced = 0;
 		local islandsBudgetOk = true;
 		local tIs0 = (os and os.clock) and os.clock() or 0;
-		local ok, retPlaced, retBudgetOk = pcall(GeneratePangaeaIslands, self, islandGenOpts);
+		local skipIslands = LekLandmass_IsEquatorRing and LekLandmass_IsEquatorRing();
+		local ok, retPlaced, retBudgetOk = true, 0, true;
+		if skipIslands then
+			minIslands = 0;
+			if LekPipelineFlow then LekPipelineFlow("islands_skipped_equator_ring"); end
+		else
+			ok, retPlaced, retBudgetOk = pcall(GeneratePangaeaIslands, self, islandGenOpts);
+		end
 
 		if LekPipelineFlow then LekPipelineFlow("islands_pcall_returned"); end
 		local tIs1 = (os and os.clock) and os.clock() or 0;
 		LekPangaeaProbeLog("### LekPangaeaPlotTypesProbe outer=" .. tostring(outerAttempts)
 			.. " layoutAttempt=" .. tostring(laProbe)
 			.. " generatePangaeaIslands_dt=" .. tostring(tIs1 - tIs0)
-			.. " islandsOk=" .. (ok and "1" or "0"), 1);
-		if not ok then
+			.. " islandsOk=" .. (ok and "1" or "0")
+			.. " skipped=" .. (skipIslands and "1" or "0"), 1);
+		if skipIslands then
+			islandsPlaced = 0;
+			islandsBudgetOk = true;
+		elseif not ok then
 			if LekMapgenPrint then LekMapgenPrint("### GeneratePangaeaIslands ERROR (islands skipped): " .. tostring(retPlaced) .. " ###"); end
 			islandsPlaced = 0;
 			islandsBudgetOk = false;
@@ -2230,10 +2291,16 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 	end
 
 	if allcomplete then
-		local nClump = LekBreakLargeMountainComponents(
-			self.plotTypes, self.iNumPlotsX, self.iNumPlotsY, Map:IsWrapX(), false, 4);
-		local nInland = LekBreakMountainInlandWaterBarriers(
-			self.plotTypes, self.iNumPlotsX, self.iNumPlotsY, Map:IsWrapX(), false, 3);
+		local nClump, nInland = 0, 0;
+		-- Equator ring: keep mountain+lake chains intact (no clump / inland-barrier breakers).
+		if not (LekLandmass_IsEquatorRing and LekLandmass_IsEquatorRing()) then
+			nClump = LekBreakLargeMountainComponents(
+				self.plotTypes, self.iNumPlotsX, self.iNumPlotsY, Map:IsWrapX(), false, 4);
+			nInland = LekBreakMountainInlandWaterBarriers(
+				self.plotTypes, self.iNumPlotsX, self.iNumPlotsY, Map:IsWrapX(), false, 3);
+		elseif LekPipelineFlow then
+			LekPipelineFlow("mtn_breakers_skipped_equator_ring");
+		end
 		LekPangaeaProbeLog("### LekPangaeaPlotTypesProbe islandOuterRegen_summary layoutAttempt=" .. tostring(laProbe)
 			.. " outcome=pass outerAttemptsToPass=" .. tostring(outerAttempts)
 			.. " outerRedrawsBeforePass=" .. tostring(math.max(0, outerAttempts - 1))
@@ -2290,10 +2357,17 @@ function GeneratePlotTypes()
 	if not _lek_mapgen_world_is_small then
 		dbg("### STAGE: SetPlotTypes done ###");
 	end
+	Map.RecalculateAreas();
+	if LekPipelineFlow then
+		local ba = Map.FindBiggestArea(false);
+		LekPipelineFlow("GeneratePlotTypes_after_RecalculateAreas",
+			ba and ("area=" .. tostring(ba:GetID())) or "no_biggest_area");
+	end
 	local tC0 = (os and os.clock) and os.clock() or 0;
 	GenerateCoasts();
 
 		if LekPipelineFlow then LekPipelineFlow("GeneratePlotTypes_after_GenerateCoasts"); end
+	Map.RecalculateAreas();
 	local tC1 = (os and os.clock) and os.clock() or 0;
 	if not _lek_mapgen_world_is_small then
 		dbg("### STAGE: GenerateCoasts done ###");
@@ -2756,6 +2830,7 @@ function StartPlotSystem()
 
 		if LekPipelineFlow then LekPipelineFlow("StartPlotSystem_entry"); end
 	_lek_run_id = tostring(math.floor((os.clock and os.clock() or 0) * 1000));
+	LekPipelineLogCivCensus("StartPlotSystem_civ_census");
 	local function appendLekLog(lines)
 		if LekMapgenAllowMsg and not LekMapgenAllowMsg(lines) then
 			return;
@@ -3142,6 +3217,17 @@ function StartPlotSystem()
 		print("Dividing the map in to Regions.");
 	end
 	-- Regional Division Method 1: Biggest Landmass
+	-- Equator ring @ 6 civs: CustomOverride swaps HB chops for staggered 3×2 brick AABBs
+	-- before MeasureTerrainInRegions / regionTypes (still inside GenerateRegions).
+	if LekLandmass_IsEquatorRing and LekLandmass_IsEquatorRing() then
+		start_plot_database.CustomOverride = function(db)
+			LekLandmass_EquatorRing_ApplyBrickRegions(db);
+		end
+		-- Coastal bonus islands on (guaranteed near-capital shore isles). PangaeaIslands still skipped.
+		-- Narrow ring + Legacy: do not fatal-error out of B&A / lux gates (soft proceed).
+		start_plot_database._lek_major_min_pairwise_soft = true;
+		start_plot_database._lek_global_six_one_map_placement_mode = true;
+	end
 	local args = {
 		method = RegionalMethod,
 		start_locations = starts,
@@ -3266,8 +3352,12 @@ function StartPlotSystem()
 	if not _lek_mapgen_tuple_benchmark_mode then
 		print("Normalizing start locations and assigning them to Players.");
 	end
+	if LekPipelineFlow then LekPipelineFlow("BalanceAndAssign_begin"); end
 	do
 		local ok, err = pcall(function() start_plot_database:BalanceAndAssign(args) end);
+		if LekPipelineFlow then
+			LekPipelineFlow("BalanceAndAssign_done", ok and "ok" or tostring(err));
+		end
 		if not ok then
 			local msg = "### BalanceAndAssign CRASH runId=" .. tostring(_lek_run_id or "na") .. " err=" .. tostring(err);
 			if LekMapgenPrintAndDiagFile then
@@ -3435,6 +3525,11 @@ function StartPlotSystem()
 					if canRegen then
 						_lek_global_six_request_map_regen_reason = "after_BA_missing_major_start_strict_rescue";
 						_lek_global_six_request_map_regen = true;
+					elseif LekLandmass_IsEquatorRing and LekLandmass_IsEquatorRing() then
+						if LekPipelineFlow then
+							LekPipelineFlow("rescue_incomplete_soft_proceed", "ring=1");
+						end
+						print("### StartPlotSystem RESCUE incomplete soft_proceed equator_ring");
 					else
 						error("Lekmap: global-six majors without starting plots after strict rescue; regen exhausted.");
 					end
@@ -3471,11 +3566,11 @@ function StartPlotSystem()
 
 	startPlacementSanity(start_plot_database, "after_BalanceAndAssign_rescue", true);
 
-	-- Post-pass instrumentation: log major start spacing for 6-player games.
-	-- This gives us an objective baseline for "fairness" (nearest-neighbor distance + spread).
+	-- Post-pass: major start pairwise distances (always → LekPipelineFlow; Small/quiet maps
+	-- used to skip LekmapStartSpacing6P entirely via appendLekLog gates).
 	do
 		local iNumCivs = start_plot_database.iNumCivs or 0;
-		if iNumCivs == 6 then
+		if iNumCivs >= 2 then
 			local iW, iH = Map.GetGridSize();
 			local centerX, centerY = math.floor(iW / 2), math.floor(iH / 2);
 			local player_ID_list = start_plot_database.player_ID_list or {};
@@ -3483,52 +3578,74 @@ function StartPlotSystem()
 			local starts = {}; -- { pid=, x=, y=, coastal=, dCenter= }
 			for _, pid in ipairs(player_ID_list) do
 				local pl = Players[pid];
-				if pl and pl:IsAlive() then
+				if pl and pl:IsEverAlive() and not pl:IsMinorCiv() then
 					local sp = pl:GetStartingPlot();
 					if sp then
 						local x, y = sp:GetX(), sp:GetY();
-						local m = AssignStartingPlots.LekGlobalSix_MeasureBiasConditionsAtXY(start_plot_database, x, y);
-						local saltOnly = (start_plot_database._lek_global_six_coastal_bias_requires_salt == true);
-						local coast;
-						if saltOnly then
-							coast = (m.alongOcean == true);
-						else
-							coast = ((m.alongOcean or m.nextToLake) == true);
+						local coast = false;
+						if AssignStartingPlots.LekGlobalSix_MeasureBiasConditionsAtXY then
+							local m = AssignStartingPlots.LekGlobalSix_MeasureBiasConditionsAtXY(start_plot_database, x, y);
+							local saltOnly = (start_plot_database._lek_global_six_coastal_bias_requires_salt == true);
+							if saltOnly then
+								coast = (m.alongOcean == true);
+							else
+								coast = ((m.alongOcean or m.nextToLake) == true);
+							end
+						elseif sp.IsCoastalLand then
+							coast = sp:IsCoastalLand(300);
 						end
 						starts[#starts + 1] = { pid = pid, x = x, y = y, coastal = coast };
 					end
 				end
 			end
 
-			if #starts == 6 then
-				local function dist(ax, ay, bx, by)
-					if Map.PlotDistance then return Map.PlotDistance(ax, ay, bx, by); end
-					if PlotDistance then return PlotDistance(ax, ay, bx, by); end
-					return nil;
-				end
+			local function dist(ax, ay, bx, by)
+				if Map.PlotDistance then return Map.PlotDistance(ax, ay, bx, by); end
+				if PlotDistance then return PlotDistance(ax, ay, bx, by); end
+				return nil;
+			end
 
-				for i = 1, 6 do
+			if #starts >= 2 then
+				for i = 1, #starts do
 					starts[i].dCenter = dist(starts[i].x, starts[i].y, centerX, centerY) or -1;
 				end
 
 				local nearest = {};
 				local secondNearest = {};
-				for i = 1, 6 do
+				local minPair = nil;
+				for i = 1, #starts do
 					local dists = {};
-					for j = 1, 6 do
+					local toBits = {};
+					for j = 1, #starts do
 						if i ~= j then
 							local d = dist(starts[i].x, starts[i].y, starts[j].x, starts[j].y);
-							if d ~= nil then dists[#dists + 1] = d; end
+							if d ~= nil then
+								dists[#dists + 1] = d;
+								toBits[#toBits + 1] = "p" .. tostring(starts[j].pid) .. "=" .. tostring(d);
+								if minPair == nil or d < minPair then
+									minPair = d;
+								end
+							end
 						end
 					end
 					table.sort(dists);
 					nearest[i] = dists[1] or -1;
 					secondNearest[i] = dists[2] or -1;
+					if LekPipelineFlow then
+						LekPipelineFlow("player_distances",
+							"p" .. tostring(starts[i].pid)
+							.. " xy=" .. tostring(starts[i].x) .. "," .. tostring(starts[i].y)
+							.. " coastal=" .. (starts[i].coastal and "1" or "0")
+							.. " dCenter=" .. tostring(starts[i].dCenter)
+							.. " to=[" .. table.concat(toBits, ",") .. "]"
+							.. " nearest=" .. tostring(nearest[i])
+							.. " second=" .. tostring(secondNearest[i]));
+					end
 				end
 
 				local nearestSorted = {};
 				local secondNearestSorted = {};
-				for i = 1, 6 do
+				for i = 1, #starts do
 					nearestSorted[#nearestSorted + 1] = nearest[i];
 					secondNearestSorted[#secondNearestSorted + 1] = secondNearest[i];
 				end
@@ -3537,18 +3654,52 @@ function StartPlotSystem()
 				local function median(arr)
 					local n = #arr;
 					if n == 0 then return -1; end
-					if n % 2 == 1 then return arr[(n + 1) / 2]; end
+					if n % 2 == 1 then return arr[math.floor((n + 1) / 2)]; end
 					return (arr[n / 2] + arr[n / 2 + 1]) / 2;
 				end
-
 				local sum = 0;
-				for i = 1, 6 do sum = sum + nearestSorted[i]; end
-				local avgNearest = sum / 6;
-				local sum2 = 0;
-				for i = 1, 6 do sum2 = sum2 + secondNearestSorted[i]; end
-				local avgSecondNearest = sum2 / 6;
+				for i = 1, #nearestSorted do sum = sum + nearestSorted[i]; end
+				local avgNearest = (#nearestSorted > 0) and (sum / #nearestSorted) or -1;
 
-				if _lek_mapgen_tuple_benchmark_mode then
+				if LekPipelineFlow then
+					LekPipelineFlow("player_distances_summary",
+						"n=" .. tostring(#starts)
+						.. " minPair=" .. tostring(minPair)
+						.. " nearestSorted=" .. table.concat(nearestSorted, ",")
+						.. " avgNearest=" .. tostring(avgNearest)
+						.. " medianNearest=" .. tostring(median(nearestSorted))
+						.. " secondSorted=" .. table.concat(secondNearestSorted, ",")
+						.. " medianSecond=" .. tostring(median(secondNearestSorted)));
+				end
+
+				-- Keep compact-era StartSpacing6P lines when diag append exists (6 civs only).
+				if #starts == 6 and not _lek_mapgen_tuple_benchmark_mode then
+					local lines = {};
+					local runId = tostring(_lek_run_id or "na");
+					lines[#lines + 1] = "### StartSpacing6P runId=" .. runId ..
+						" center=(" .. centerX .. "," .. centerY .. ")" ..
+						" nearestSorted=" .. tostring(table.concat(nearestSorted, ",")) ..
+						" avgNearest=" .. tostring(avgNearest) ..
+						" medianNearest=" .. tostring(median(nearestSorted)) ..
+						" secondNearestSorted=" .. tostring(table.concat(secondNearestSorted, ",")) ..
+						" medianSecondNearest=" .. tostring(median(secondNearestSorted));
+					for i = 1, 6 do
+						lines[#lines + 1] = "### StartSpacing6P: pid=" .. tostring(starts[i].pid) ..
+							" x,y=(" .. starts[i].x .. "," .. starts[i].y .. ")" ..
+							" coastal=" .. tostring(starts[i].coastal) ..
+							" dCenter=" .. tostring(starts[i].dCenter) ..
+							" nearest=" .. tostring(nearest[i]) ..
+							" secondNearest=" .. tostring(secondNearest[i]);
+					end
+					-- Bypass Small/quiet gates: always try diag file for A/B vs compact.
+					pcall(function()
+						if type(LekMapgenDiagLogAppend) == "function" then
+							LekMapgenDiagLogAppend(lines);
+						end
+					end);
+				end
+
+				if #starts == 6 and _lek_mapgen_tuple_benchmark_mode then
 					_lek_bench_spacing_min_nearest = nearestSorted[1];
 					_lek_bench_spacing_avg_nearest = avgNearest;
 					_lek_bench_spacing_median_second = median(secondNearestSorted);
@@ -3565,55 +3716,10 @@ function StartPlotSystem()
 						if starts[i].coastal then cn = cn + 1; end
 					end
 					_lek_bench_spacing_coastal_n = cn;
-					local saltAdj = 0;
-					local pdc = start_plot_database.plotDataIsCoastal;
-					if pdc then
-						for i = 1, 6 do
-							local pi = starts[i].y * iW + starts[i].x + 1;
-							if pdc[pi] == true then
-								saltAdj = saltAdj + 1;
-							end
-						end
-					end
-					_lek_bench_spacing_salt_adj_n = saltAdj;
 				end
-
-				local lines = {};
-				local runId = tostring(_lek_run_id or "na");
-				lines[#lines + 1] = "### StartSpacing6P runId=" .. runId ..
-					" center=(" .. centerX .. "," .. centerY .. ")" ..
-					" nearestSorted=" .. tostring(table.concat(nearestSorted, ",")) ..
-					" avgNearest=" .. tostring(avgNearest) ..
-					" medianNearest=" .. tostring(median(nearestSorted)) ..
-					" secondNearestSorted=" .. tostring(table.concat(secondNearestSorted, ",")) ..
-					" avgSecondNearest=" .. tostring(avgSecondNearest) ..
-					" medianSecondNearest=" .. tostring(median(secondNearestSorted));
-				for i = 1, 6 do
-					lines[#lines + 1] = "### StartSpacing6P: pid=" .. tostring(starts[i].pid) ..
-						" x,y=(" .. starts[i].x .. "," .. starts[i].y .. ")" ..
-						" coastal=" .. tostring(starts[i].coastal) ..
-						" dCenter=" .. tostring(starts[i].dCenter) ..
-						" nearest=" .. tostring(nearest[i]) ..
-						" secondNearest=" .. tostring(secondNearest[i]);
-				end
-				lines[#lines + 1] = "### StartSpacing6P legacy_was_used=" ..
-					tostring(start_plot_database._lek_choose_locations_legacy_start_placement == true) ..
-					" runId=" .. runId;
-				if not _lek_mapgen_tuple_benchmark_mode then
-					LekMapgenDiagLogAppend(lines);
-				end
-			else
-				local short = "### StartSpacing6P: could not collect 6 start plots, got " .. tostring(#starts)
-					.. " runId=" .. tostring(_lek_run_id or "na");
-				if not _lek_mapgen_tuple_benchmark_mode then
-					if LekMapgenPrintAndDiagFile then
-						LekMapgenPrintAndDiagFile(short);
-					else
-						appendLekLog({ short });
-					end
-				elseif LekMapgenEmitBench6OneLine then
-					LekMapgenEmitBench6OneLine(short);
-				end
+			elseif LekPipelineFlow then
+				LekPipelineFlow("player_distances_fail",
+					"got=" .. tostring(#starts) .. " need>=2 iNumCivs=" .. tostring(iNumCivs));
 			end
 		end
 	end
