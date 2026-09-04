@@ -163,7 +163,11 @@ Engine should not own (2)(3) in v1.
 | Item | State |
 |------|--------|
 | Architecture decision | **policy + shared engine** (confirmed) |
-| Coastal bonus on ring | on (tuning) |
-| Pangaea draft on ring | still skipped |
-| Ring inland seed 0–2 | on → RoundInlandSeas |
-| Engine extract | **not started** |
+| Coastal bonus on ring | on (tuning); stays in `4a` |
+| Inland-sea spray | stays in `RoundInlandSeas` / ring seed |
+| Pangaea draft on ring | `channels.pangaeaDraft=false` in ring policy |
+| Engine extract | **done** — `Lekmap_IslandEngine.lua` |
+| Compact policy | `Lekmap_Islands_Compact.lua` |
+| Ring policy | `Lekmap_Islands_EquatorRing.lua` |
+| Catalog | `Lekmap_IslandCatalog.lua` |
+| Loader | `3_PangaeaIslands.lua` (includes only) |

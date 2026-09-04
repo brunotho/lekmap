@@ -2205,30 +2205,29 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		if minIslands == 0 then
 			islandGenOpts = { budgetRetry = false };
 		end
+		-- Ring draft currently off: do not fail outer pass on lobby island minimum.
+		if LekLandmass_IsEquatorRing and LekLandmass_IsEquatorRing() then
+			local pol = LekIslands_GetEquatorRingPolicy and LekIslands_GetEquatorRingPolicy();
+			if pol and pol.channels and pol.channels.pangaeaDraft == false then
+				minIslands = 0;
+				islandGenOpts = { budgetRetry = false };
+			end
+		end
 
 		local islandsPlaced = 0;
 		local islandsBudgetOk = true;
 		local tIs0 = (os and os.clock) and os.clock() or 0;
-		local skipIslands = LekLandmass_IsEquatorRing and LekLandmass_IsEquatorRing();
-		local ok, retPlaced, retBudgetOk = true, 0, true;
-		if skipIslands then
-			minIslands = 0;
-			if LekPipelineFlow then LekPipelineFlow("islands_skipped_equator_ring"); end
-		else
-			ok, retPlaced, retBudgetOk = pcall(GeneratePangaeaIslands, self, islandGenOpts);
-		end
+		-- Ring pangaea-draft off via LekIslands_GetEquatorRingPolicy().channels.pangaeaDraft;
+		-- coastal bonus + inland spray stay outside GeneratePangaeaIslands.
+		local ok, retPlaced, retBudgetOk = pcall(GeneratePangaeaIslands, self, islandGenOpts);
 
 		if LekPipelineFlow then LekPipelineFlow("islands_pcall_returned"); end
 		local tIs1 = (os and os.clock) and os.clock() or 0;
 		LekPangaeaProbeLog("### LekPangaeaPlotTypesProbe outer=" .. tostring(outerAttempts)
 			.. " layoutAttempt=" .. tostring(laProbe)
 			.. " generatePangaeaIslands_dt=" .. tostring(tIs1 - tIs0)
-			.. " islandsOk=" .. (ok and "1" or "0")
-			.. " skipped=" .. (skipIslands and "1" or "0"), 1);
-		if skipIslands then
-			islandsPlaced = 0;
-			islandsBudgetOk = true;
-		elseif not ok then
+			.. " islandsOk=" .. (ok and "1" or "0"), 1);
+		if not ok then
 			if LekMapgenPrint then LekMapgenPrint("### GeneratePangaeaIslands ERROR (islands skipped): " .. tostring(retPlaced) .. " ###"); end
 			islandsPlaced = 0;
 			islandsBudgetOk = false;
