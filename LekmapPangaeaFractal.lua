@@ -1,9 +1,9 @@
 ------------------------------------------------------------------------------
--- Lekmap_CompactPangaea.lua — lobby leaf: classic fractal pangaea
+-- LekmapPangaeaFractal.lua — lobby leaf: Fractal Pangaea (classic supercontinent)
 ------------------------------------------------------------------------------
 include("Lekmap_PipelineFlowLog");
-_lek_pangaea_land_shape = "compact";
-LekPipelineFlowReset("leaf_CompactPangaea");
+_lek_pangaea_land_shape = "fractal_pangaea";
+LekPipelineFlowReset("leaf_FractalPangaea");
 LekPipelineFlow("leaf_after_shape_set");
 
 _lek_mapgen_log_verbosity = 1;
@@ -28,7 +28,7 @@ function GetMapScriptInfo()
 	local world_age, temperature, rainfall, sea_level, resources = GetCoreMapOptions()
 	return {
 		Name = "[COLOR_PLAYER_PURPLE_TEXT]Lekmap 6.0.2 -- Fractal Pangaea[ENDCOLOR]",
-		Description = "Lekmap pangaea — compact fractal supercontinent with tectonic islands.",
+		Description = "Lekmap pangaea — fractal supercontinent with tectonic islands.",
 		IsAdvancedMap = false,
 		IconIndex = 0,
 		SortIndex = 2,

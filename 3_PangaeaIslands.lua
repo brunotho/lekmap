@@ -35,6 +35,7 @@ include("XX_island_rare_SteppingStone");
 include("XX_island_rare_JunglePeak");
 include("XX_island_rare_SinaiIsland");
 include("XX_island_rare_Crescent");
+include("XX_island_rare_ShoreSineChain");
 include("XX_island_rare_SolomonsMinesIsland");
 include("XX_island_rare_VolcanicRing");
 include("XX_island_rare_GeothermalIsland");
@@ -46,6 +47,6 @@ include("XX_island_rare_WrapSoftLandbridge");
 -- include("XX_island_rare_RiverDelta");
 
 include("Lekmap_IslandCatalog");
-include("Lekmap_Islands_Compact");
+include("Lekmap_Islands_FractalPangaea");
 include("Lekmap_Islands_EquatorRing");
 include("Lekmap_IslandEngine");

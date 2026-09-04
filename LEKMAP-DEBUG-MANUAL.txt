@@ -26,7 +26,7 @@ Last stage before a hard close is where it died.
 
 Verbosity & log channels (source of truth)
 -----------------------------------------
-Edit log knobs on the lobby leaf (Lekmap_CompactPangaea.lua / Lekmap_EquatorRing.lua)
+Edit log knobs on the lobby leaf (LekmapPangaeaFractal.lua / Lekmap_EquatorRing.lua)
 or defaults in Lekmap_PangaeaPipeline.lua:
 
   _lek_mapgen_logs = false/true     -- MASTER: false = soft deploy quiet

@@ -1,11 +1,11 @@
 ------------------------------------------------------------------------------
--- Lekmap_Islands_Compact.lua — pangaea-draft policy for classic compact blob.
+-- Lekmap_Islands_FractalPangaea.lua — pangaea-draft policy for Fractal Pangaea.
 -- Coastal bonus + inland-sea spray are NOT owned here.
 ------------------------------------------------------------------------------
 
-function LekIslands_GetCompactPolicy()
+function LekIslands_GetFractalPangaeaPolicy()
 	return {
-		id = "compact",
+		id = "fractal_pangaea",
 		channels = {
 			pangaeaDraft = true,
 			-- coastalBonus / inlandSeaSpray: other modules; listed for docs only
@@ -72,4 +72,9 @@ function LekIslands_GetCompactPolicy()
 			common = 8,
 		},
 	};
+end
+
+-- Back-compat alias for older includes / docs.
+function LekIslands_GetCompactPolicy()
+	return LekIslands_GetFractalPangaeaPolicy();
 end

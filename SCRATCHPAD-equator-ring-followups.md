@@ -7,23 +7,8 @@ Last context: Small canvas branched — Compact `44×52`, Ring `Width-12` → `3
 
 ## A. Placement — harsh min distance between players (TODO)
 
-**Problem:** Player perception wants a hard floor on capital–capital hex distance. Ring social graph is brick/wrap; Legacy HB placement does not enforce the old Global-Six pairwise floor the way force-geom did.
-
-**Context:**
-- GB / force-geometry is **off** on equator_ring (`ringForceLegacy=1`).
-- G6 pairwise helpers still exist in `4a` (`LekGlobalSix_MinPairwiseDistanceFromStartDistanceOption`, section-2 min-pair, coastal–coastal bump) but they ride the Global-Six path.
-- Compact still has GB available; ring needs its **own** Legacy-era hard gate (or a tiny shared assert after starts).
-
-**Later fix (intent):**
-- After major starts assigned (post-`ChooseLocations` / `BalanceAndAssign`), assert **min pairwise plot distance ≥ H** (harsh constant or option).
-- On fail: regen layout, or shuffle/repair within brick regions (prefer not soft-fail silently).
-- Decide whether coastal–coastal needs a higher H than inland pairs (compact had that bump).
-- Do **not** assume fertility-chop fairness; brick regions already fix topology — this is pure spacing.
-
-**Status:** G6 min-pairwise assert was `error()`-ing out of BalanceAndAssign on the narrow ring
-(often impossible at d≥9 with 6 civs on W≈32). That caused intermittent dead loads.
-Ring now soft-proceeds (`_lek_major_min_pairwise_soft` / `min_pairwise_soft_proceed` in flow).
-Harsh floor still TODO — implement ring-aware H later, not the compact G6 fatal path.
+See **`SCRATCHPAD-equator-ring-placement.md`** for the full ring-native placer plan.
+Legacy UI option removed; pipeline still forces Legacy until P2+.
 
 
 ## B. Ring landmask — N–S claim / chunky coasts (ACTIVE EXPERIMENT)
@@ -82,6 +67,13 @@ Fractal currently only nudges edges by ±1 via `continentsFrac` at `y=mid`. Grai
 - Brick regions are geometry-first; fertility only measured inside bricks — revisit if starts feel unfair inside a cell.
 - Islands / coastal bonus islands / fjords: fjords off (`_lek_fjord_distance_setting_fixed = 1`); `PlaceCoastalBonusIslands` still shared; island odds may need ring retune later.
 - Snow AABB paint is debug-only; turn off before soft deploy.
+- `polarMerge` **denied** on ring (EW min/max anchors wrong on full-X belt). Liked bit: sine-curved arm + splintered gaps → future dedicated placer (see island-architecture scratchpad).
+
+
+## D. Ring pangaea-draft v0 (ACTIVE)
+
+Policy: `Lekmap_Islands_EquatorRing.lua` — `totalBudget=4`, early dots=1, floor=2, `basins=polar`.
+Shore/small + a few rares; no wrap / EW-gap / polarMerge. Roll and trim odds if polar basins feel cluttered vs capital shore isles.
 
 
 ## Pointers

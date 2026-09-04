@@ -12,6 +12,9 @@ function LekIslands_ResolvePolicy(explicit)
 		and LekIslands_GetEquatorRingPolicy then
 		return LekIslands_GetEquatorRingPolicy();
 	end
+	if LekIslands_GetFractalPangaeaPolicy then
+		return LekIslands_GetFractalPangaeaPolicy();
+	end
 	if LekIslands_GetCompactPolicy then
 		return LekIslands_GetCompactPolicy();
 	end
@@ -82,6 +85,7 @@ function GenerateIslands(self, policy, genOpts)
 	end
 	local PANGAEA_ISLAND_TOTAL_BUDGET = policy.totalBudget or 8;
 	local PANGAEA_ISLAND_DOT_STRIP_EARLY_BUDGET = policy.dotStripEarlyBudget or 2;
+	local skipCommonFill = (policy.skipCommonFill == true);
 	local DotStripEarlyPool = policy.dotStripEarly or {
 		{ type = "dot", odds = 5, budget = 0.09 },
 		{ type = "strip", odds = 2, budget = 0.39 },
@@ -128,7 +132,11 @@ function GenerateIslands(self, policy, genOpts)
 	local function GetPlaceParams(islandType)
 		local e = GetOptEntry(islandType);
 		if e and e.pullBack then
-			local effMin = e.effMin or ((1 + Map.Rand(3, "")) - e.pullBack - 1);
+			-- effMin may be 0; do not use `or` (0 is falsy in Lua).
+			local effMin = e.effMin;
+			if effMin == nil then
+				effMin = (1 + Map.Rand(3, "")) - e.pullBack - 1;
+			end
 			return { pullBack = e.pullBack, effMin = effMin, effMax = e.effMax };
 		end
 		return { pullBack = 1, effMin = 1, effMax = 6 };
@@ -238,6 +246,7 @@ function GenerateIslands(self, policy, genOpts)
 
 	local function resetIslandGlobals()
 		_island_placed = {};
+		_polar_merge_excluded_plots = {};
 		_sri_pada_island_plot = nil;
 		_solomons_island_mines_plot = nil;
 		_solomons_island_nw_type = nil;
@@ -555,6 +564,22 @@ function GenerateIslands(self, policy, genOpts)
 						y = 3 + Map.Rand(math.max(1, iH - 6), "");
 					end
 				end
+			elseif forceType == "shoreSineChain" then
+				-- Bias to polar ocean bands just off the ring coasts (EW chain needs room).
+				if attempt and attempt >= 40 then
+					y = 3 + Map.Rand((iH - 6), "");
+				else
+					local southLo, southHi = 3, math.min(12, math.floor(iH * 0.28));
+					local northLo = math.max(iH - 13, math.floor(iH * 0.72));
+					local northHi = iH - 4;
+					if Map.Rand(2, "") == 0 and southHi >= southLo then
+						y = southLo + Map.Rand(math.max(1, southHi - southLo + 1), "");
+					elseif northHi >= northLo then
+						y = northLo + Map.Rand(math.max(1, northHi - northLo + 1), "");
+					else
+						y = 3 + Map.Rand((iH - 6), "");
+					end
+				end
 			elseif forceType == "sinaiIsland" then
 				if attempt and attempt >= 50 then
 					y = 3 + Map.Rand((iH - 6), "");
@@ -740,91 +765,51 @@ function GenerateIslands(self, policy, genOpts)
 			local maxAttempts = 180;
 			if islandType == "solomonsMinesIsland" then
 				maxAttempts = 300;
+			elseif islandType == "shoreSineChain" then
+				maxAttempts = 280;
 			end
 			placeAndCount(islandType, maxAttempts);
+		else
+			dbg2("### placeDraftedOne: no placer for " .. tostring(islandType) .. " ###");
+			if LekPipelineFlow then
+				LekPipelineFlow("islands_no_placer", tostring(islandType));
+			end
 		end
 	end
 
 	for _, islandType in ipairs(draftedSpecials) do
 		placeDraftedOne(islandType);
 	end
-
-	dbg2("### GeneratePangaeaIslands: early dot/strip after specials (target budget "
-		.. tostring(PANGAEA_ISLAND_DOT_STRIP_EARLY_BUDGET or 2) .. ") ###");
-	local earlyTarget = PANGAEA_ISLAND_DOT_STRIP_EARLY_BUDGET or 2;
-	local earlySpent = 0;
-	while earlySpent + 0.001 < earlyTarget
-		and spentBudget + 0.004 < TOTAL_BUDGET do
-		if runOnceClockExpired() then
-			break;
-		end
-		local remainingEarly = earlyTarget - earlySpent;
-		local islandType;
-		if remainingEarly < 0.39 then
-			islandType = "dot";
-		else
-			islandType = DraftOneFromTier(DotStripEarlyPool, {});
-		end
-		if not islandType then
-			break;
-		end
-		local placed = false;
-		for i = 1, PANGAEA_COMMON_SMALL_ISLAND_TRIES_LOOSE do
-			if (i % 40 == 0) and runOnceClockExpired() then
-				break;
-			end
-			markIslandPaintBefore();
-			placed = tryOneSpot(islandType, nil, nil);
-			if placed then
-				break;
-			else
-				lastPaintBefore = nil;
-			end
-		end
-		if placed then
-			recordIslandPlaced(islandType, lastTryOceanSeedX, lastTryOceanSeedY, lastTryLandX, lastTryLandY);
-			local b = GetBudget(islandType);
-			earlySpent = earlySpent + b;
-			spentBudget = spentBudget + b;
-			islandsPlaced = islandsPlaced + 1;
-		else
-			break;
-		end
+	if LekPipelineFlow then
+		LekPipelineFlow("islands_specials_done",
+			"n=" .. tostring(#draftedSpecials)
+			.. " placed=" .. tostring(islandsPlaced)
+			.. " spent=" .. string.format("%.2f", spentBudget));
 	end
 
-	dbg2("### GeneratePangaeaIslands: placing remaining drafted islands ###");
-	for _, islandType in ipairs(draftedRest) do
-		placeDraftedOne(islandType);
-	end
-
-	local tAfterDraftedPlaced = (os and os.clock) and os.clock() or 0;
-
-	dbg2("### GeneratePangaeaIslands: drafted done, filling commons (until spent >= " .. TOTAL_BUDGET .. ", est at draft was " .. draftEstimate .. ") ###");
 	local commonPass = 0;
-	local idleCommonPasses = 0;
-	while spentBudget + 0.004 < TOTAL_BUDGET and commonPass < PANGAEA_COMMON_FILL_MAX_PASSES do
-		if runOnceClockExpired() then
-			break;
-		end
-		commonPass = commonPass + 1;
-		if commonPass == 1 or commonPass % 200 == 0 then
-			dbg2("### common fill pass " .. commonPass .. ", spent " .. spentBudget .. "/" .. TOTAL_BUDGET .. " ###");
-		end
-		local remaining = TOTAL_BUDGET - spentBudget;
-		local islandType;
-		if remaining <= 0.15 then
-			islandType = "dot";
-		elseif remaining <= 0.45 then
-			islandType = (Map.Rand(2, "") == 0) and "dot" or "pebble";
-		elseif remaining <= 0.95 and Map.Rand(100, "") < 55 then
-			islandType = (Map.Rand(2, "") == 0) and "pebble" or "splinteredCliffsTiny";
-		else
-			islandType = DraftOneFromTier(CommonIslands, {});
-		end
-		if islandType then
+	if not skipCommonFill then
+		dbg2("### GeneratePangaeaIslands: early dot/strip after specials (target budget "
+			.. tostring(PANGAEA_ISLAND_DOT_STRIP_EARLY_BUDGET or 2) .. ") ###");
+		local earlyTarget = PANGAEA_ISLAND_DOT_STRIP_EARLY_BUDGET or 2;
+		local earlySpent = 0;
+		while earlySpent + 0.001 < earlyTarget
+			and spentBudget + 0.004 < TOTAL_BUDGET do
+			if runOnceClockExpired() then
+				break;
+			end
+			local remainingEarly = earlyTarget - earlySpent;
+			local islandType;
+			if remainingEarly < 0.39 then
+				islandType = "dot";
+			else
+				islandType = DraftOneFromTier(DotStripEarlyPool, {});
+			end
+			if not islandType then
+				break;
+			end
 			local placed = false;
-			local tries = (remaining <= 0.55) and PANGAEA_COMMON_SMALL_ISLAND_TRIES_TIGHT or PANGAEA_COMMON_SMALL_ISLAND_TRIES_LOOSE;
-			for i = 1, tries do
+			for i = 1, PANGAEA_COMMON_SMALL_ISLAND_TRIES_LOOSE do
 				if (i % 40 == 0) and runOnceClockExpired() then
 					break;
 				end
@@ -838,14 +823,73 @@ function GenerateIslands(self, policy, genOpts)
 			end
 			if placed then
 				recordIslandPlaced(islandType, lastTryOceanSeedX, lastTryOceanSeedY, lastTryLandX, lastTryLandY);
-				spentBudget = spentBudget + GetBudget(islandType);
+				local b = GetBudget(islandType);
+				earlySpent = earlySpent + b;
+				spentBudget = spentBudget + b;
 				islandsPlaced = islandsPlaced + 1;
-				idleCommonPasses = 0;
 			else
-				idleCommonPasses = idleCommonPasses + 1;
-				if idleCommonPasses >= PANGAEA_COMMON_FILL_IDLE_BREAK then
-					dbg2("### common fill stall break at " .. spentBudget .. "/" .. TOTAL_BUDGET .. " ###");
-					break;
+				break;
+			end
+		end
+	end
+
+	dbg2("### GeneratePangaeaIslands: placing remaining drafted islands ###");
+	for _, islandType in ipairs(draftedRest) do
+		placeDraftedOne(islandType);
+	end
+
+	local tAfterDraftedPlaced = (os and os.clock) and os.clock() or 0;
+
+	if skipCommonFill then
+		dbg2("### GeneratePangaeaIslands: common fill skipped (policy.skipCommonFill) ###");
+	else
+		dbg2("### GeneratePangaeaIslands: drafted done, filling commons (until spent >= " .. TOTAL_BUDGET .. ", est at draft was " .. draftEstimate .. ") ###");
+		local idleCommonPasses = 0;
+		while spentBudget + 0.004 < TOTAL_BUDGET and commonPass < PANGAEA_COMMON_FILL_MAX_PASSES do
+			if runOnceClockExpired() then
+				break;
+			end
+			commonPass = commonPass + 1;
+			if commonPass == 1 or commonPass % 200 == 0 then
+				dbg2("### common fill pass " .. commonPass .. ", spent " .. spentBudget .. "/" .. TOTAL_BUDGET .. " ###");
+			end
+			local remaining = TOTAL_BUDGET - spentBudget;
+			local islandType;
+			if remaining <= 0.15 then
+				islandType = "dot";
+			elseif remaining <= 0.45 then
+				islandType = (Map.Rand(2, "") == 0) and "dot" or "pebble";
+			elseif remaining <= 0.95 and Map.Rand(100, "") < 55 then
+				islandType = (Map.Rand(2, "") == 0) and "pebble" or "splinteredCliffsTiny";
+			else
+				islandType = DraftOneFromTier(CommonIslands, {});
+			end
+			if islandType then
+				local placed = false;
+				local tries = (remaining <= 0.55) and PANGAEA_COMMON_SMALL_ISLAND_TRIES_TIGHT or PANGAEA_COMMON_SMALL_ISLAND_TRIES_LOOSE;
+				for i = 1, tries do
+					if (i % 40 == 0) and runOnceClockExpired() then
+						break;
+					end
+					markIslandPaintBefore();
+					placed = tryOneSpot(islandType, nil, nil);
+					if placed then
+						break;
+					else
+						lastPaintBefore = nil;
+					end
+				end
+				if placed then
+					recordIslandPlaced(islandType, lastTryOceanSeedX, lastTryOceanSeedY, lastTryLandX, lastTryLandY);
+					spentBudget = spentBudget + GetBudget(islandType);
+					islandsPlaced = islandsPlaced + 1;
+					idleCommonPasses = 0;
+				else
+					idleCommonPasses = idleCommonPasses + 1;
+					if idleCommonPasses >= PANGAEA_COMMON_FILL_IDLE_BREAK then
+						dbg2("### common fill stall break at " .. spentBudget .. "/" .. TOTAL_BUDGET .. " ###");
+						break;
+					end
 				end
 			end
 		end

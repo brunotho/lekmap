@@ -14,6 +14,11 @@ local RING_POLAR_OCEAN_HARD = 3; -- never use these edge rows
 local RING_POLAR_OCEAN_SOFT = 6; -- normal max reach (leaves rows 4-6 empty)
 local RING_RARE_EDGE_PCT = 2; -- % of maps allowed to land in soft band (rows 4-6)
 
+-- TEMP visual A/B: force aggressive peaks + paint one long inland mountain spine every map.
+-- Flip to false when done checking.
+local RING_FORCE_MONSTER_RIDGE = false;
+local RING_MONSTER_RIDGE_LEN = 12; -- target contiguous mountains
+
 local function lekRingLerp(a, b, t)
 	return a + (b - a) * t;
 end
@@ -58,6 +63,15 @@ function LekLandmass_EquatorRing_Build(self, env)
 	local hillsClumps = env.hillsClumps;
 	local hillsNearMountains = env.hillsNearMountains;
 	local mountains = env.mountains;
+	-- Ring: slightly more peak hits + stickier mountain rolls (breakers already skipped).
+	mountains = mountains - 2;
+	hillsNearMountains = hillsNearMountains - 1;
+	local ringMountStick = 8; -- lower spawn bar vs default 48-adjustment
+	if RING_FORCE_MONSTER_RIDGE then
+		mountains = mountains - 5;
+		hillsNearMountains = hillsNearMountains - 2;
+		ringMountStick = 25;
+	end
 
 	self.continentsFrac = nil;
 	self:InitFractal{ continent_grain = 7, rift_grain = -1 };
@@ -172,7 +186,7 @@ function LekLandmass_EquatorRing_Build(self, env)
 						self.plotTypes[i] = PlotTypes.PLOT_HILLS;
 					else
 						local iIsMount = Map.Rand(100, "Ring Mountain Spawn Chance");
-						local iIsMountAdj = 48 - adjustment;
+						local iIsMountAdj = 48 - adjustment - ringMountStick;
 						if iIsMount >= iIsMountAdj then
 							self.plotTypes[i] = PlotTypes.PLOT_MOUNTAIN;
 						else
@@ -197,6 +211,58 @@ function LekLandmass_EquatorRing_Build(self, env)
 		end
 	end
 
+	-- TEMP: guarantee one long inland mountain spine for visual A/B.
+	local monsterLen = 0;
+	if RING_FORCE_MONSTER_RIDGE then
+		local wrapX = Map.IsWrapX and Map:IsWrapX() or true;
+		local wrapY = false;
+		local function isDry(x, y)
+			if x < 0 or x >= iW or y < 0 or y >= iH then return false; end
+			local t = self.plotTypes[y * iW + x + 1];
+			return t == PlotTypes.PLOT_LAND or t == PlotTypes.PLOT_HILLS or t == PlotTypes.PLOT_MOUNTAIN;
+		end
+		local function paintMtn(x, y)
+			self.plotTypes[y * iW + x + 1] = PlotTypes.PLOT_MOUNTAIN;
+		end
+		local sx = Map.Rand(iW, "monsterRidgeX");
+		local sy = mid - 2 + Map.Rand(5, "monsterRidgeY"); -- near equator band interior
+		if not isDry(sx, sy) then
+			for _ = 1, 40 do
+				sx = Map.Rand(iW, "monsterRidgeX2");
+				sy = mid - 3 + Map.Rand(7, "monsterRidgeY2");
+				if isDry(sx, sy) then break; end
+			end
+		end
+		if isDry(sx, sy) then
+			paintMtn(sx, sy);
+			monsterLen = 1;
+			local x, y = sx, sy;
+			local dir = 1 + Map.Rand(6, "monsterRidgeDir");
+			for step = 2, RING_MONSTER_RIDGE_LEN do
+				local placed = false;
+				for turn = 0, 5 do
+					local d = ((dir + turn - 1) % 6) + 1;
+					local nx, ny;
+					if GetHexNeighbor then
+						nx, ny = GetHexNeighbor(x, y, d, iW, iH, wrapX, wrapY);
+					else
+						nx = (x + ((turn % 2 == 0) and 1 or -1) + iW) % iW;
+						ny = y + ((d <= 3) and 1 or -1);
+					end
+					if isDry(nx, ny) then
+						paintMtn(nx, ny);
+						x, y = nx, ny;
+						dir = d;
+						monsterLen = monsterLen + 1;
+						placed = true;
+						break;
+					end
+				end
+				if not placed then break; end
+			end
+		end
+	end
+
 	-- No Y-recenter: polar reaches from extent rolls should stick.
 	if LekPipelineFlow then
 		LekPipelineFlow("EquatorRing_Build_ok",
@@ -204,7 +270,9 @@ function LekLandmass_EquatorRing_Build(self, env)
 			.. " chunks=" .. tostring(nSamp)
 			.. " rareEdge=" .. (allowRareEdge and "1" or "0")
 			.. " yClamp=" .. tostring(yMinPole) .. "-" .. tostring(yMaxPole)
-			.. " polePct=" .. tostring(RING_POLE_REACH_PCT));
+			.. " polePct=" .. tostring(RING_POLE_REACH_PCT)
+			.. " forceMonster=" .. (RING_FORCE_MONSTER_RIDGE and "1" or "0")
+			.. " monsterLen=" .. tostring(monsterLen));
 	end
 	return {
 		ok = true,
@@ -240,13 +308,34 @@ function LekLandmass_EquatorRing_ApplyBrickRegions(startDb)
 	end
 	local areaID = biggest:GetID();
 
+	-- Polar-merge land joins the mainland but must not stretch brick Y / fert
+	-- (starts already skip these via EvaluateCandidatePlot).
+	local function isBrickLand(p, x, y)
+		if not p or p:IsWater() or p:GetArea() ~= areaID then
+			return false;
+		end
+		if _polar_merge_excluded_plots then
+			local plotIndex = y * iW + x + 1;
+			if _polar_merge_excluded_plots[plotIndex] then
+				return false;
+			end
+		end
+		return true;
+	end
+
 	local yMin, yMax = iH, -1;
+	local exclSkipped = 0;
 	for y = 0, iH - 1 do
 		for x = 0, iW - 1 do
 			local p = Map.GetPlot(x, y);
 			if p and not p:IsWater() and p:GetArea() == areaID then
-				if y < yMin then yMin = y; end
-				if y > yMax then yMax = y; end
+				local plotIndex = y * iW + x + 1;
+				if _polar_merge_excluded_plots and _polar_merge_excluded_plots[plotIndex] then
+					exclSkipped = exclSkipped + 1;
+				else
+					if y < yMin then yMin = y; end
+					if y > yMax then yMax = y; end
+				end
 			end
 		end
 	end
@@ -285,7 +374,7 @@ function LekLandmass_EquatorRing_ApplyBrickRegions(startDb)
 				local y = sY + dy;
 				if y >= 0 and y < iH then
 					local p = Map.GetPlot(x, y);
-					if p and not p:IsWater() and p:GetArea() == areaID then
+					if isBrickLand(p, x, y) then
 						plots = plots + 1;
 						if startDb.MeasureStartPlacementFertilityOfPlot then
 							fert = fert + (startDb:MeasureStartPlacementFertilityOfPlot(x, y, true) or 0);
@@ -314,7 +403,8 @@ function LekLandmass_EquatorRing_ApplyBrickRegions(startDb)
 		LekPipelineFlow("brick_regions_applied",
 			"n=6 y=" .. tostring(yMin) .. "-" .. tostring(yMax)
 			.. " offset=" .. tostring(offset)
-			.. " w=" .. tostring(widths[1]) .. "," .. tostring(widths[2]) .. "," .. tostring(widths[3]));
+			.. " w=" .. tostring(widths[1]) .. "," .. tostring(widths[2]) .. "," .. tostring(widths[3])
+			.. " polar_excl=" .. tostring(exclSkipped));
 	end
 	return true;
 end

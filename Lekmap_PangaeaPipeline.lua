@@ -21,7 +21,7 @@ if _lek_mapgen_log_channels == nil then
 		other = false,
 	};
 end
-if _lek_pangaea_land_shape == nil then _lek_pangaea_land_shape = "compact"; end
+if _lek_pangaea_land_shape == nil then _lek_pangaea_land_shape = "fractal_pangaea"; end
 if _lek_mapgen_world_is_small == nil then _lek_mapgen_world_is_small = false; end
 
 -- Pipeline flow log (always on; dedicated LekmapPipelineFlow.log)
@@ -106,9 +106,9 @@ if LekPipelineFlow then LekPipelineFlow("include_ok", "3_PangaeaIslands"); end
 if LekPipelineFlow then LekPipelineFlow("include_begin", "X_IslandHelpers"); end
 include("X_IslandHelpers");
 if LekPipelineFlow then LekPipelineFlow("include_ok", "X_IslandHelpers"); end
-if LekPipelineFlow then LekPipelineFlow("include_begin", "Lekmap_Landmass_Compact"); end
-include("Lekmap_Landmass_Compact");
-if LekPipelineFlow then LekPipelineFlow("include_ok", "Lekmap_Landmass_Compact"); end
+if LekPipelineFlow then LekPipelineFlow("include_begin", "Lekmap_Landmass_FractalPangaea"); end
+include("Lekmap_Landmass_FractalPangaea");
+if LekPipelineFlow then LekPipelineFlow("include_ok", "Lekmap_Landmass_FractalPangaea"); end
 if LekPipelineFlow then LekPipelineFlow("include_begin", "Lekmap_Landmass_EquatorRing"); end
 include("Lekmap_Landmass_EquatorRing");
 if LekPipelineFlow then LekPipelineFlow("include_ok", "Lekmap_Landmass_EquatorRing"); end
@@ -924,9 +924,10 @@ function RoundInlandSeas(self)
 				return distToShore[y * iW + x] or 99;
 			end
 			-- Spray inland islands (single pass; no grow-fill — that erased spray variance).
+			-- Per eligible ocean tile: independent Map.Rand < SPRAY_CHANCE (not one roll for the sea).
 			local doSpray = (aspectX < 2.85 and aspectY < 2.85);
 			if doSpray then
-				local SPRAY_CHANCE = 85;
+				local SPRAY_CHANCE = 75; -- was 85; -10pp per-tile land chance
 				local MIN_DIST = 2;       -- tiles 2+ from mainland shore eligible
 				for _, t in ipairs(tiles) do
 					local x, y = t[1], t[2];
@@ -1182,7 +1183,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		else
 		while bMapOK == false do
 
-		if LekPipelineFlow then LekPipelineFlow("landmass_branch_compact"); end
+		if LekPipelineFlow then LekPipelineFlow("landmass_branch_fractal_pangaea"); end
 			middleAttempts = middleAttempts + 1;
 			if middleAttempts > MAX_MIDDLE then
 				print("[Pangaea] MAX_MIDDLE reached, accepting choke check");
@@ -2205,13 +2206,15 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		if minIslands == 0 then
 			islandGenOpts = { budgetRetry = false };
 		end
-		-- Ring draft currently off: do not fail outer pass on lobby island minimum.
+		-- Ring: lobby island-count min does not apply until we opt in via policy.minPlaced.
 		if LekLandmass_IsEquatorRing and LekLandmass_IsEquatorRing() then
 			local pol = LekIslands_GetEquatorRingPolicy and LekIslands_GetEquatorRingPolicy();
-			if pol and pol.channels and pol.channels.pangaeaDraft == false then
+			if pol and type(pol.minPlaced) == "number" then
+				minIslands = pol.minPlaced;
+			else
 				minIslands = 0;
-				islandGenOpts = { budgetRetry = false };
 			end
+			islandGenOpts = { budgetRetry = false };
 		end
 
 		local islandsPlaced = 0;

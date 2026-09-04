@@ -23,6 +23,11 @@ LekPipelineFlow("leaf_before_pipeline_include");
 include("Lekmap_PangaeaPipeline");
 LekPipelineFlow("leaf_after_pipeline_include");
 
+-- Ring forces Legacy starts until a ring-native placer exists — hide Starting Locations.
+-- UI slot 1 = Coastal Spawns only (legacy index 17).
+_lek_map_visible_ui_order = { 17 };
+_lek_map_visible_option_defaults = { [17] = 1 };
+
 function GetMapScriptInfo()
 	LekPipelineFlow("GetMapScriptInfo_call");
 	local world_age, temperature, rainfall, sea_level, resources = GetCoreMapOptions()
@@ -34,14 +39,6 @@ function GetMapScriptInfo()
 		SortIndex = 3,
 		SupportsMultiplayer = true,
 		CustomOptions = {
-			{
-				Name = "[COLOR_PLAYER_PURPLE_TEXT]Starting Locations[ENDCOLOR]",
-				Values = {
-					"[COLOR_PLAYER_PURPLE_TEXT]Legacy[ENDCOLOR]",
-				},
-				DefaultValue = 1,
-				SortPriority = -100,
-			},
 			{
 				Name = "[COLOR_PLAYER_PURPLE_TEXT]Coastal Spawns[ENDCOLOR]",
 				Values = {

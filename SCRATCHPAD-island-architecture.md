@@ -34,7 +34,7 @@ Lekmap_IslandCatalog.lua         -- optional thin registry:
                                  --   type → TryPlace + default pullBack/budget/tags
                                  --   (or keep defaults on XX_* exports later)
 
-Lekmap_Islands_Compact.lua       -- policy: pools, odds, TOTAL_BUDGET≈8,
+Lekmap_Islands_FractalPangaea.lua -- policy: pools, odds, TOTAL_BUDGET≈8,
                                  --   siteHints = ew_ocean + polar_ok
                                  --   channels.pangaeaDraft = true
 
@@ -113,7 +113,10 @@ Placer **tags** (add gradually on XX_* or catalog only):
 `dot`, `pebble`, `strip`, `splinteredCliffsTiny`, `chunk`, `barbell`, `snake`, `wishbone`, `lollipop`, `clusterOfTiny`, `splinteredCliffs`, `mountainWall`, `ridgePeak`, `twinBay`, `shatteredRing`, `crescent`, `volcanicRing`, `junglePeak`, `sinaiIsland`, `solomonsMinesIsland` (odds 0 today), `geothermalIsland`
 
 **Likely deny or odds=0 on ring:**  
-`wrapSoftLandbridge`, `polarMerge` (huge / polar-claim clash with open poles), `steppingStone` (maybe keep with polar basins), `EdgeOfWorld`, `EllipseArchipelago`, `fjordPeninsula`, `WaterRift` (deep far rings)
+`wrapSoftLandbridge`, `polarMerge` (EW-extent anchors meaningless on full-X belt; arms cluster at wrap), `steppingStone` (maybe keep with polar basins later), `EdgeOfWorld`, `EllipseArchipelago`, `fjordPeninsula`, `WaterRift` (deep far rings)
+
+**Future placer (from polarMerge, not the embrace):**  
+`XX_island_rare_ShoreSineChain.lua` — **done (ring v0):** EW shore-parallel sine spine + islet gaps (not polar fingers). Once/map; ring rare odds high for A/B.
 
 Tune odds/budget after coastal-bonus A/B — don’t freeze this list yet.
 
@@ -165,9 +168,9 @@ Engine should not own (2)(3) in v1.
 | Architecture decision | **policy + shared engine** (confirmed) |
 | Coastal bonus on ring | on (tuning); stays in `4a` |
 | Inland-sea spray | stays in `RoundInlandSeas` / ring seed |
-| Pangaea draft on ring | `channels.pangaeaDraft=false` in ring policy |
+| Pangaea draft on ring | **on** — v0 allowlist, `totalBudget=4`, polar basins; `polarMerge` denied |
 | Engine extract | **done** — `Lekmap_IslandEngine.lua` |
-| Compact policy | `Lekmap_Islands_Compact.lua` |
+| Fractal Pangaea policy | `Lekmap_Islands_FractalPangaea.lua` |
 | Ring policy | `Lekmap_Islands_EquatorRing.lua` |
 | Catalog | `Lekmap_IslandCatalog.lua` |
 | Loader | `3_PangaeaIslands.lua` (includes only) |
