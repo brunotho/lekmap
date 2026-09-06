@@ -66,7 +66,7 @@ Fractal currently only nudges edges by ±1 via `continentsFrac` at `y=mid`. Grai
 - GB disabled on purpose; draft ring-native placer later (not blob force-geom).
 - Brick regions are geometry-first; fertility only measured inside bricks — revisit if starts feel unfair inside a cell.
 - Islands / coastal bonus islands / fjords: fjords off (`_lek_fjord_distance_setting_fixed = 1`); `PlaceCoastalBonusIslands` still shared; island odds may need ring retune later.
-- Snow AABB paint is debug-only; turn off before soft deploy.
+- Snow AABB paint is debug-only (`_lek_debug_paint_region_snow`); **off** for normal play.
 - `polarMerge` **denied** on ring (EW min/max anchors wrong on full-X belt). Liked bit: sine-curved arm + splintered gaps → future dedicated placer (see island-architecture scratchpad).
 
 

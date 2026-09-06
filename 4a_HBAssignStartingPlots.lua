@@ -15212,7 +15212,7 @@ function AssignStartingPlots:PlaceCityStates()
 			" refineReached=" .. tostring(self._lek_cs_refine_reached or 0) ..
 			" placeSuccess=" .. tostring(self._lek_cs_place_success or 0) ..
 			" selectedNil=" .. tostring(self._lek_cs_selected_nil or 0);
-		local line3 = "### LekBuildPing after_CS_refine_debug repo=v6.0.2";
+		local line3 = "### LekBuildPing after_CS_refine_debug repo=v6.0.3";
 		if not LekMapgenTupleBenchmarkMode() then
 			LekMapgenDiagLogAppend({ line, line2, line3 });
 		end

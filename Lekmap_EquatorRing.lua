@@ -8,9 +8,10 @@ LekPipelineFlow("leaf_after_shape_set");
 
 _lek_mapgen_log_verbosity = 1;
 _lek_mapgen_logs = false;
+_lek_pipeline_flow_log = false;
 _lek_mapgen_log_channels = {
-	islands = true,
-	islands_tiles = true,
+	islands = false,
+	islands_tiles = false,
 	strategics = false,
 	starts = false,
 	mapgen = false,
@@ -32,7 +33,7 @@ function GetMapScriptInfo()
 	LekPipelineFlow("GetMapScriptInfo_call");
 	local world_age, temperature, rainfall, sea_level, resources = GetCoreMapOptions()
 	return {
-		Name = "[COLOR_PLAYER_PURPLE_TEXT]Lekmap 6.0.2 -- Equator Ring[ENDCOLOR]",
+		Name = "[COLOR_PLAYER_PURPLE_TEXT]Lekmap 6.0.3 -- Equator Ring[ENDCOLOR]",
 		Description = "Lekmap pangaea — land belt wrapping the equator with open polar oceans.",
 		IsAdvancedMap = false,
 		IconIndex = 0,

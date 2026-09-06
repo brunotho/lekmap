@@ -59,10 +59,11 @@ Goal: paint terrain so each region’s bounding rectangle and approximate center
 Location: Lekmap_PangaeaPipeline.lua StartPlotSystem
 
   Function: DebugPaintRegionsTerrains(start_plot_database)
-  Toggle: currently ON — called at end of StartPlotSystem (after PlaceResources).
-  Inner AABB snow center + outline loop is active (outlinePaintCountMax = 2000).
+  Toggle: `_lek_debug_paint_region_snow` in Lekmap_PangaeaPipeline.lua (default **false**).
+  When true: called at end of StartPlotSystem (after PlaceResources).
+  Inner AABB snow center + outline loop (outlinePaintCountMax = 2000).
 
-  LekPipelineFlow stages: region_snow_paint_begin / region_snow_paint_done
+  LekPipelineFlow: region_snow_paint_begin / region_snow_paint_done / region_snow_paint_skipped
 
   Note: outlines are axis-aligned rectangles from HB regionData. Fine on compact pangaea;
   on equator_ring @ 6 civs, CustomOverride replaces chops with staggered 3×2 brick AABBs

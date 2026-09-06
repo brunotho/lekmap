@@ -46,7 +46,10 @@ _lek_strat_skip_global_horse_iron = false;
 -- Land oil globals off (majors + small_strat); CS minor oil kept. Uran majors/backfill spaced.
 _lek_strat_ou_bands = true;
 -- Per-tile horse/iron/oil/uran placement lines (`### LEK_STRAT_HIT`). On with strat testing.
-_lek_strat_audit_log_each_hit = true;
+_lek_strat_audit_log_each_hit = false;
+
+-- Debug: paint region AABB outlines/centers as snow (visual only). Off for normal play.
+_lek_debug_paint_region_snow = false;
 
 -- Setup UI shows only two map script rows; code still uses legacy indices 1–19 via LekMapGetCustomOption.
 -- Engine Map.GetCustomOption(1..2) are those rows, mapped by _lek_map_visible_ui_order to old 13, 17.
@@ -3793,8 +3796,12 @@ function StartPlotSystem()
 		return;
 	end
 
-	-- Region snow outline (AABB) for start-region tuning. Off-shape on equator_ring until redrawn.
-	if LekPipelineFlow then LekPipelineFlow("region_snow_paint_begin"); end
-	DebugPaintRegionsTerrains(start_plot_database)
+	-- Region snow outline (AABB) for start-region tuning. Off by default.
+	if _lek_debug_paint_region_snow then
+		if LekPipelineFlow then LekPipelineFlow("region_snow_paint_begin"); end
+		DebugPaintRegionsTerrains(start_plot_database)
+	elseif LekPipelineFlow then
+		LekPipelineFlow("region_snow_paint_skipped");
+	end
 	if LekPipelineFlow then LekPipelineFlow("StartPlotSystem_done"); end
 end
