@@ -138,12 +138,12 @@ function TryPlaceSinaiIsland(plotTypes, centerX, centerY, islLandInRing, params)
 end
 
 function DrawSinaiIsland(plotTypes, cx, cy, landTiles, rot, iW, iH, wrapX, wrapY)
-	local dx, dy = rotateHex60(0, 1, rot);
+	local dx, dy = RotateOffset60(0, 1, rot);
 	local sinaiX = wrapCoord(cx + dx, iW, wrapX);
 	local sinaiY = wrapCoord(cy + dy, iH, wrapY);
 
-	local tip1Dx, tip1Dy = rotateHex60(0, 3, rot);
-	local tip2Dx, tip2Dy = rotateHex60(0, -3, rot);
+	local tip1Dx, tip1Dy = RotateOffset60(0, 3, rot);
+	local tip2Dx, tip2Dy = RotateOffset60(0, -3, rot);
 	local tip1X = wrapCoord(cx + tip1Dx, iW, wrapX);
 	local tip1Y = wrapCoord(cy + tip1Dy, iH, wrapY);
 	local tip2X = wrapCoord(cx + tip2Dx, iW, wrapX);
@@ -162,11 +162,11 @@ function DrawSinaiIsland(plotTypes, cx, cy, landTiles, rot, iW, iH, wrapX, wrapY
 		end
 		addCandidate(tip1X, tip1Y);
 		addCandidate(tip2X, tip2Y);
-		local leftDx, leftDy = rotateHex60(-2, 0, rot);
+		local leftDx, leftDy = RotateOffset60(-2, 0, rot);
 		local leftX = wrapCoord(cx + leftDx, iW, wrapX);
 		local leftY = wrapCoord(cy + leftDy, iH, wrapY);
 		addCandidate(leftX, leftY);
-		local rightDx, rightDy = rotateHex60(1, 0, rot);
+		local rightDx, rightDy = RotateOffset60(1, 0, rot);
 		local rightX = wrapCoord(cx + rightDx, iW, wrapX);
 		local rightY = wrapCoord(cy + rightDy, iH, wrapY);
 		addCandidate(rightX, rightY);

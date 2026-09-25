@@ -936,6 +936,15 @@ function LekHB_GenerateMap_Core()
 			end);
 		end
 	else
+		-- Lekmap: inland seas must stay clear of capitals (fills whole seas; recalculates areas itself).
+		if LekFillInlandSeasNearCapitals then
+			LekFillInlandSeasNearCapitals();
+			stage("after_LekFillInlandSeasNearCapitals");
+		end
+		if LekLogFinalLandStats then
+			LekLogFinalLandStats();
+		end
+
 		-- Goodies depend on not colliding with resources or Natural Wonders, or being placed too near to start plots.
 		AddGoodies();
 		stage("after_AddGoodies");

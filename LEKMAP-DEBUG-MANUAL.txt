@@ -6,20 +6,32 @@ Purpose
 Quick lookup for where toggles live and what strings appear in logs when tuning mapgen or analyzing rolls (10-map batches, averages, etc.).
 
 
-Where logs land (macOS default path in Lua)
---------------------------------------------
-Many ### lines go both to normal Lua print output and to the diag file opened by LekMapgenDiagLogAppend:
+Where logs land (Windows + macOS)
+---------------------------------
+All print() output goes to the stock Lua.log (needs LoggingEnabled = 1 in config.ini), prefixed "Map Script:".
+Lekmap's own files go to the same Logs folder (path helper: LekCiv5LogPath in Lekmap_PipelineFlowLog.lua):
 
-  ~/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log
+  Windows: %USERPROFILE%\Documents\My Games\Sid Meier's Civilization 5\Logs\
+  macOS:   ~/Library/Application Support/Sid Meier's Civilization 5/Logs/
+
+  LekmapStartSpacing6P.log   ### lines appended by LekMapgenDiagLogAppend
+  LekmapPipelineFlow.log     flow breadcrumbs, file only, reset each map load
+  LekmapLandStats.log        ### LekLandStats / LekInlandSea*, file only, appended across rolls
+                             (both maps; LekInlandSea* Fractal Pangaea only; channel landstats)
+
+ONE SWITCH: _lek_mapgen_logs at the top of each lobby leaf (LekmapPangaeaFractal.lua /
+Lekmap_EquatorRing.lua). false = release, nothing written; true = testing. The flow log follows it.
+
+If the game's Lua has no io library, or Documents is redirected (e.g. OneDrive), the files stay empty.
 
 Not everything uses that append — anything that only calls print() may appear only in the stock Lua log. Lines routed through LekMapgenPrintAndDiagFile() or LekPlacementProbeAt() appear in LekmapStartSpacing6P.log when io append succeeds.
 
 Also see Pangaea appendLekLog() inside StartPlotSystem — tuple_benchmark_mode / small-world gates may skip some append paths.
 
-Pipeline crash/flow trace (always on)
-------------------------------------
+Pipeline crash/flow trace
+-------------------------
 File: .../Logs/LekmapPipelineFlow.log
-Helper: Lekmap_PipelineFlowLog.lua (not gated by _lek_mapgen_logs).
+Helper: Lekmap_PipelineFlowLog.lua. _lek_pipeline_flow_log = _lek_mapgen_logs (leaf), file only.
 Leaves call LekPipelineFlowReset on load (truncates file), then ### FLOW #N stage=... through includes + GeneratePlotTypes/Terrain/Features/StartPlotSystem.
 Last stage before a hard close is where it died.
 
@@ -39,6 +51,7 @@ or defaults in Lekmap_PangaeaPipeline.lua:
     mapgen = true/false,            -- ### LekMapGen*
     pangaea = true/false,           -- ### LekPangaea*
     bench = true/false,             -- ### LekBench6
+    landstats = true/false,         -- ### LekLandStats (both) / LekInlandSea* (Fractal Pangaea), file only
     other = true/false,             -- leftover Lek ### lines
   }
 
@@ -83,6 +96,15 @@ Geometric Balance — LekPipelineFlow (same LekmapPipelineFlow.log)
 
 Greppable log prefixes (selection)
 ----------------------------------
+### LekLandStats stage=plotTypes|final — mainland (biggest connected landmass) tile count, flat/hills/mtn,
+                             otherLand (islands), totalLand, waterPct, W/H. stage=final = map as played.
+                             Needs _lek_mapgen_logs = true and channel landstats = true.
+
+### LekInlandSeaCuration     — final inland-sea pass on plot types: seas, water, gapFilled (water too close to
+                             main ocean), spanFilled (trimmed to max span).
+
+### LekInlandSeaCapitalClear — after StartPlotSystem: inland seas filled because water sat within 3 of a capital.
+
 ### LEK_RESOURCE_SETTING     — resolved resource_setting + args.resources (GenerateRegions).
 
 ### LEK_STRAT_AUDIT strat_pass_begin — entering major strategic placement block (resource_setting == 5).

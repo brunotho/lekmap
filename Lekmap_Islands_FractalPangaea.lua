@@ -14,11 +14,12 @@ function LekIslands_GetFractalPangaeaPolicy()
 		},
 		totalBudget = 8,
 		dotStripEarlyBudget = 2,
+		-- Sequential loosening: up to 5 tries at budget 8, then up to 5 at 7, then Pangaea outer redraw.
 		budgetRetry = true,
-		relaxBudgetTier = false,
-		maxRunOnceNominal = 2,
-		maxTriesPerBudget = 80,
-		budgetFloor = 5,
+		relaxBudgetTier = true,
+		maxRunOnceNominal = 5,
+		maxTriesPerBudget = 5,
+		budgetFloor = 7,
 		site = { basins = "any_ocean" },
 		common = {
 			{ type = "dot",                  odds = 5, pullBack = 1, effMin = 0, effMax = 0, budget = 0.09 },

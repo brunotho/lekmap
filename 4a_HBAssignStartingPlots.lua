@@ -81,17 +81,10 @@ function LekMapgenAllowMsg(msg)
 	return LekMapgenChannelEnabled(LekMapgenInferChannel(msg));
 end
 
+-- Windows + macOS path helper lives in Lekmap_PipelineFlowLog.lua (included by the pipeline first).
 function LekMapgenDiagLogPath()
-	if not (os and os.getenv) then
-		return nil;
-	end
-	local home = os.getenv("HOME") or "";
-	if home ~= "" then
-		return home .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log";
-	end
-	local user = os.getenv("USER") or "";
-	if user ~= "" then
-		return "/Users/" .. user .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapStartSpacing6P.log";
+	if LekCiv5LogPath then
+		return LekCiv5LogPath("LekmapStartSpacing6P.log");
 	end
 	return nil;
 end
@@ -15212,7 +15205,7 @@ function AssignStartingPlots:PlaceCityStates()
 			" refineReached=" .. tostring(self._lek_cs_refine_reached or 0) ..
 			" placeSuccess=" .. tostring(self._lek_cs_place_success or 0) ..
 			" selectedNil=" .. tostring(self._lek_cs_selected_nil or 0);
-		local line3 = "### LekBuildPing after_CS_refine_debug repo=v6.0.3";
+		local line3 = "### LekBuildPing after_CS_refine_debug repo=v6.0.4";
 		if not LekMapgenTupleBenchmarkMode() then
 			LekMapgenDiagLogAppend({ line, line2, line3 });
 		end
@@ -18881,7 +18874,8 @@ function AssignStartingPlots:LekResourceIsLuxury(resId)
 	if info == nil then
 		return false;
 	end
-	local rc = info.ResourceClass or info.ResourceClassType;
+	-- ResourceClassType is the real column; reading a missing key spams Lua.log with "Cannot find key".
+	local rc = info.ResourceClassType;
 	return rc == "RESOURCECLASS_LUXURY";
 end
 ------------------------------------------------------------------------------
@@ -18893,7 +18887,7 @@ function AssignStartingPlots:LekResourceIsBonus(resId)
 	if info == nil then
 		return false;
 	end
-	local rc = info.ResourceClass or info.ResourceClassType;
+	local rc = info.ResourceClassType;
 	return rc == "RESOURCECLASS_BONUS";
 end
 ------------------------------------------------------------------------------

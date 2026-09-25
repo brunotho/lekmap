@@ -1,7 +1,7 @@
 ------------------------------------------------------------------------------
 -- Lekmap_PipelineFlowLog.lua
--- Pipeline breadcrumb log. Gated by _lek_pipeline_flow_log (default off).
--- File: ~/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapPipelineFlow.log
+-- Pipeline breadcrumb log (file only, no Lua.log). Gated by _lek_pipeline_flow_log = leaf master switch.
+-- File: <Civ5 Logs dir>/LekmapPipelineFlow.log (see LekCiv5LogPath).
 ------------------------------------------------------------------------------
 
 _lek_pipeline_flow_seq = 0;
@@ -9,19 +9,53 @@ if _lek_pipeline_flow_log == nil then
 	_lek_pipeline_flow_log = false;
 end
 
-function LekPipelineFlowLogPath()
+-- Full path to a file in the Civ5 Logs folder (same folder as Lua.log), or nil.
+--   Windows: %USERPROFILE%/Documents/My Games/Sid Meier's Civilization 5/Logs/
+--   macOS:   ~/Library/Application Support/Sid Meier's Civilization 5/Logs/
+-- Documents redirected elsewhere (e.g. OneDrive) is not detected; the file is then simply not written.
+function LekCiv5LogPath(fileName)
 	if not (os and os.getenv) then
 		return nil;
 	end
+	local profile = os.getenv("USERPROFILE") or "";
+	if profile ~= "" then
+		return profile .. "/Documents/My Games/Sid Meier's Civilization 5/Logs/" .. fileName;
+	end
 	local home = os.getenv("HOME") or "";
 	if home ~= "" then
-		return home .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapPipelineFlow.log";
+		return home .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/" .. fileName;
 	end
 	local user = os.getenv("USER") or "";
 	if user ~= "" then
-		return "/Users/" .. user .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/LekmapPipelineFlow.log";
+		return "/Users/" .. user .. "/Library/Application Support/Sid Meier's Civilization 5/Logs/" .. fileName;
 	end
 	return nil;
+end
+
+-- Append lines (string or list) to a Civ5 Logs file. Silently no-op when io is unavailable.
+function LekAppendCiv5Log(fileName, lineOrLines)
+	local path = LekCiv5LogPath(fileName);
+	if not path or not (io and io.open) then
+		return;
+	end
+	pcall(function()
+		local f = io.open(path, "a");
+		if not f then
+			return;
+		end
+		if type(lineOrLines) == "table" then
+			for _, line in ipairs(lineOrLines) do
+				f:write(tostring(line) .. "\n");
+			end
+		else
+			f:write(tostring(lineOrLines) .. "\n");
+		end
+		f:close();
+	end);
+end
+
+function LekPipelineFlowLogPath()
+	return LekCiv5LogPath("LekmapPipelineFlow.log");
 end
 
 -- Truncate file so each map-script load / gen attempt starts clean.
@@ -36,7 +70,6 @@ function LekPipelineFlowReset(tag)
 	local line = "### LekPipelineFlow RESET tag=" .. tostring(tag)
 		.. " shape=" .. tostring(_lek_pangaea_land_shape or "na")
 		.. " t=" .. string.format("%.3f", t);
-	print(line);
 	if not path or not io then
 		return;
 	end
@@ -68,7 +101,6 @@ function LekPipelineFlow(stage, detail)
 		.. " shape=" .. tostring(_lek_pangaea_land_shape or "na")
 		.. " stage=" .. tostring(stage)
 		.. det;
-	print(line);
 	local path = LekPipelineFlowLogPath();
 	if not path or not io then
 		return;

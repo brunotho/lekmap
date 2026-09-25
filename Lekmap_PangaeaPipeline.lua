@@ -18,6 +18,7 @@ if _lek_mapgen_log_channels == nil then
 		mapgen = false,
 		pangaea = false,
 		bench = false,
+		landstats = false,
 		other = false,
 	};
 end
@@ -744,7 +745,7 @@ function RoundInlandSeas(self)
 
 	-- Hex distance from every tile to nearest main-ocean water. Inland-sea water must stay at
 	-- dist >= MIN_INLAND_TO_OPEN_WATER_DIST (6 => at least 5 land tiles between the water bodies).
-	local MIN_INLAND_TO_OPEN_WATER_DIST = 6;
+	local MIN_INLAND_TO_OPEN_WATER_DIST = LEK_INLAND_SEA_MIN_OCEAN_DIST or 6;
 	local distFromOpenWater = {};
 	queue = {};
 	for k, _ in pairs(openOcean) do
@@ -807,7 +808,7 @@ function RoundInlandSeas(self)
 
 	-- Thicken inland seas: random ocean seeds, paint ring-1 land→ocean with noise (no touch to open ocean).
 	local MIN_SIZE = 6;
-	local MIN_DIST_FROM_OPEN_OCEAN = 6;
+	local MIN_DIST_FROM_OPEN_OCEAN = LEK_INLAND_SEA_MIN_OCEAN_DIST or 6;
 	local BLOB_PAINT_ITERS = 12;
 	local BLOB_EDGE_PAINT_PCT = 70;
 	for _, comp in ipairs(components) do
@@ -951,6 +952,521 @@ function RoundInlandSeas(self)
 end
 
 ------------------------------------------------------------------------------
+-- Inland-sea curation (fractal pangaea). Inland sea = ocean not connected to the map-edge ocean.
+--   * water must be >= LEK_INLAND_SEA_MIN_OCEAN_DIST hexes from main-ocean water (closer water -> land)
+--   * span <= LEK_INLAND_SEA_MAX_SPAN tiles in any direction (water outside the disk around the
+--     sea's most central tile -> land)
+--   * no inland-sea water within LEK_INLAND_SEA_CAPITAL_CLEAR hexes of a capital (whole sea -> land,
+--     after StartPlotSystem; start placement also ignores inland-sea shores as "coast")
+------------------------------------------------------------------------------
+LEK_INLAND_SEA_MIN_OCEAN_DIST = 6;
+LEK_INLAND_SEA_MAX_SPAN = 7;
+LEK_INLAND_SEA_CAPITAL_CLEAR = 3;
+-- Final inland-sea water after plot types: key = plot index (y * iW + x). Nil when not curated.
+_lek_inland_sea_plots = nil;
+
+-- Fractal Pangaea only (Equator Ring keeps its own inland-sea behaviour).
+function LekInlandSeaCurationActive()
+	return LekLandmass_IsFractalPangaea ~= nil and LekLandmass_IsFractalPangaea();
+end
+
+-- True when plot is water belonging to a curated inland sea (not main ocean).
+function LekIsInlandSeaPlot(plot)
+	local set = _lek_inland_sea_plots;
+	if set == nil or plot == nil then
+		return false;
+	end
+	local iW = select(1, Map.GetGridSize());
+	return set[plot:GetY() * iW + plot:GetX()] == true;
+end
+
+-- Fill water of one inland sea outside the disk (radius (maxSpan-1)/2) around its most central tile.
+-- comp: set of keys y*iW+x. Returns number of tiles filled.
+function LekTrimInlandSeaSpan(plotTypes, iW, comp, maxSpan)
+	local radius = math.floor((maxSpan - 1) / 2);
+	local keys = {};
+	for k in pairs(comp) do
+		if plotTypes[k + 1] == PlotTypes.PLOT_OCEAN then
+			keys[#keys + 1] = k;
+		end
+	end
+	if #keys <= 1 then
+		return 0;
+	end
+	table.sort(keys);
+	local cells = {};
+	for i, k in ipairs(keys) do
+		cells[i] = { k, k % iW, math.floor(k / iW) };
+	end
+	local bestI, bestEcc, diam = 1, nil, 0;
+	for i = 1, #cells do
+		local ecc = 0;
+		for j = 1, #cells do
+			local d = Map.PlotDistance(cells[i][2], cells[i][3], cells[j][2], cells[j][3]);
+			if d > ecc then ecc = d; end
+		end
+		if ecc > diam then diam = ecc; end
+		if bestEcc == nil or ecc < bestEcc then
+			bestEcc = ecc;
+			bestI = i;
+		end
+	end
+	if diam + 1 <= maxSpan then
+		return 0;
+	end
+	local c = cells[bestI];
+	local filled = 0;
+	for i = 1, #cells do
+		if Map.PlotDistance(c[2], c[3], cells[i][2], cells[i][3]) > radius then
+			plotTypes[cells[i][1] + 1] = PlotTypes.PLOT_LAND;
+			comp[cells[i][1]] = nil;
+			filled = filled + 1;
+		end
+	end
+	return filled;
+end
+
+-- Main ocean = water flood-filled from the map edges. Returns openOcean set and hex distance
+-- (through anything) from main-ocean water, both keyed y*iW+x.
+function LekOpenOceanDistances(plotTypes, iW, iH, wrapX, wrapY)
+	local openOcean = {};
+	local queue = {};
+	local function seedOpen(x, y)
+		local k = y * iW + x;
+		if plotTypes[k + 1] == PlotTypes.PLOT_OCEAN and not openOcean[k] then
+			openOcean[k] = true;
+			queue[#queue + 1] = { x, y };
+		end
+	end
+	for x = 0, iW - 1 do
+		seedOpen(x, 0);
+		seedOpen(x, iH - 1);
+	end
+	if not wrapX then
+		for y = 0, iH - 1 do
+			seedOpen(0, y);
+			seedOpen(iW - 1, y);
+		end
+	end
+	local q = 1;
+	while q <= #queue do
+		local cx, cy = queue[q][1], queue[q][2];
+		q = q + 1;
+		for d = 1, 6 do
+			local nx, ny = GetHexNeighbor(cx, cy, d, iW, iH, wrapX, wrapY);
+			if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+				seedOpen(nx, ny);
+			end
+		end
+	end
+	local dist = {};
+	queue = {};
+	for k in pairs(openOcean) do
+		dist[k] = 0;
+		queue[#queue + 1] = { k % iW, math.floor(k / iW) };
+	end
+	q = 1;
+	while q <= #queue do
+		local cx, cy = queue[q][1], queue[q][2];
+		q = q + 1;
+		local cd = dist[cy * iW + cx];
+		for d = 1, 6 do
+			local nx, ny = GetHexNeighbor(cx, cy, d, iW, iH, wrapX, wrapY);
+			if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+				local nk = ny * iW + nx;
+				if dist[nk] == nil then
+					dist[nk] = cd + 1;
+					queue[#queue + 1] = { nx, ny };
+				end
+			end
+		end
+	end
+	return openOcean, dist;
+end
+
+------------------------------------------------------------------------------
+-- Central inland sea (Fractal Pangaea): LEK_CENTRAL_SEA_CHANCE % of maps get one sea painted near the
+-- canvas centre (+-2 tiles), a noisy hex disk of radius 2-3 (span <= 7), with sprayed islands inside.
+-- Tiles closer than LEK_INLAND_SEA_MIN_OCEAN_DIST to main ocean are skipped. No pre-existing water needed.
+------------------------------------------------------------------------------
+LEK_CENTRAL_SEA_CHANCE = 30;
+LEK_CENTRAL_SEA_R3_PCT = 60;      -- else radius 2
+LEK_CENTRAL_SEA_EDGE_PCT = 65;    -- chance an outer-ring tile becomes water (ragged edge)
+LEK_CENTRAL_SEA_MIN_TILES = 7;
+LEK_CENTRAL_SEA_ISLAND_PCT = 75;  -- per interior tile (2+ from shore), like the old inland spray
+-- Plot indices (y*iW+x) of the painted sea; island draft skips them. Nil when none.
+_lek_central_sea_plots = nil;
+
+function LekPaintCentralInlandSea(self)
+	_lek_central_sea_plots = nil;
+	local iW, iH = self.iNumPlotsX, self.iNumPlotsY;
+	local wrapX = Map:IsWrapX();
+	local pt = self.plotTypes;
+	local roll = Map.Rand(100, "central_sea_roll");
+	if roll >= LEK_CENTRAL_SEA_CHANCE then
+		LekLandStatsLog("### LekInlandSeaCentral painted=0 reason=roll roll=" .. tostring(roll)
+			.. " chance=" .. tostring(LEK_CENTRAL_SEA_CHANCE));
+		return;
+	end
+	local _, dist = LekOpenOceanDistances(pt, iW, iH, wrapX, false);
+	local cx = math.floor(iW / 2) + Map.Rand(5, "central_sea_dx") - 2;
+	local cy = math.floor(iH / 2) + Map.Rand(5, "central_sea_dy") - 2;
+	local R = (Map.Rand(100, "central_sea_r") < LEK_CENTRAL_SEA_R3_PCT) and 3 or 2;
+
+	local sea = {};
+	local seaList = {};
+	for _, t in ipairs(GetHexDisk(cx, cy, R, iW, iH, wrapX, false)) do
+		local x, y = t[1], t[2];
+		local k = y * iW + x;
+		local d = Map.PlotDistance(cx, cy, x, y);
+		local keep = (d < R) or (Map.Rand(100, "central_sea_edge") < LEK_CENTRAL_SEA_EDGE_PCT);
+		if keep and (dist[k] or 0) >= LEK_INLAND_SEA_MIN_OCEAN_DIST then
+			sea[k] = true;
+			seaList[#seaList + 1] = k;
+		end
+	end
+	if #seaList < LEK_CENTRAL_SEA_MIN_TILES then
+		LekLandStatsLog("### LekInlandSeaCentral painted=0 reason=too_close_to_ocean tiles=" .. tostring(#seaList)
+			.. " at=" .. tostring(cx) .. "," .. tostring(cy) .. " R=" .. tostring(R));
+		return;
+	end
+	for _, k in ipairs(seaList) do
+		pt[k + 1] = PlotTypes.PLOT_OCEAN;
+	end
+
+	-- Islands: sea tiles 2+ steps from the surrounding mainland.
+	local shoreDist = {};
+	local queue = {};
+	for _, k in ipairs(seaList) do
+		local x, y = k % iW, math.floor(k / iW);
+		for d = 1, 6 do
+			local nx, ny = GetHexNeighbor(x, y, d, iW, iH, wrapX, false);
+			if nx >= 0 and nx < iW and ny >= 0 and ny < iH and pt[ny * iW + nx + 1] ~= PlotTypes.PLOT_OCEAN then
+				shoreDist[k] = 1;
+				queue[#queue + 1] = k;
+				break;
+			end
+		end
+	end
+	local q = 1;
+	while q <= #queue do
+		local k = queue[q];
+		q = q + 1;
+		local x, y = k % iW, math.floor(k / iW);
+		for d = 1, 6 do
+			local nx, ny = GetHexNeighbor(x, y, d, iW, iH, wrapX, false);
+			if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+				local nk = ny * iW + nx;
+				if sea[nk] and shoreDist[nk] == nil then
+					shoreDist[nk] = shoreDist[k] + 1;
+					queue[#queue + 1] = nk;
+				end
+			end
+		end
+	end
+	local islandTiles = 0;
+	for _, k in ipairs(seaList) do
+		if (shoreDist[k] or 99) >= 2 and Map.Rand(100, "central_sea_isle") < LEK_CENTRAL_SEA_ISLAND_PCT then
+			local r = Map.Rand(100, "central_sea_isle_type");
+			if r < 3 then
+				pt[k + 1] = PlotTypes.PLOT_MOUNTAIN;
+			elseif r < 53 then
+				pt[k + 1] = PlotTypes.PLOT_HILLS;
+			else
+				pt[k + 1] = PlotTypes.PLOT_LAND;
+			end
+			islandTiles = islandTiles + 1;
+		end
+	end
+	_lek_central_sea_plots = sea;
+	LekLandStatsLog("### LekInlandSeaCentral painted=1 at=" .. tostring(cx) .. "," .. tostring(cy)
+		.. " R=" .. tostring(R)
+		.. " seaTiles=" .. tostring(#seaList - islandTiles)
+		.. " islandTiles=" .. tostring(islandTiles));
+end
+
+-- Final plot-type pass: re-derive inland seas from scratch (islands and carves ran after RoundInlandSeas)
+-- and enforce ocean gap + span. Records _lek_inland_sea_plots. Returns stats table.
+function LekCurateInlandSeas(plotTypes, iW, iH, wrapX, wrapY)
+	local function isOcean(x, y)
+		return plotTypes[y * iW + x + 1] == PlotTypes.PLOT_OCEAN;
+	end
+	local openOcean, dist = LekOpenOceanDistances(plotTypes, iW, iH, wrapX, wrapY);
+	local queue, q;
+
+	local stats = { seas = 0, water = 0, gapFilled = 0, spanFilled = 0 };
+	local inland = {};
+	for y = 0, iH - 1 do
+		for x = 0, iW - 1 do
+			local k = y * iW + x;
+			if isOcean(x, y) and not openOcean[k] then
+				if (dist[k] or 0) < LEK_INLAND_SEA_MIN_OCEAN_DIST then
+					plotTypes[k + 1] = PlotTypes.PLOT_LAND;
+					stats.gapFilled = stats.gapFilled + 1;
+				else
+					inland[k] = true;
+				end
+			end
+		end
+	end
+
+	local used = {};
+	local final = {};
+	for y = 0, iH - 1 do
+		for x = 0, iW - 1 do
+			local k = y * iW + x;
+			if inland[k] and not used[k] then
+				local comp = { [k] = true };
+				used[k] = true;
+				queue = { { x, y } };
+				q = 1;
+				while q <= #queue do
+					local cx, cy = queue[q][1], queue[q][2];
+					q = q + 1;
+					for d = 1, 6 do
+						local nx, ny = GetHexNeighbor(cx, cy, d, iW, iH, wrapX, wrapY);
+						if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+							local nk = ny * iW + nx;
+							if inland[nk] and not used[nk] then
+								used[nk] = true;
+								comp[nk] = true;
+								queue[#queue + 1] = { nx, ny };
+							end
+						end
+					end
+				end
+				stats.spanFilled = stats.spanFilled + LekTrimInlandSeaSpan(plotTypes, iW, comp, LEK_INLAND_SEA_MAX_SPAN);
+				local n = 0;
+				for ck in pairs(comp) do
+					final[ck] = true;
+					n = n + 1;
+				end
+				if n > 0 then
+					stats.seas = stats.seas + 1;
+					stats.water = stats.water + n;
+				end
+			end
+		end
+	end
+	_lek_inland_sea_plots = final;
+	return stats;
+end
+
+-- After StartPlotSystem (areas may be recalculated again): fill every inland sea that has water within
+-- LEK_INLAND_SEA_CAPITAL_CLEAR of a major capital. Seas holding a natural wonder are left alone.
+function LekFillInlandSeasNearCapitals()
+	local set = _lek_inland_sea_plots;
+	if set == nil or next(set) == nil then
+		return;
+	end
+	local iW, iH = Map.GetGridSize();
+	local wrapX = Map:IsWrapX();
+	local caps = {};
+	for pid = 0, GameDefines.MAX_MAJOR_CIVS - 1 do
+		local pl = Players[pid];
+		if pl and pl:IsEverAlive() and not pl:IsMinorCiv() then
+			local sp = pl:GetStartingPlot();
+			if sp then
+				caps[#caps + 1] = { sp:GetX(), sp:GetY() };
+			end
+		end
+	end
+	local function isSeaWater(k)
+		if not set[k] then return false; end
+		local p = Map.GetPlotByIndex(k);
+		return p ~= nil and p:IsWater();
+	end
+	local keys = {};
+	for k in pairs(set) do
+		keys[#keys + 1] = k;
+	end
+	table.sort(keys);
+
+	local seen = {};
+	local seasFilled, tilesFilled, seasSkippedNW = 0, 0, 0;
+	for _, k in ipairs(keys) do
+		if not seen[k] and isSeaWater(k) then
+			-- Whole sea (connected inland water).
+			local comp = { k };
+			seen[k] = true;
+			local q = 1;
+			while q <= #comp do
+				local ck = comp[q];
+				q = q + 1;
+				for d = 1, 6 do
+					local nx, ny = GetHexNeighbor(ck % iW, math.floor(ck / iW), d, iW, iH, wrapX, false);
+					if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+						local nk = ny * iW + nx;
+						if not seen[nk] and isSeaWater(nk) then
+							seen[nk] = true;
+							comp[#comp + 1] = nk;
+						end
+					end
+				end
+			end
+			local nearCap, hasNW = false, false;
+			for _, ck in ipairs(comp) do
+				local x, y = ck % iW, math.floor(ck / iW);
+				local p = Map.GetPlotByIndex(ck);
+				local ft = p:GetFeatureType();
+				if ft ~= FeatureTypes.NO_FEATURE and GameInfo.Features[ft] and GameInfo.Features[ft].NaturalWonder then
+					hasNW = true;
+				end
+				for _, c in ipairs(caps) do
+					if Map.PlotDistance(x, y, c[1], c[2]) <= LEK_INLAND_SEA_CAPITAL_CLEAR then
+						nearCap = true;
+					end
+				end
+			end
+			if nearCap and hasNW then
+				seasSkippedNW = seasSkippedNW + 1;
+			elseif nearCap then
+				-- Turn water to flat land first, then pick terrain from land neighbours (majority).
+				for _, ck in ipairs(comp) do
+					local p = Map.GetPlotByIndex(ck);
+					p:SetResourceType(-1);
+					p:SetFeatureType(FeatureTypes.NO_FEATURE, -1);
+					p:SetPlotType(PlotTypes.PLOT_LAND, false, false);
+				end
+				for _, ck in ipairs(comp) do
+					local p = Map.GetPlotByIndex(ck);
+					local votes, bestT, bestN = {}, TerrainTypes.TERRAIN_GRASS, 0;
+					for d = 0, 5 do
+						local np = Map.PlotDirection(p:GetX(), p:GetY(), d);
+						if np and not np:IsWater() then
+							local t = np:GetTerrainType();
+							if t ~= TerrainTypes.TERRAIN_COAST and t ~= TerrainTypes.TERRAIN_OCEAN then
+								votes[t] = (votes[t] or 0) + 1;
+								if votes[t] > bestN or (votes[t] == bestN and t < bestT) then
+									bestN = votes[t];
+									bestT = t;
+								end
+							end
+						end
+					end
+					p:SetTerrainType(bestT, false, false);
+					set[ck] = nil;
+				end
+				seasFilled = seasFilled + 1;
+				tilesFilled = tilesFilled + #comp;
+			end
+		end
+	end
+	if seasFilled > 0 then
+		Map.RecalculateAreas();
+	end
+	LekLandStatsLog("### LekInlandSeaCapitalClear capitals=" .. tostring(#caps)
+		.. " seasFilled=" .. tostring(seasFilled)
+		.. " tilesFilled=" .. tostring(tilesFilled)
+		.. " seasSkippedNaturalWonder=" .. tostring(seasSkippedNW)
+		.. " clearRadius=" .. tostring(LEK_INLAND_SEA_CAPITAL_CLEAR));
+end
+
+------------------------------------------------------------------------------
+-- Land stats (both shapes): file-only, no Lua.log. Needs master _lek_mapgen_logs + channel landstats.
+--   Logs/LekmapLandStats.log   appended, keeps every rolled map (for averages)
+--   Logs/LekmapPipelineFlow.log same line as a flow entry (file is reset per map load)
+-- Mainland = biggest connected land component (flat+hills+mountains). Islands touching it count as mainland.
+------------------------------------------------------------------------------
+function LekLandStatsLog(line)
+	if not (LekMapgenChannelEnabled and LekMapgenChannelEnabled("landstats")) then
+		return;
+	end
+	if LekAppendCiv5Log then
+		LekAppendCiv5Log("LekmapLandStats.log", line);
+	end
+	if LekPipelineFlow then
+		LekPipelineFlow("land_stats", line);
+	end
+end
+
+-- plotTypes: 1-based array (index y * iW + x + 1).
+function LekCountLandStats(plotTypes, iW, iH, wrapX, wrapY)
+	local seen = {};
+	local total, landmasses = 0, 0;
+	local best = { n = 0, hills = 0, mtn = 0 };
+	for y = 0, iH - 1 do
+		for x = 0, iW - 1 do
+			local i = y * iW + x + 1;
+			if plotTypes[i] ~= PlotTypes.PLOT_OCEAN then
+				total = total + 1;
+				if not seen[i] then
+					landmasses = landmasses + 1;
+					local comp = { n = 0, hills = 0, mtn = 0 };
+					local queue = { { x, y } };
+					seen[i] = true;
+					local q = 1;
+					while q <= #queue do
+						local cx, cy = queue[q][1], queue[q][2];
+						q = q + 1;
+						local pt = plotTypes[cy * iW + cx + 1];
+						comp.n = comp.n + 1;
+						if pt == PlotTypes.PLOT_HILLS then
+							comp.hills = comp.hills + 1;
+						elseif pt == PlotTypes.PLOT_MOUNTAIN then
+							comp.mtn = comp.mtn + 1;
+						end
+						for d = 1, 6 do
+							local nx, ny = GetHexNeighbor(cx, cy, d, iW, iH, wrapX, wrapY);
+							if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+								local ni = ny * iW + nx + 1;
+								if not seen[ni] and plotTypes[ni] ~= PlotTypes.PLOT_OCEAN then
+									seen[ni] = true;
+									queue[#queue + 1] = { nx, ny };
+								end
+							end
+						end
+					end
+					if comp.n > best.n then
+						best = comp;
+					end
+				end
+			end
+		end
+	end
+	return {
+		total = total,
+		mainland = best.n,
+		hills = best.hills,
+		mtn = best.mtn,
+		flat = best.n - best.hills - best.mtn,
+		otherLand = total - best.n,
+		landmasses = landmasses,
+	};
+end
+
+function LekLogLandStats(stage, plotTypes, iW, iH, wrapX, wrapY)
+	if not (LekMapgenChannelEnabled and LekMapgenChannelEnabled("landstats")) then
+		return;
+	end
+	local s = LekCountLandStats(plotTypes, iW, iH, wrapX, wrapY);
+	local canvas = iW * iH;
+	LekLandStatsLog("### LekLandStats stage=" .. tostring(stage)
+		.. " shape=" .. tostring(_lek_pangaea_land_shape or "na")
+		.. " W=" .. tostring(iW) .. " H=" .. tostring(iH)
+		.. " waterPct=" .. tostring(_lek_last_water_percent or "?")
+		.. " outerAttempts=" .. tostring(_lek_pangaea_outer_attempt or "?")
+		.. " mainland=" .. tostring(s.mainland)
+		.. " mainlandPctOfCanvas=" .. string.format("%.1f", 100 * s.mainland / math.max(1, canvas))
+		.. " flat=" .. tostring(s.flat)
+		.. " hills=" .. tostring(s.hills)
+		.. " mtn=" .. tostring(s.mtn)
+		.. " otherLand=" .. tostring(s.otherLand)
+		.. " totalLand=" .. tostring(s.total)
+		.. " landmasses=" .. tostring(s.landmasses));
+end
+
+-- Final map (called from LekHB_GenerateMap_Core after StartPlotSystem).
+function LekLogFinalLandStats()
+	local iW, iH = Map.GetGridSize();
+	local pts = {};
+	for i = 0, iW * iH - 1 do
+		pts[i + 1] = Map.GetPlotByIndex(i):GetPlotType();
+	end
+	LekLogLandStats("final", pts, iW, iH, Map:IsWrapX(), false);
+end
+
+------------------------------------------------------------------------------
 local function LekPangaeaProbeLog(msg, minVerb)
 	minVerb = minVerb or 2;
 	if LekMapgenChannelEnabled then
@@ -1009,6 +1525,8 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		if LekPipelineFlow then LekPipelineFlow("PangaeaFractalWorld_GeneratePlotTypes_entry"); end
 	if(args == nil) then args = {}; end
 	_lek_pangaea_max_outer_failed = false;
+	_lek_inland_sea_plots = nil;
+	_lek_central_sea_plots = nil;
 
 	local allcomplete = false;
 	local outerAttempts = 0;
@@ -1044,6 +1562,13 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 			sea_level_low = 54;
 			sea_level_normal = 57;
 			sea_level_high = 60;
+			-- Fractal Pangaea: one point less water than Ring (measured ~+3.5% mainland on the 44x52 Small canvas:
+			-- ~1101 vs ~1073 tiles at 57). Ring keeps 54/57/60.
+			if LekLandmass_IsFractalPangaea and LekLandmass_IsFractalPangaea() then
+				sea_level_low = 53;
+				sea_level_normal = 56;
+				sea_level_high = 59;
+			end
 		end
 		local world_age_old = 3;
 		local world_age_normal = 4;
@@ -1087,6 +1612,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		
 		end
 		water_percent = water_percent - math.floor(fjordmodif / 10);
+		_lek_last_water_percent = water_percent;
 		
 		-- Set values for hills and mountains according to World Age chosen by user.
 		local adjustment = world_age_normal;
@@ -1147,7 +1673,6 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		-- the result until the largest landmass occupies 90% or more of the total land.
 		local bMapOK = false;
 		local middleAttempts = 0;
-		local MAX_MIDDLE = 20;
 		local ringSkipMargin = false;
 		if LekLandmass_IsEquatorRing and LekLandmass_IsEquatorRing() then
 
@@ -1188,10 +1713,6 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 
 		if LekPipelineFlow then LekPipelineFlow("landmass_branch_fractal_pangaea"); end
 			middleAttempts = middleAttempts + 1;
-			if middleAttempts > MAX_MIDDLE then
-				print("[Pangaea] MAX_MIDDLE reached, accepting choke check");
-				bMapOK = true;
-			end
 			local done = false;
 			local iAttempts = 0;
 			local MAX_INNER = 50;
@@ -1346,7 +1867,8 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 
 
 
-			--check landmass
+			-- Landmass accepted as drawn. The old choke check (>=16 contiguous land in every row/column) was
+			-- removed: on the 44-wide Small canvas it failed ~97% of draws and only burned retries.
 			local iW, iH = Map.GetGridSize();
 			local bfland = false;
 			local startcol = 0;
@@ -1358,20 +1880,10 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 			local cencol = 0;
 			local colshift = 0;
 			local landincol = 0;
-			local chkstart = 0;
-			local chkend = 0;
-			local chokepoint = 16;
-			local bXChkFail = false;
-			local bYChkFail = false;
-			local bLastLand = false;
-			local contlandincol = 0;
 			local xcen = 0;
 			local ycen = 0;
 
-			--check y choke points
-			print("-----------------------------------");
-			print("Checking Y Chokes");
-			print("-----------------------------------");
+			-- Landmass extent (columns with land) -> xstart/xend for centering.
 			for x = 1, iW do
 				bfland = false;
 				landincol = 0;
@@ -1408,52 +1920,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 			xstart = mainstart;
 			xend = mainend;
 
-			chkstart = mainstart + 8;
-			chkend = mainend -  8;
-
-			local landincol_prev1 = chokepoint;
-			local landincol_prev2 = chokepoint;
-
-			for x = chkstart, chkend do
-				landincol = 0;
-				contlandincol = 0;
-				for y = 2, iH-2  do
-					local i = iW * y + x + 1;
-					--print("Plot Location = ", i);
-					if self.plotTypes[i] ~= PlotTypes.PLOT_OCEAN then
-					
-						if bLastLand == true then
-							landincol = landincol + 1;
-							bLastLand = true;
-						else
-							landincol = 1;
-							bLastLand = true;
-						end
-					else
-						if contlandincol < landincol then
-							contlandincol = landincol;
-						end
-						bLastLand = false;
-						landincol = 0;
-					end
-				end
-
-				--print("Checking Col:", x, "Continuous Land In Col: ", contlandincol);
-
-				if landincol_prev1 + landincol_prev2 + contlandincol < 3 * chokepoint then
-					--print("Choke Point in Col: ", x);
-					bXChkFail = true;
-				end
-				landincol_prev2 = contlandincol;
-				landincol_prev1 = landincol_prev2;
-			end
-
-
-
-			--check x choke points
-			print("-----------------------------------");
-			print("Checking X Chokes");
-			print("-----------------------------------");
+			-- Landmass extent (rows with land) -> ystart/yend for centering.
 			startcol = 0;
 			cont = 0;
 			biggest = 0;
@@ -1493,98 +1960,35 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 			ystart = mainstart;
 			yend = mainend;
 
-			chkstart = mainstart + 5;
-			chkend = mainend -  5;
-			--print("-----");
-			--print("Mainland Start Row: ", chkstart);
-			--print("Mainland End Row: ", chkend);
-			--print("-----");
-			for y = chkstart, chkend do
-				landincol = 0;
-				contlandincol = 0;
-				for x = 1, iW  do
-					local i = iW * y + x;
-					--print("Plot Location = ", i);
-					if self.plotTypes[i] ~= PlotTypes.PLOT_OCEAN then
-					
-						if bLastLand == true then
-							landincol = landincol + 1;
-							bLastLand = true;
-						else
-							landincol = 1;
-							bLastLand = true;
-						end
-					else
-						if contlandincol < landincol then
-							contlandincol = landincol;
-						end
-						bLastLand = false;
-						landincol = 0;
-					end
-				end
-
-				--print("Checking Col:", y, "Continuous Land In Col: ", contlandincol);
-
-				if contlandincol < chokepoint then
-					--print("Choke Point in Row: ", y);
-					bYChkFail = true;
-				end
+			bMapOK = true;
+			cencol = xstart + ((xend - xstart) / 2);
+			colshift = (iW/2)-cencol;
+			print("Pangaea X Starts At Col: ", xstart, " And Edns At Col: ", xend);
+			print("Center X of Lanmass is at Col: ", cencol, "Shift Need: ", colshift);
+			xshiftamt = math.ceil(colshift);
+			print("Actual Integer Shift Applied: ", xshiftamt);
+			if xshiftamt > 0 then
+				xshift = 1;
+			elseif xshiftamt < 0 then
+				xshift = 2;
+			else
+				xshift = 0;
 			end
 
-
-
-			if bXChkFail == true then
-				print("X Check: False");
+			print("##############################################");
+			cencol = ystart + ((yend - ystart) / 2);
+			colshift = (iH/2)-cencol;
+			print("Pangaea Y Starts At Col: ", ystart, " And Edns At Col: ", yend);
+			print("Center Y of Lanmass is at Col: ", cencol, "Shift Need: ", colshift);
+			yshiftamt = math.ceil(colshift);
+			print("Actual Integer Shift Applied: ", yshiftamt);
+			print("##############################################");
+			if yshiftamt > 0 then
+				yshift = 1;
+			elseif yshiftamt < 0 then
+				yshift = 2;
 			else
-				print("X Check: True");
-			end
-
-			if bYChkFail == true then
-				print("Y Check: False");
-			else
-				print("Y Check: True");
-			end
-
-			if (bXChkFail == true or bYChkFail == true) then
-				print("##############################################");
-				print("Map No Good");
-				print("##############################################");
-				bMapOK = false;
-			else
-				print("##############################################");
-				print("Map Passes");
-				print("##############################################");
-				bMapOK = true;
-			
-				cencol = xstart + ((xend - xstart) / 2);
-				colshift = (iW/2)-cencol;
-				print("Pangaea X Starts At Col: ", xstart, " And Edns At Col: ", xend);
-				print("Center X of Lanmass is at Col: ", cencol, "Shift Need: ", colshift);
-				xshiftamt = math.ceil(colshift);
-				print("Actual Integer Shift Applied: ", xshiftamt);
-				if xshiftamt > 0 then
-					xshift = 1;
-				elseif xshiftamt < 0 then
-					xshift = 2;
-				else
-					xshift = 0;
-				end
-
-				print("##############################################");
-				cencol = ystart + ((yend - ystart) / 2);
-				colshift = (iH/2)-cencol;
-				print("Pangaea Y Starts At Col: ", ystart, " And Edns At Col: ", yend);
-				print("Center Y of Lanmass is at Col: ", cencol, "Shift Need: ", colshift);
-				yshiftamt = math.ceil(colshift);
-				print("Actual Integer Shift Applied: ", yshiftamt);
-				print("##############################################");
-				if yshiftamt > 0 then
-					yshift = 1;
-				elseif yshiftamt < 0 then
-					yshift = 2;
-				else
-					yshift = 0;
-				end
+				yshift = 0;
 			end
 
 		
@@ -2189,7 +2593,12 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 			and LekLandmass_EquatorRing_SeedInlandSeas then
 			LekLandmass_EquatorRing_SeedInlandSeas(self);
 		end
-		RoundInlandSeas(self);
+		if LekInlandSeaCurationActive() then
+			-- Fractal Pangaea: incidental puddles stay as drawn; maybe paint one central sea instead.
+			LekPaintCentralInlandSea(self);
+		else
+			RoundInlandSeas(self);
+		end
 
 		if LekPipelineFlow then LekPipelineFlow("round_inland_seas_done"); end
 		local tAfterRoundInland = (os and os.clock) and os.clock() or 0;
@@ -2235,6 +2644,7 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 			.. " islandsOk=" .. (ok and "1" or "0"), 1);
 		if not ok then
 			if LekMapgenPrint then LekMapgenPrint("### GeneratePangaeaIslands ERROR (islands skipped): " .. tostring(retPlaced) .. " ###"); end
+			if LekPipelineFlow then LekPipelineFlow("islands_error", tostring(retPlaced)); end
 			islandsPlaced = 0;
 			islandsBudgetOk = false;
 		else
@@ -2269,7 +2679,8 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		if not (LekLandmass_IsEquatorRing and LekLandmass_IsEquatorRing()) then
 			waterSliceBad = LekPangaeaWaterSliceReject(self.plotTypes, iW, iH, 10, 18);
 		end
-		local basePass = (iNumLandTilesInUse >= iPercent and islandsPlaced >= minIslands and islandsBudgetOk);
+		-- Islands: the budget is the rule; the island count is logged only (a few big islands can fill it).
+		local basePass = (iNumLandTilesInUse >= iPercent and islandsBudgetOk);
 		if waterSliceBad and not _lek_mapgen_world_is_small then
 			print("######### Map Failure (water-slice heuristic) #########");
 		end
@@ -2284,8 +2695,14 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		else
 			if not _lek_mapgen_world_is_small then
 				print("######### Map Failure #########");
-
-		if LekPipelineFlow then LekPipelineFlow("outer_pass_fail"); end
+			end
+			if LekPipelineFlow then
+				LekPipelineFlow("outer_pass_fail", "land=" .. tostring(iNumLandTilesInUse)
+					.. " landFloor=" .. tostring(math.floor(iPercent))
+					.. " islands=" .. tostring(islandsPlaced) .. "/" .. tostring(minIslands)
+					.. " islandsBudgetOk=" .. (islandsBudgetOk and "1" or "0")
+					.. " waterSlice=" .. (waterSliceBad and "1" or "0")
+					.. " middleAttempts=" .. tostring(middleAttempts));
 			end
 		end
 		LekPangaeaProbeLog("### LekPangaeaPlotTypesProbe outer=" .. tostring(outerAttempts)
@@ -2306,6 +2723,16 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 		elseif LekPipelineFlow then
 			LekPipelineFlow("mtn_breakers_skipped_equator_ring");
 		end
+		if LekInlandSeaCurationActive() then
+			local cs = LekCurateInlandSeas(self.plotTypes, self.iNumPlotsX, self.iNumPlotsY, Map:IsWrapX(), false);
+			LekLandStatsLog("### LekInlandSeaCuration stage=plotTypes seas=" .. tostring(cs.seas)
+				.. " water=" .. tostring(cs.water)
+				.. " gapFilled=" .. tostring(cs.gapFilled)
+				.. " spanFilled=" .. tostring(cs.spanFilled)
+				.. " minOceanDist=" .. tostring(LEK_INLAND_SEA_MIN_OCEAN_DIST)
+				.. " maxSpan=" .. tostring(LEK_INLAND_SEA_MAX_SPAN));
+		end
+		LekLogLandStats("plotTypes", self.plotTypes, self.iNumPlotsX, self.iNumPlotsY, Map:IsWrapX(), false);
 		LekPangaeaProbeLog("### LekPangaeaPlotTypesProbe islandOuterRegen_summary layoutAttempt=" .. tostring(laProbe)
 			.. " outcome=pass outerAttemptsToPass=" .. tostring(outerAttempts)
 			.. " outerRedrawsBeforePass=" .. tostring(math.max(0, outerAttempts - 1))

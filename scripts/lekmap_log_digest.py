@@ -13,10 +13,12 @@ from typing import Dict, List, Tuple
 
 def default_log_path() -> str:
     home = os.path.expanduser("~")
+    if sys.platform == "win32":
+        base = os.path.join(home, "Documents", "My Games")
+    else:
+        base = os.path.join(home, "Library", "Application Support")
     return os.path.join(
-        home,
-        "Library",
-        "Application Support",
+        base,
         "Sid Meier's Civilization 5",
         "Logs",
         "LekmapStartSpacing6P.log",

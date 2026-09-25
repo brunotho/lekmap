@@ -106,11 +106,18 @@ function TryPlaceStripIsland(plotTypes, centerX, centerY, islLandInRing, params)
 			tryOrder[j + 1] = ((dir + j - 1) % 6) + 1;
 		end
 		if towardLand then
+			-- Random tie-break rolled once per dir: a comparator that calls Map.Rand is inconsistent
+			-- and makes table.sort throw ("invalid order function" / nil compare).
+			local tieKey = {};
+			for _, d in ipairs(tryOrder) do
+				tieKey[d] = Map.Rand(1000, "");
+			end
 			table.sort(tryOrder, function(a, b)
 				local sa = math.min(hexDirMargin(a, tanA), hexDirMargin(a, tanB));
 				local sb = math.min(hexDirMargin(b, tanA), hexDirMargin(b, tanB));
 				if sa ~= sb then return sa < sb; end
-				return Map.Rand(2, "") == 0;
+				if tieKey[a] ~= tieKey[b] then return tieKey[a] < tieKey[b]; end
+				return a < b;
 			end);
 		end
 

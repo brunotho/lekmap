@@ -603,6 +603,8 @@ function GenerateIslands(self, policy, genOpts)
 		if x < 0 or x >= iW or y < 0 or y >= iH then return false; end
 		local plotIndex = y * iW + x + 1;
 		if self.plotTypes[plotIndex] ~= PlotTypes.PLOT_OCEAN then return false; end
+		-- Keep ocean islands out of the painted central inland sea (it has its own islands).
+		if _lek_central_sea_plots and _lek_central_sea_plots[plotIndex - 1] then return false; end
 		local islLandInRing, landX, landY, landPlot = 0, 0, 0, 0;
 		local spotOpts = { iW = iW, iH = iH, wrapX = wrapX, wrapY = wrapY, landX = 0, landY = 0 };
 		if attempt then spotOpts.attempt = attempt; end

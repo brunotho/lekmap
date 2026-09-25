@@ -1,14 +1,12 @@
 ------------------------------------------------------------------------------
 -- Lekmap_EquatorRing.lua — lobby leaf: X-wrapping equatorial land ring
 ------------------------------------------------------------------------------
-include("Lekmap_PipelineFlowLog");
-_lek_pangaea_land_shape = "equator_ring";
-LekPipelineFlowReset("leaf_EquatorRing");
-LekPipelineFlow("leaf_after_shape_set");
-
-_lek_mapgen_log_verbosity = 1;
+-- LOG MASTER SWITCH: false for release (nothing is written), true while testing.
+-- Flow log + all channels below follow it; channels only pick topics when it is true.
 _lek_mapgen_logs = false;
-_lek_pipeline_flow_log = false;
+_lek_pipeline_flow_log = _lek_mapgen_logs;
+-- Use 3 when testing islands on Small (LekIslandProbe budget lines need it).
+_lek_mapgen_log_verbosity = 1;
 _lek_mapgen_log_channels = {
 	islands = false,
 	islands_tiles = false,
@@ -17,8 +15,15 @@ _lek_mapgen_log_channels = {
 	mapgen = false,
 	pangaea = false,
 	bench = false,
+	-- ### LekLandStats (+ LekInlandSea* on Fractal Pangaea) -> Logs/LekmapLandStats.log (+ flow log).
+	landstats = true,
 	other = false,
 };
+
+include("Lekmap_PipelineFlowLog");
+_lek_pangaea_land_shape = "equator_ring";
+LekPipelineFlowReset("leaf_EquatorRing");
+LekPipelineFlow("leaf_after_shape_set");
 
 LekPipelineFlow("leaf_before_pipeline_include");
 include("Lekmap_PangaeaPipeline");
@@ -33,7 +38,7 @@ function GetMapScriptInfo()
 	LekPipelineFlow("GetMapScriptInfo_call");
 	local world_age, temperature, rainfall, sea_level, resources = GetCoreMapOptions()
 	return {
-		Name = "[COLOR_PLAYER_PURPLE_TEXT]Lekmap 6.0.3 -- Equator Ring[ENDCOLOR]",
+		Name = "[COLOR_PLAYER_PURPLE_TEXT]Lekmap 6.0.4 -- Equator Ring[ENDCOLOR]",
 		Description = "Lekmap pangaea — land belt wrapping the equator with open polar oceans.",
 		IsAdvancedMap = false,
 		IconIndex = 0,

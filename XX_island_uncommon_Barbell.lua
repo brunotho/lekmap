@@ -53,8 +53,12 @@ function TryPlaceBarbellIsland(plotTypes, centerX, centerY, islLandInRing, param
 	local perps = perpDirs(dir);
 
 	for lobe = 1, lobeASize do
-		local fromX, fromY = (lobe == 1) and cx or landTiles[#landTiles + 1 - lobeASize + lobe - 1][1];
-		if lobe == 1 then fromX, fromY = cx, cy; end
+		-- Lobe 1 grows from the centre; later lobe tiles grow from the previous lobe tile.
+		local fromX, fromY = cx, cy;
+		if lobe > 1 then
+			local prev = landTiles[#landTiles];
+			fromX, fromY = prev[1], prev[2];
+		end
 		local candidates = {};
 		for _, pd in ipairs(perps) do
 			local nx, ny = GetHexNeighbor(fromX, fromY, pd, params.iW, params.iH, params.wrapX, params.wrapY);

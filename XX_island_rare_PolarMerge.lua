@@ -411,7 +411,7 @@ local function drawPangaeaEmbrace(plotTypes, iW, iH, wrapX, wrapY)
 		end
 		if sampleW and sampleE and gapWidth >= 2 then
 			local bandW = math.max(2, math.floor(gapWidth * CONFIG.ARCTIC_FILL_EXTENDED_BAND_FRAC));
-			extXLo = sampleW + 1 + Map.Rand(math.max(0, (sampleE - sampleW - 1) - bandW), "");
+			extXLo = sampleW + 1 + Map.Rand(math.max(1, (sampleE - sampleW - 1) - bandW), "");
 			extXHi = extXLo + bandW - 1;
 			maxRow = 6;
 		end
@@ -714,7 +714,8 @@ local function drawPangaeaEmbrace(plotTypes, iW, iH, wrapX, wrapY)
 				end
 				local loIdx = 1 + (sec - 1) * secSize;
 				local hiIdx = (sec < nSec) and (sec * secSize) or #rowList;
-				local pickIdx = loIdx + Map.Rand(math.max(1, hiIdx - loIdx + 1), "") - 1;
+				-- Map.Rand is 0..n-1, so no -1 here (was picking index 0 -> nil).
+				local pickIdx = loIdx + Map.Rand(math.max(1, hiIdx - loIdx + 1), "");
 				y = rowList[math.min(pickIdx, #rowList)];
 			end
 			y = math.max(rowList[1], math.min(rowList[#rowList], y));

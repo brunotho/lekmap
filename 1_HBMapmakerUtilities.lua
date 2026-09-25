@@ -562,7 +562,8 @@ function AdjacentToSaltWater(x, y)
 			if testPlot ~= nil then
 				local type = testPlot:GetPlotType()
 				if type == PlotTypes.PLOT_OCEAN then -- Adjacent plot is water! Check if ocean or lake.
-					if testPlot:IsLake() == false then -- Adjacent plot is salt water!
+					-- Lekmap: curated inland seas count like lakes, so coastal starts use the main ocean.
+					if testPlot:IsLake() == false and not (LekIsInlandSeaPlot and LekIsInlandSeaPlot(testPlot)) then -- Adjacent plot is salt water!
 						return true
 					end
 				end
