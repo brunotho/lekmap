@@ -168,13 +168,12 @@ function DrawClusterOfTinyIslands(plotTypes, landTiles, iW)
 	for _, t in ipairs(landTiles) do
 		local x, y = t[1], t[2];
 		local idx = y * iW + x + 1;
+		-- Never mountains: 30% flat, 70% hills.
 		local r = Map.Rand(100, "");
 		if r < 30 then
 			plotTypes[idx] = PlotTypes.PLOT_LAND;
-		elseif r < 95 then
-			plotTypes[idx] = PlotTypes.PLOT_HILLS;
 		else
-			plotTypes[idx] = PlotTypes.PLOT_MOUNTAIN;
+			plotTypes[idx] = PlotTypes.PLOT_HILLS;
 		end
 	end
 end

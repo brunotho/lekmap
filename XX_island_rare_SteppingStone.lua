@@ -14,7 +14,7 @@ local function getNeighbor(x, y, dir, iW, iH, wrapX, wrapY)
 	return nx, ny;
 end
 
-local function pidx(x, y, iW) return y * iW + x; end
+local function pidx(x, y, iW) return y * iW + x + 1; end
 
 local function isWater(plotTypes, x, y, iW)
 	if x < 0 or x >= iW or y < 0 then return false; end

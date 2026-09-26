@@ -67,9 +67,9 @@ function TryPlaceVolcanicRing(plotTypes, centerX, centerY, islLandInRing, params
 	for _, t in ipairs(disk1) do
 		local key = t[1] .. "," .. t[2];
 		if centerMountainSet[key] then
-			plotTypes[t[2] * params.iW + t[1]] = PlotTypes.PLOT_MOUNTAIN;
+			plotTypes[t[2] * params.iW + t[1] + 1] = PlotTypes.PLOT_MOUNTAIN;
 		else
-			plotTypes[t[2] * params.iW + t[1]] = PlotTypes.PLOT_OCEAN;
+			plotTypes[t[2] * params.iW + t[1] + 1] = PlotTypes.PLOT_OCEAN;
 		end
 	end
 
@@ -252,9 +252,9 @@ function TryPlaceVolcanicRing(plotTypes, centerX, centerY, islLandInRing, params
 				local hillsPct = adjWater and CONFIG.RIM_HILLS_PCT or CONFIG.HILLS_PCT;
 				mt = (Map.Rand(100, "") < hillsPct) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
 			end
-			plotTypes[y * params.iW + x] = mt;
+			plotTypes[y * params.iW + x + 1] = mt;
 		else
-			plotTypes[y * params.iW + x] = PlotTypes.PLOT_OCEAN;
+			plotTypes[y * params.iW + x + 1] = PlotTypes.PLOT_OCEAN;
 		end
 	end
 	for key, ringNum in pairs(islandSet) do
@@ -262,7 +262,7 @@ function TryPlaceVolcanicRing(plotTypes, centerX, centerY, islLandInRing, params
 			local x, y = key:match("([^,]+),([^,]+)");
 			x, y = tonumber(x), tonumber(y);
 			local hillsPct = CONFIG.RIM_HILLS_PCT;
-			plotTypes[y * params.iW + x] = (Map.Rand(100, "") < hillsPct) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
+			plotTypes[y * params.iW + x + 1] = (Map.Rand(100, "") < hillsPct) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
 		end
 	end
 
@@ -271,7 +271,7 @@ function TryPlaceVolcanicRing(plotTypes, centerX, centerY, islLandInRing, params
 		local x, y, rn = t[1], t[2], t[3];
 		local key = x .. "," .. y;
 		if islandSet[key] and (rn == 2 or rn == 3) then
-			local pt = plotTypes[y * params.iW + x];
+			local pt = plotTypes[y * params.iW + x + 1];
 			if pt == PlotTypes.PLOT_LAND or pt == PlotTypes.PLOT_HILLS or pt == PlotTypes.PLOT_MOUNTAIN then
 				ringLandKeys[#ringLandKeys + 1] = { x, y };
 			end
@@ -284,7 +284,7 @@ function TryPlaceVolcanicRing(plotTypes, centerX, centerY, islLandInRing, params
 	end
 	for i = 1, nErase do
 		local t = ringLandKeys[i];
-		plotTypes[t[2] * params.iW + t[1]] = PlotTypes.PLOT_OCEAN;
+		plotTypes[t[2] * params.iW + t[1] + 1] = PlotTypes.PLOT_OCEAN;
 	end
 	return true;
 end

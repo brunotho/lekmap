@@ -42,7 +42,7 @@ end
 
 local function isLand(plotTypes, x, y, iW, iH)
 	if x < 0 or x >= iW or y < 0 or y >= iH then return false; end
-	local t = plotTypes[y * iW + x];
+	local t = plotTypes[y * iW + x + 1];
 	return t == PlotTypes.PLOT_LAND or t == PlotTypes.PLOT_HILLS or t == PlotTypes.PLOT_MOUNTAIN;
 end
 
@@ -151,7 +151,7 @@ function DrawStripIsland(plotTypes, landTiles, iW)
 	local mtnChance = (n <= CONFIG.SIZE_THRESHOLD) and CONFIG.MTN_CHANCE_SMALL or CONFIG.MTN_CHANCE_LARGE;
 	for _, t in ipairs(landTiles) do
 		local x, y = t[1], t[2];
-		local idx = y * iW + x;
+		local idx = y * iW + x + 1;
 		local mt = (Map.Rand(100, "") < hillsPct) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
 		if mt == PlotTypes.PLOT_LAND and Map.Rand(100, "") < mtnChance then
 			mt = PlotTypes.PLOT_MOUNTAIN;
@@ -163,7 +163,7 @@ function DrawStripIsland(plotTypes, landTiles, iW)
 		if lo <= hi then
 			local i = lo + Map.Rand(hi - lo + 1, "");
 			local t = landTiles[i];
-			plotTypes[t[2] * iW + t[1]] = PlotTypes.PLOT_OCEAN;
+			plotTypes[t[2] * iW + t[1] + 1] = PlotTypes.PLOT_OCEAN;
 		end
 	end
 end

@@ -5574,7 +5574,7 @@ function AssignStartingPlots:FindStart(region_number, NoCoast)
 		self:PlaceImpactAndRipples(best_fallback_x, best_fallback_y)
 		bSuccessFlag = true;
 	else
-		self:LekErrorIfLegacyForbidForcedCorner(region_number, "FindStart");
+		AssignStartingPlots.LekErrorIfLegacyForbidForcedCorner(self, region_number, "FindStart");
 		local forcePlot = Map.GetPlot(iWestX, iSouthY);
 		bSuccessFlag = true;
 		bForcedPlacementFlag = true;
@@ -6093,7 +6093,7 @@ function AssignStartingPlots:FindStartWithoutRegardToAreaID(region_number, bMust
 		self:PlaceImpactAndRipples(best_fallback_x, best_fallback_y)
 		bSuccessFlag = true;
 	else
-		self:LekErrorIfLegacyForbidForcedCorner(region_number, "FindStartWithoutRegardToAreaID");
+		AssignStartingPlots.LekErrorIfLegacyForbidForcedCorner(self, region_number, "FindStartWithoutRegardToAreaID");
 		local forcePlot = Map.GetPlot(iWestX, iSouthY);
 		bForcedPlacementFlag = true;
 		forcePlot:SetPlotType(PlotTypes.PLOT_LAND, false, true);
@@ -8423,7 +8423,14 @@ function AssignStartingPlots:LekGlobalSix_ForceGeometryPackFromPools(byRegion, d
 		local fallback = {};
 		for i = 1, lim do
 			local c = src[i];
-			if isEngineSafeStartCandidate(c) then
+			-- Lekmap: keep capitals clear of the central volcano peak (its natural wonder needs 5+ tiles).
+			local nearPeak = false;
+			if _lek_central_volcano and _lek_central_volcano_peak then
+				local pk = _lek_central_volcano_peak;
+				local gW = select(1, Map.GetGridSize());
+				nearPeak = Map.PlotDistance(c.x, c.y, pk % gW, math.floor(pk / gW)) < (LEK_CENTRAL_NW_START_CLEAR or 5);
+			end
+			if isEngineSafeStartCandidate(c) and not nearPeak then
 				fallback[#fallback + 1] = c;
 				local d = tonumber(c.dMapCenter);
 				if d ~= nil and d >= bandMin and d <= bandMax then
@@ -16369,7 +16376,7 @@ function AssignStartingPlots:ProcessResourceList(frequency, impact_table_number,
 						local x = (plotIndex - 1) % iW;
 						local y = (plotIndex - x - 1) / iW;
 						local res_plot = Map.GetPlot(x, y)
-						if res_plot:GetResourceType(-1) == -1 then -- Placing this luxury resource in this plot.
+						if res_plot:GetResourceType(-1) == -1 and not AssignStartingPlots.LekTropicalLuxBlockedAtY(self, res_ID[use_this_res_index], y) then -- Placing this luxury resource in this plot.
 							local res_addition = 0;
 							if res_range[use_this_res_index] ~= -1 then
 								res_addition = Map.Rand(res_range[use_this_res_index], "Resource Radius - Place Resource LUA");
@@ -16469,6 +16476,22 @@ function AssignStartingPlots:ProcessResourceList(frequency, impact_table_number,
 	end
 end
 ------------------------------------------------------------------------------
+-- Lekmap: tropical luxuries are banned in the LEK_TROPICAL_LUX_POLAR_ROWS rows at each map edge (snowy
+-- latitudes + ~2), even where the terrain allows them (e.g. citrus on plains next to tundra).
+LEK_TROPICAL_LUX_POLAR_ROWS = 8;
+function AssignStartingPlots:LekTropicalLuxBlockedAtY(resID, y)
+	if self._lek_tropical_lux_set == nil then
+		local set = {};
+		for _, id in ipairs({ self.citrus_ID, self.cocoa_ID, self.coconut_ID, self.spices_ID, self.sugar_ID, self.rubber_ID }) do
+			if type(id) == "number" and id >= 0 then set[id] = true; end
+		end
+		self._lek_tropical_lux_set = set;
+	end
+	if not self._lek_tropical_lux_set[resID] then return false; end
+	local _, iH = Map.GetGridSize();
+	return y < LEK_TROPICAL_LUX_POLAR_ROWS or y >= iH - LEK_TROPICAL_LUX_POLAR_ROWS;
+end
+
 function AssignStartingPlots:PlaceSpecificNumberOfResources(resource_ID, quantity, amount,
 	                         ratio, impact_table_number, min_radius, max_radius, plot_list)
 	-- This function needs to receive seven numbers and one table.
@@ -16534,7 +16557,7 @@ function AssignStartingPlots:PlaceSpecificNumberOfResources(resource_ID, quantit
 				local x = (plotIndex - 1) % iW;
 				local y = (plotIndex - x - 1) / iW;
 				local res_plot = Map.GetPlot(x, y)
-				if res_plot and res_plot:GetResourceType(-1) == -1 then
+				if res_plot and res_plot:GetResourceType(-1) == -1 and not AssignStartingPlots.LekTropicalLuxBlockedAtY(self, resource_ID, y) then
 					res_plot:SetResourceType(resource_ID, quantity);
 					AssignStartingPlots.LekStratAuditRecordHorseIron(self, resource_ID, quantity, res_plot, x, y);
 					self.amounts_of_resources_placed[resource_ID + 1] = self.amounts_of_resources_placed[resource_ID + 1] + quantity;
@@ -18740,7 +18763,7 @@ function AssignStartingPlots:LekPlaceRegionalLuxuryShortfallFallback()
 		if type(region_number) == "number" and region_number >= 1 and type(res_ID) == "number" and type(amount) == "number" and amount > 0 then
 			local left = amount;
 			local isSea = self:LekIsSeaLuxuryResourceId(res_ID);
-			local pool48 = self:LekBuildRegionalLuxuryRepairPoolInBand(region_number, res_ID, 4, 7);
+			local pool48 = self:LekBuildRegionalLuxuryRepairPoolInBand(region_number, res_ID, 4, LEK_REGIONAL_LUX_MAX_DIST or 7);
 			local pool18 = {};
 			local function placeFromPool(pool)
 				if pool == nil or #pool == 0 then
@@ -18761,7 +18784,7 @@ function AssignStartingPlots:LekPlaceRegionalLuxuryShortfallFallback()
 				left = placeFromPool(pool48);
 			end
 			if left > 0 then
-				pool18 = self:LekBuildRegionalLuxuryRepairPoolInBand(region_number, res_ID, 1, 7);
+				pool18 = self:LekBuildRegionalLuxuryRepairPoolInBand(region_number, res_ID, 1, LEK_REGIONAL_LUX_MAX_DIST or 7);
 				if #pool18 > 0 then
 					left = placeFromPool(pool18);
 				end
@@ -20368,7 +20391,7 @@ function AssignStartingPlots:PlaceLuxuries()
 		local primary, secondary, tertiary, quaternary, quinary, senary, luxury_plot_lists, shuf_list, iNumLeftToPlace;		-- MOD.Barathor: New -- added a quinary and senary list
 		primary, secondary, tertiary, quaternary, quinary, senary = self:GetIndicesForLuxuryType(res_ID);					-- MOD.Barathor: New -- added a quinary and senary list
 		luxury_plot_lists = self:GenerateLuxuryPlotListsInRegion(region_number)
-		luxury_plot_lists = self:FilterLuxuryPlotListsWithinPlotDistanceOfMajorStart(luxury_plot_lists, region_number, 7)
+		luxury_plot_lists = self:FilterLuxuryPlotListsWithinPlotDistanceOfMajorStart(luxury_plot_lists, region_number, LEK_REGIONAL_LUX_MAX_DIST or 7)
 		if self:LekIsSeaLuxuryResourceId(res_ID) then
 			local seaRaw, seaDropLand, seaDropCS = 0, 0, 0;
 			local function filterSeaList(li)
@@ -21185,7 +21208,7 @@ function AssignStartingPlots:PlaceLuxuries_OLD()
 		local primary, secondary, tertiary, quaternary, luxury_plot_lists, shuf_list, iNumLeftToPlace;
 		primary, secondary, tertiary, quaternary = self:GetIndicesForLuxuryType(res_ID);
 		luxury_plot_lists = self:GenerateLuxuryPlotListsInRegion(region_number)
-		luxury_plot_lists = self:FilterLuxuryPlotListsWithinPlotDistanceOfMajorStart(luxury_plot_lists, region_number, 7)
+		luxury_plot_lists = self:FilterLuxuryPlotListsWithinPlotDistanceOfMajorStart(luxury_plot_lists, region_number, LEK_REGIONAL_LUX_MAX_DIST or 7)
 		if self:LekIsSeaLuxuryResourceId(res_ID) then
 			local seaRaw, seaDropLand, seaDropCS = 0, 0, 0;
 			local function filterSeaList(li)
@@ -22583,7 +22606,7 @@ function AssignStartingPlots:PlaceCoastalBonusIslands()
 			for _, t in ipairs(islandTiles) do
 				local p = Map.GetPlot(t[1], t[2]);
 				if p and not p:IsWater() and p:GetFeatureType() == FeatureTypes.NO_FEATURE then
-					local fpct = 60;
+					local fpct = 80; -- islands carry more vegetation than the mainland
 					if p:GetTerrainType() == TerrainTypes.TERRAIN_DESERT then
 						fpct = 3;
 					end
@@ -22785,7 +22808,7 @@ function AssignStartingPlots:PlaceCoastalBonusIslands()
 				for _, t in ipairs(islandTiles) do
 					local p = Map.GetPlot(t[1], t[2]);
 					if p and not p:IsWater() and p:GetFeatureType() == FeatureTypes.NO_FEATURE then
-						local fpct = 60;
+						local fpct = 80; -- islands carry more vegetation than the mainland
 						if p:GetTerrainType() == TerrainTypes.TERRAIN_DESERT then
 							fpct = 3;
 						end
@@ -24126,7 +24149,11 @@ function AssignStartingPlots:PlaceStrategicAndBonusResources()
 		return self:LekFilterLakeFishIndicesAwayFromMajorStarts(pool or {}, 4);
 	end
 	
-	if self._lek_coastal_refish then
+	-- Lekmap: fish ring bias (fish only; _lek_coastal_refish also changes lux rules). Mainland fish are placed
+	-- per ring with their own rates (shore ring densest) instead of one even draw over the 3-ring band.
+	local fishRingBias = (self._lek_coastal_refish == true) or (LEK_FISH_RING_BIAS == true);
+	local ringFreq = self._lek_coastal_refish and { 3, 8, 15 } or (LEK_FISH_RING_FREQ or { 5, 9, 18 });
+	if fishRingBias then
 		local iW, iH = Map.GetGridSize()
 		local plotDataImmediateCoast = {};
 		local plotDataNextToImmediateCoast ={};
@@ -24175,11 +24202,11 @@ function AssignStartingPlots:PlaceStrategicAndBonusResources()
 		local fish_coast_second = GetShuffledCopyOfTable(temp_list_pangaea_second)
 		local fish_coast_outer = GetShuffledCopyOfTable(temp_list_pangaea_outer)
 
-		self:PlaceFishMainland(lek_fish_freq_keep_total(3 * bonus_multiplier, #fish_coast_inner, nLakeKept, nLakeFull),
+		self:PlaceFishMainland(lek_fish_freq_keep_total(ringFreq[1] * bonus_multiplier, #fish_coast_inner, nLakeKept, nLakeFull),
 			Lek_FishPoolAwayFromStarts(AssignStartingPlots.LekMergePlotIndexLists(fish_coast_inner, lake_fish)));
-		self:PlaceFishMainland(lek_fish_freq_keep_total(8 * bonus_multiplier, #fish_coast_second, nLakeKept, nLakeFull),
+		self:PlaceFishMainland(lek_fish_freq_keep_total(ringFreq[2] * bonus_multiplier, #fish_coast_second, nLakeKept, nLakeFull),
 			Lek_FishPoolAwayFromStarts(AssignStartingPlots.LekMergePlotIndexLists(fish_coast_second, lake_fish)));
-		self:PlaceFishMainland(lek_fish_freq_keep_total(15 * bonus_multiplier, #fish_coast_outer, nLakeKept, nLakeFull),
+		self:PlaceFishMainland(lek_fish_freq_keep_total(ringFreq[3] * bonus_multiplier, #fish_coast_outer, nLakeKept, nLakeFull),
 			Lek_FishPoolAwayFromStarts(AssignStartingPlots.LekMergePlotIndexLists(fish_coast_outer, lake_fish)));
 
 	elseif self.method == 1 then
@@ -24222,12 +24249,52 @@ function AssignStartingPlots:PlaceStrategicAndBonusResources()
 	end
 
 	local coast_and_lake_fish = Lek_FishPoolAwayFromStarts(AssignStartingPlots.LekMergePlotIndexLists(self.coast_list, lake_fish));
-	if self._lek_coastal_refish then
+	if self._lek_coastal_refish then  -- (fish ring bias alone keeps the normal island/other-coast rate)
 		self:PlaceFish(lek_fish_freq_keep_total(16 * bonus_multiplier, #(self.coast_list or {}), nLakeKept, nLakeFull), coast_and_lake_fish);
 	else
 		self:PlaceFish(lek_fish_freq_keep_total(8 * bonus_multiplier, #(self.coast_list or {}), nLakeKept, nLakeFull), coast_and_lake_fish);
 	end
 
+
+	-- Fish count by distance to the mainland (land-stats log).
+	if LekLandStatsLog then
+		pcall(function()
+			local iW, iH = Map.GetGridSize();
+			local main = Map.FindBiggestArea(false);
+			local mainId = main and main:GetID() or -1;
+			local dist, q = {}, {};
+			for k = 0, iW * iH - 1 do
+				local p = Map.GetPlotByIndex(k);
+				if not p:IsWater() and p:GetArea() == mainId then dist[k] = 0; q[#q + 1] = k; end
+			end
+			local h = 1;
+			while h <= #q do
+				local k = q[h];
+				h = h + 1;
+				if dist[k] < 4 then
+					local p = Map.GetPlotByIndex(k);
+					for d = 0, 5 do
+						local np = Map.PlotDirection(p:GetX(), p:GetY(), d);
+						if np then
+							local nk = np:GetY() * iW + np:GetX();
+							if dist[nk] == nil then dist[nk] = dist[k] + 1; q[#q + 1] = nk; end
+						end
+					end
+				end
+			end
+			local c = { 0, 0, 0, 0 };
+			for k = 0, iW * iH - 1 do
+				local p = Map.GetPlotByIndex(k);
+				if p:IsWater() and p:GetResourceType(-1) == self.fish_ID then
+					local d = dist[k];
+					local b = (d and d <= 3) and d or 4;
+					c[b] = c[b] + 1;
+				end
+			end
+			LekLandStatsLog("### LekFish mainlandRing1=" .. c[1] .. " ring2=" .. c[2] .. " ring3=" .. c[3]
+				.. " farther=" .. c[4] .. " ringBias=" .. tostring(fishRingBias));
+		end);
+	end
 
 	self:PlaceSexyBonusAtCivStarts()
 	self:AddExtraBonusesToHillsRegions()
@@ -24377,7 +24444,26 @@ function AssignStartingPlots:PlaceResourcesAndCityStates()
 	LekMapgenFileTrace("Map Generation - Assigning Luxury Resource Distribution");
 	self:LekSyncStartingPlotsFromMajorPlayersByRegionRect();
 	do
+		-- Island map log: attribute land added by coastal bonus islands.
+		local trackBonus = LekIslandMapEnabled and LekIslandMapEnabled() and LekRegisterExtraIsland;
+		local landBefore = nil;
+		if trackBonus then
+			landBefore = {};
+			for k = 0, Map.GetNumPlots() - 1 do
+				landBefore[k] = not Map.GetPlotByIndex(k):IsWater();
+			end
+		end
 		local ok, err = pcall(function() self:PlaceCoastalBonusIslands() end);
+		if trackBonus then
+			local added = {};
+			for k = 0, Map.GetNumPlots() - 1 do
+				if not landBefore[k] and not Map.GetPlotByIndex(k):IsWater() then
+					added[#added + 1] = k;
+				end
+			end
+			if #added > 0 then LekRegisterExtraIsland("coastalBonus", added); end
+		end
+		if LekForcePolarSnowRows then pcall(LekForcePolarSnowRows); end
 		if not ok then
 			local msg = "### PRE-CS CRASH: runId=" .. tostring(_lek_run_id or "na") .. " stage=PlaceCoastalBonusIslands err=" .. tostring(err);
 			print(msg);

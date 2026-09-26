@@ -51,8 +51,15 @@ local function LekIslandBudgetFillPct(spent, target)
 	return 100 * spent / target;
 end
 
+-- Island map tracking (channel islandmap): which island type painted which tile, final accepted run only.
+function LekIslandMapEnabled()
+	return LekMapgenChannelEnabled ~= nil and LekMapgenChannelEnabled("islandmap");
+end
+
 function GenerateIslands(self, policy, genOpts)
 	genOpts = genOpts or {};
+	_lek_island_track = nil;
+	local lastRunTrack = nil;
 	policy = policy or LekIslands_ResolvePolicy(genOpts.policy);
 	if policy == nil then
 		if LekPipelineFlow then LekPipelineFlow("islands_engine_no_policy"); end
@@ -142,9 +149,18 @@ function GenerateIslands(self, policy, genOpts)
 		return { pullBack = 1, effMin = 1, effMax = 6 };
 	end
 
+	-- policy.maxPerType = { type = n }: hard cap per map (counts reset with each budget try).
+	local maxPerType = policy.maxPerType or {};
+	local runTypeCounts = {};
+	local function typeCapped(t)
+		return t ~= nil and maxPerType[t] ~= nil and (runTypeCounts[t] or 0) >= maxPerType[t];
+	end
+
+	local guardedPlace; -- assigned below once the pre-island land mask exists
 	local function TryPlaceIsland(plotTypes, x, y, islLandInRing, opts, forceType)
 		local islandType = forceType or "dot";
 		if not IslandTypePlace[islandType] then return false, islandType; end
+		if typeCapped(islandType) then return false, islandType; end
 		local params = GetPlaceParams(islandType);
 		params.iW = opts.iW;
 		params.iH = opts.iH;
@@ -152,15 +168,20 @@ function GenerateIslands(self, policy, genOpts)
 		params.wrapY = opts.wrapY;
 		params.landX = opts.landX;
 		params.landY = opts.landY;
+		params.mainland = opts.mainland;  -- 1-based set of mainland tiles (pre-island biggest landmass)
 		if opts.attempt then params.attempt = opts.attempt; end
-		local placed = IslandTypePlace[islandType](plotTypes, x, y, islLandInRing, params);
+		local placed = guardedPlace(islandType, function(pt)
+			return IslandTypePlace[islandType](pt, x, y, islLandInRing, params);
+		end);
 		return placed, islandType;
 	end
 
 	local function DraftOneFromTier(pool, excludeSet)
 		local totalWeight = 0;
 		for _, e in ipairs(pool) do
-			if not (IsMaxOne(e.type) and excludeSet[e.type]) then
+			if typeCapped(e.type) then
+				-- capped for this map: never drafted again
+			elseif not (IsMaxOne(e.type) and excludeSet[e.type]) then
 				totalWeight = totalWeight + e.odds;
 			end
 		end
@@ -168,7 +189,7 @@ function GenerateIslands(self, policy, genOpts)
 		local roll = Map.Rand(totalWeight, "");
 		local cumulative = 0;
 		for _, e in ipairs(pool) do
-			if not (IsMaxOne(e.type) and excludeSet[e.type]) then
+			if not typeCapped(e.type) and not (IsMaxOne(e.type) and excludeSet[e.type]) then
 				cumulative = cumulative + e.odds;
 				if roll < cumulative then return e.type; end
 			end
@@ -228,6 +249,163 @@ function GenerateIslands(self, policy, genOpts)
 
 	local wrapX = Map:IsWrapX();
 	local wrapY = false;
+
+	-- Mainland = biggest connected piece of the pre-island land (keys 1-based like pangeaTiles).
+	-- Seeds anchor to it; stray tectonic specks / central-sea islands do not count as anchors.
+	local mainlandTiles = {};
+	do
+		local compOf, bestC, bestN, nC = {}, nil, 0, 0;
+		for i in pairs(pangeaTiles) do
+			if not compOf[i] then
+				nC = nC + 1;
+				local grp, h = { i }, 1;
+				compOf[i] = nC;
+				while h <= #grp do
+					local k0 = grp[h] - 1;
+					for d = 1, 6 do
+						local nx, ny = GetHexNeighbor(k0 % iW, math.floor(k0 / iW), d, iW, iH, wrapX, wrapY);
+						if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+							local ni = ny * iW + nx + 1;
+							if pangeaTiles[ni] and not compOf[ni] then
+								compOf[ni] = nC;
+								grp[#grp + 1] = ni;
+							end
+						end
+					end
+					h = h + 1;
+				end
+				if #grp > bestN then bestN = #grp; bestC = nC; end
+			end
+		end
+		for i, c in pairs(compOf) do
+			if c == bestC then mainlandTiles[i] = true; end
+		end
+	end
+
+	-- Gap guard: types not in policy.mayTouchMainland must keep >= 1 water tile from the pre-island land
+	-- (pangeaTiles). Writes go through a recording proxy; a placement that paints next to / over that land
+	-- (or carves it) is undone and counts as a failed try. Island marker globals are rolled back with it.
+	local mayTouch = policy.mayTouchMainland or {};
+	-- Civ5 map scripts have no _G, so the marker globals are saved/restored by name explicitly.
+	local function saveMarkers()
+		return { _sri_pada_island_plot, _solomons_island_mines_plot, _solomons_island_nw_type,
+			_krakatoa_island_plot, _sinai_island_plot, _geothermal_island_plot, _geothermal_island_nw_type,
+			_geothermal_is_krakatoa, _geothermal_snow_plot_indices, _geothermal_forest_ring_indices };
+	end
+	local function restoreMarkers(m)
+		_sri_pada_island_plot, _solomons_island_mines_plot, _solomons_island_nw_type = m[1], m[2], m[3];
+		_krakatoa_island_plot, _sinai_island_plot, _geothermal_island_plot, _geothermal_island_nw_type = m[4], m[5], m[6], m[7];
+		_geothermal_is_krakatoa, _geothermal_snow_plot_indices, _geothermal_forest_ring_indices = m[8], m[9], m[10];
+	end
+	local gapRejects = 0;
+	-- Max distance rule: an island's closest tile must be within policy.maxMainlandGap hexes of the mainland
+	-- (types in policy.farFromMainlandOk are exempt, e.g. the outward-heading hotspot trail).
+	local maxMainlandGap = policy.maxMainlandGap;
+	local farOk = policy.farFromMainlandOk or {};
+	local mainDist = {};
+	if maxMainlandGap then
+		local qd = {};
+		for i in pairs(mainlandTiles) do
+			mainDist[i - 1] = 0;
+			qd[#qd + 1] = i - 1;
+		end
+		local hd = 1;
+		while hd <= #qd do
+			local k = qd[hd];
+			hd = hd + 1;
+			if mainDist[k] < maxMainlandGap then
+				for d = 1, 6 do
+					local nx, ny = GetHexNeighbor(k % iW, math.floor(k / iW), d, iW, iH, wrapX, wrapY);
+					if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+						local nk = ny * iW + nx;
+						if mainDist[nk] == nil then
+							mainDist[nk] = mainDist[k] + 1;
+							qd[#qd + 1] = nk;
+						end
+					end
+				end
+			end
+		end
+	end
+	local function isLandType(t)
+		return t == PlotTypes.PLOT_LAND or t == PlotTypes.PLOT_HILLS or t == PlotTypes.PLOT_MOUNTAIN;
+	end
+	guardedPlace = function(islandType, placeFn)
+		local real = self.plotTypes;
+		if mayTouch[islandType] then
+			return placeFn(real);
+		end
+		local saved = saveMarkers();
+		local savedPlaced = {};
+		for k, v in pairs(_island_placed or {}) do savedPlaced[k] = v; end
+		local old = {};
+		local proxy = setmetatable({}, {
+			__index = real,
+			__newindex = function(_, i, v)
+				if old[i] == nil then old[i] = { real[i] }; end
+				real[i] = v;
+			end,
+		});
+		local r1, r2, r3 = placeFn(proxy);
+		local bad = false;
+		if r1 then
+			for i, o in pairs(old) do
+				local nowLand = isLandType(real[i]);
+				if pangeaTiles[i] and real[i] ~= o[1] then
+					bad = true;
+				elseif nowLand and not isLandType(o[1]) then
+					local k = i - 1;
+					local x0, y0 = k % iW, math.floor(k / iW);
+					for d = 1, 6 do
+						local nx, ny = GetHexNeighbor(x0, y0, d, iW, iH, wrapX, wrapY);
+						if nx >= 0 and nx < iW and ny >= 0 and ny < iH and pangeaTiles[ny * iW + nx + 1] then
+							bad = true;
+							break;
+						end
+					end
+				end
+				if bad then break; end
+			end
+		end
+		-- Island spacing: every new land tile keeps policy.islandGap water tiles (default 2) from any land that is
+		-- neither mainland nor painted by this placement (earlier islands, stray specks, central-sea islands).
+		local islandGap = policy.islandGap or 2;
+		if r1 and not bad and islandGap > 0 then
+			for i, o in pairs(old) do
+				if isLandType(real[i]) and not isLandType(o[1]) then
+					local k = i - 1;
+					for _, t in ipairs(GetHexDisk(k % iW, math.floor(k / iW), islandGap, iW, iH, wrapX, wrapY)) do
+						local ti = t[2] * iW + t[1] + 1;
+						if isLandType(real[ti]) and not mainlandTiles[ti] and old[ti] == nil then
+							bad = true;
+							break;
+						end
+					end
+					if bad then break; end
+				end
+			end
+		end
+		if r1 and not bad and maxMainlandGap and not farOk[islandType] then
+			local near = false;
+			for i, o in pairs(old) do
+				if isLandType(real[i]) and not isLandType(o[1]) and mainDist[i - 1] ~= nil then
+					near = true;
+					break;
+				end
+			end
+			if not near then bad = true; end
+		end
+		if r1 and not bad then
+			return r1, r2, r3;
+		end
+		for i, o in pairs(old) do real[i] = o[1]; end
+		if bad then
+			gapRejects = gapRejects + 1;
+			restoreMarkers(saved);
+			_island_placed = savedPlaced;
+		end
+		return false;
+	end
 	local odd = firstRingYIsOdd;
 	local even = firstRingYIsEven;
 	do
@@ -343,6 +521,7 @@ function GenerateIslands(self, policy, genOpts)
 	local islandsPlaced = 0;
 	local rollIslandSequence = {};
 	local rollIslandCounts = {};
+	runTypeCounts = {};
 	local lastTryOceanSeedX, lastTryOceanSeedY;
 	local lastTryLandX, lastTryLandY;
 	local lastPaintBefore = nil;
@@ -392,6 +571,29 @@ function GenerateIslands(self, policy, genOpts)
 			end
 		end
 		return s;
+	end
+
+	-- Lightweight owner tracking: land mask diff after each successful placement.
+	local trackOn = LekIslandMapEnabled();
+	local trackLand = trackOn and captureIslandLandState() or nil;
+	local trackPlacements = {};
+	local trackOwner = {};
+	local function trackPlacement(islandType, seq, atX, atY)
+		if not trackOn then return; end
+		local pl = { seq = seq, type = islandType, atX = atX, atY = atY, tiles = {}, carved = 0 };
+		for i = 1, n do
+			local isL = isIslandLandPlotType(self.plotTypes[i]);
+			if isL and not trackLand[i] then
+				trackOwner[i - 1] = seq;
+				pl.tiles[#pl.tiles + 1] = i - 1;
+				trackLand[i] = self.plotTypes[i];
+			elseif (not isL) and trackLand[i] then
+				pl.carved = pl.carved + 1;
+				trackLand[i] = nil;
+				trackOwner[i - 1] = nil;
+			end
+		end
+		trackPlacements[#trackPlacements + 1] = pl;
 	end
 
 	local function markIslandPaintBefore()
@@ -462,7 +664,9 @@ function GenerateIslands(self, policy, genOpts)
 	local function recordIslandPlaced(islandType, atX, atY, nearLandX, nearLandY)
 		rollIslandSequence[#rollIslandSequence + 1] = islandType;
 		rollIslandCounts[islandType] = (rollIslandCounts[islandType] or 0) + 1;
+		runTypeCounts[islandType] = (runTypeCounts[islandType] or 0) + 1;
 		local seq = #rollIslandSequence;
+		trackPlacement(islandType, seq, atX, atY);
 		local atPart = " at=na";
 		if atX ~= nil and atY ~= nil then
 			atPart = " at=" .. tostring(atX) .. "," .. tostring(atY);
@@ -644,7 +848,9 @@ function GenerateIslands(self, policy, genOpts)
 			if islLandInRing ~= 0 then break; end
 		end
 		if islLandInRing == 0 or self.plotTypes[landPlot] == PlotTypes.PLOT_OCEAN then return false; end
-		if not pangeaTiles[landPlot] then return false; end
+		-- Anchor to the mainland only: if the nearest land is a stray speck or another island, reject
+		-- (stops islands leapfrogging off each other away from the pangaea).
+		if not mainlandTiles[landPlot] then return false; end
 		if forceType == "clusterOfTiny" and islLandInRing > 0 and attempt ~= nil and attempt < 50 then
 			if islLandInRing >= 5 then return false; end
 			if islLandInRing >= 4 and Map.Rand(100, "") < 78 then return false; end
@@ -652,7 +858,8 @@ function GenerateIslands(self, policy, genOpts)
 		end
 		spotOpts.landX = landX;
 		spotOpts.landY = landY;
-		spotOpts.nearPangea = pangeaTiles[landPlot];  -- landPlot is 1-based
+		spotOpts.nearPangea = mainlandTiles[landPlot];  -- landPlot is 1-based
+		spotOpts.mainland = mainlandTiles;
 		lastTryOceanSeedX, lastTryOceanSeedY = x, y;
 		lastTryLandX, lastTryLandY = landX, landY;
 		return TryPlaceIsland(self.plotTypes, x, y, islLandInRing, spotOpts, forceType);
@@ -713,7 +920,9 @@ function GenerateIslands(self, policy, genOpts)
 		]]
 		elseif islandType == "steppingStone" then
 			markIslandPaintBefore();
-			local ok, px, py = TryPlaceSteppingStoneIsland(self.plotTypes, opts);
+			local ok, px, py = guardedPlace("steppingStone", function(pt)
+				return TryPlaceSteppingStoneIsland(pt, opts);
+			end);
 			if ok then
 				recordIslandPlaced("steppingStone", px, py);
 				spentBudget = spentBudget + GetBudget(islandType);
@@ -866,6 +1075,7 @@ function GenerateIslands(self, policy, genOpts)
 			else
 				islandType = DraftOneFromTier(CommonIslands, {});
 			end
+			if typeCapped(islandType) then islandType = "pebble"; end
 			if islandType then
 				local placed = false;
 				local tries = (remaining <= 0.55) and PANGAEA_COMMON_SMALL_ISLAND_TRIES_TIGHT or PANGAEA_COMMON_SMALL_ISLAND_TRIES_LOOSE;
@@ -927,6 +1137,7 @@ function GenerateIslands(self, policy, genOpts)
 
 		logRollIslandSummary(spentBudget, TOTAL_BUDGET);
 
+		lastRunTrack = trackOn and { placements = trackPlacements, owner = trackOwner } or nil;
 		return islandsPlaced, spentBudget;
 	end
 
@@ -954,6 +1165,7 @@ function GenerateIslands(self, policy, genOpts)
 				.. " relaxBudgetTier=n/a_path"
 				.. " note=single_runOnce_no_budget_retry", 2);
 		end
+		_lek_island_track = lastRunTrack;
 		return ip, true;
 	end
 
@@ -1016,6 +1228,7 @@ function GenerateIslands(self, policy, genOpts)
 						.. " nominalRunOnceCallsSession=" .. tostring(nominalRunOnceCount)
 						.. " relaxBudgetTier=" .. (relaxBudgetTier and "1" or "0"), 2);
 				end
+				_lek_island_track = lastRunTrack;
 				return ip, true;
 			end
 			if sp > globalBestSpent then
@@ -1116,4 +1329,194 @@ end
 function GeneratePangaeaIslands(self, genOpts)
 	genOpts = genOpts or {};
 	return GenerateIslands(self, LekIslands_ResolvePolicy(genOpts.policy), genOpts);
+end
+
+------------------------------------------------------------------------------
+-- Extra island sources outside the budgeted draft, for the island map log:
+-- list of { type = "...", tiles = { plotIndex0, ... } }. Reset per GeneratePlotTypes.
+------------------------------------------------------------------------------
+_lek_island_extra = {};
+
+function LekRegisterExtraIsland(islandType, tiles)
+	if _lek_island_extra == nil then _lek_island_extra = {}; end
+	_lek_island_extra[#_lek_island_extra + 1] = { type = islandType, tiles = tiles };
+end
+
+------------------------------------------------------------------------------
+-- Shore specks: tiny 1-2 tile islands and short strips exactly one water tile off the mainland
+-- (hex distance 2 from mainland land, never adjacent to any land). Runs after the budgeted draft;
+-- does not count toward the island budget. Counts come from policy.shoreSpecks.
+------------------------------------------------------------------------------
+function LekPlaceShoreSpecks(self, policy)
+	local cfg = policy and policy.shoreSpecks;
+	if not cfg then
+		return 0, 0;
+	end
+	local iW, iH = Map.GetGridSize();
+	local wrapX = Map:IsWrapX();
+	local pt = self.plotTypes;
+	local n = iW * iH;
+	local function isLand(k) return pt[k + 1] ~= PlotTypes.PLOT_OCEAN; end
+	local function nbrs(k)
+		local x, y = k % iW, math.floor(k / iW);
+		local out = {};
+		for d = 1, 6 do
+			local nx, ny = GetHexNeighbor(x, y, d, iW, iH, wrapX, false);
+			if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+				out[#out + 1] = ny * iW + nx;
+			end
+		end
+		return out;
+	end
+
+	-- Mainland = biggest land component right now.
+	local comp, best, bestN = {}, nil, 0;
+	for k = 0, n - 1 do
+		if isLand(k) and comp[k] == nil then
+			local q, h = { k }, 1;
+			comp[k] = k;
+			while h <= #q do
+				for _, nk in ipairs(nbrs(q[h])) do
+					if isLand(nk) and comp[nk] == nil then
+						comp[nk] = k;
+						q[#q + 1] = nk;
+					end
+				end
+				h = h + 1;
+			end
+			if #q > bestN then
+				bestN = #q;
+				best = k;
+			end
+		end
+	end
+	if best == nil then
+		return 0, 0;
+	end
+	-- Hex steps from mainland land (only the first few rings are needed).
+	local dist, q = {}, {};
+	for k = 0, n - 1 do
+		if comp[k] == best then
+			dist[k] = 0;
+			q[#q + 1] = k;
+		end
+	end
+	local h = 1;
+	while h <= #q do
+		local k = q[h];
+		h = h + 1;
+		if dist[k] < 3 then
+			for _, nk in ipairs(nbrs(k)) do
+				if dist[nk] == nil then
+					dist[nk] = dist[k] + 1;
+					q[#q + 1] = nk;
+				end
+			end
+		end
+	end
+
+	local yMin, yMax = 3, iH - 4;
+	-- Free = ocean, one water tile off the mainland, no land neighbour except tiles in `own`.
+	local islandGap = (policy and policy.islandGap) or 2;
+	local function free(k, own)
+		if isLand(k) or dist[k] ~= 2 then return false; end
+		if _lek_central_sea_plots and _lek_central_sea_plots[k] then return false; end
+		local y = math.floor(k / iW);
+		if y < yMin or y > yMax then return false; end
+		for _, nk in ipairs(nbrs(k)) do
+			if isLand(nk) and not (own and own[nk]) then return false; end
+		end
+		-- Keep islandGap water tiles from any non-mainland land (other islands).
+		for _, t in ipairs(GetHexDisk(k % iW, y, islandGap, iW, iH, wrapX, false)) do
+			local tk = t[2] * iW + t[1];
+			if isLand(tk) and comp[tk] ~= best and not (own and own[tk]) then return false; end
+		end
+		return true;
+	end
+	local seeds = {};
+	for k = 0, n - 1 do
+		if free(k, nil) then seeds[#seeds + 1] = k; end
+	end
+	if #seeds == 0 then
+		return 0, 0;
+	end
+
+	local function paint(tiles, hillsPct)
+		for _, k in ipairs(tiles) do
+			pt[k + 1] = (Map.Rand(100, "shore_speck_hills") < hillsPct) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
+		end
+	end
+	local function randomSeed()
+		for _ = 1, 60 do
+			local k = seeds[1 + Map.Rand(#seeds, "shore_speck_seed")];
+			if free(k, nil) then return k; end
+		end
+		return nil;
+	end
+
+	local wantTiny = (cfg.tinyMin or 0) + Map.Rand((cfg.tinyRange or 0) + 1, "shore_speck_ntiny");
+	local wantStrip = (cfg.stripMin or 0) + Map.Rand((cfg.stripRange or 0) + 1, "shore_speck_nstrip");
+	local placedTiny, placedStrip = 0, 0;
+
+	for _ = 1, wantStrip do
+		for _try = 1, 40 do
+			local s0 = randomSeed();
+			if not s0 then break; end
+			local len = (cfg.stripLenMin or 3) + Map.Rand((cfg.stripLenRange or 2) + 1, "shore_speck_len");
+			local tiles, own = { s0 }, { [s0] = true };
+			local cur, dir = s0, 1 + Map.Rand(6, "shore_speck_dir");
+			while #tiles < len do
+				local nextK = nil;
+				-- Prefer straight on, then gentle turns; every tile stays one water tile off the shore.
+				for _, turn in ipairs({ 0, 1, -1, 2, -2 }) do
+					local d = ((dir - 1 + turn) % 6) + 1;
+					local x, y = cur % iW, math.floor(cur / iW);
+					local nx, ny = GetHexNeighbor(x, y, d, iW, iH, wrapX, false);
+					if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+						local nk = ny * iW + nx;
+						if not own[nk] and free(nk, own) then
+							nextK = nk;
+							dir = d;
+							break;
+						end
+					end
+				end
+				if not nextK then break; end
+				tiles[#tiles + 1] = nextK;
+				own[nextK] = true;
+				cur = nextK;
+			end
+			if #tiles >= (cfg.stripLenMin or 3) then
+				paint(tiles, cfg.hillsPct or 55);
+				LekRegisterExtraIsland("shoreStrip", tiles);
+				placedStrip = placedStrip + 1;
+				break;
+			end
+		end
+	end
+
+	for _ = 1, wantTiny do
+		local s0 = randomSeed();
+		if not s0 then break; end
+		local tiles, own = { s0 }, { [s0] = true };
+		if Map.Rand(100, "shore_speck_two") < (cfg.twoTilePct or 50) then
+			local opts = {};
+			for _, nk in ipairs(nbrs(s0)) do
+				if free(nk, own) then opts[#opts + 1] = nk; end
+			end
+			if #opts > 0 then
+				tiles[2] = opts[1 + Map.Rand(#opts, "shore_speck_second")];
+			end
+		end
+		paint(tiles, cfg.hillsPct or 55);
+		LekRegisterExtraIsland("shoreTiny", tiles);
+		placedTiny = placedTiny + 1;
+	end
+
+	if LekPipelineFlow then
+		LekPipelineFlow("shore_specks", "tiny=" .. tostring(placedTiny) .. "/" .. tostring(wantTiny)
+			.. " strips=" .. tostring(placedStrip) .. "/" .. tostring(wantStrip)
+			.. " seeds=" .. tostring(#seeds));
+	end
+	return placedTiny, placedStrip;
 end

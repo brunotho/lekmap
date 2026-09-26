@@ -149,7 +149,7 @@ function DrawScatteredDisk(plotTypes, landTiles, iW, hillThresh, noMountains)
 		local hillsPct = hillThresh or 70;
 		for _, t in ipairs(landTiles) do
 			local x, y = t[1], t[2];
-			local idx = y * iW + x;
+			local idx = y * iW + x + 1;
 			plotTypes[idx] = (Map.Rand(100, "") < hillsPct) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
 		end
 		return;
@@ -162,7 +162,7 @@ function DrawScatteredDisk(plotTypes, landTiles, iW, hillThresh, noMountains)
 	for _, t in ipairs(landTiles) do
 		local x, y = t[1], t[2];
 		local ring = t[3] or 0;
-		local idx = y * iW + x;
+		local idx = y * iW + x + 1;
 		local ht = hillThresh + hillBias + (ring * 5) + Map.Rand(15, "") - 7;
 		ht = math.max(25, math.min(85, ht));
 		local mt = (Map.Rand(100, "") < ht) and PlotTypes.PLOT_LAND or PlotTypes.PLOT_HILLS;
@@ -181,7 +181,7 @@ function ApplyBasicIslandTerrain(plotTypes, landTiles, iW)
 	local flatTiles = {};
 	for _, t in ipairs(landTiles) do
 		local x, y = t[1], t[2];
-		local idx = y * iW + x;
+		local idx = y * iW + x + 1;
 		if Map.Rand(100, "") < hillsPct then
 			plotTypes[idx] = PlotTypes.PLOT_HILLS;
 			hillTiles[#hillTiles + 1] = idx;

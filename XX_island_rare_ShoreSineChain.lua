@@ -1,35 +1,25 @@
--- Shore-parallel sine island chain: EW along polar coast, sin wobble, then gap-cut
--- into several islets. Scale inspired by polarMerge arm+gap look (not the EW embrace).
--- Target: span ~8–16 cols, several islets of ~2–6 tiles each.
+-- Shore-following island chain: a spine that tracks the coast one water tile out (sometimes two), cut into
+-- 3-5 islets that read as one structure: stretched along the spine, largest in the middle, tapered at
+-- the ends, thickened only on the ocean side, evenly spaced, with a hilly spine and an optional peak.
 
 include("X_IslandHelpers");
 
 local CONFIG = {
-	-- Spine length (half on each side of seed): total cols = 2*halfLen+1 → ~11..19
-	HALF_LEN_MIN = 5,
-	HALF_LEN_RANGE = 5, -- 5..9
-	AMP_MIN = 1,
-	AMP_RANGE = 2,
-	FREQ_SOFT = 0.22,
-	FREQ_SOFT_STEP = 0.03,
-	FREQ_WILD = 0.36,
-	FREQ_WILD_STEP = 0.04,
-	SOFT_FREQ_PCT = 55,
-	-- After continuous spine: cut water gaps → islets
-	ISLET_LEN_MIN = 2,
-	ISLET_LEN_RANGE = 5, -- 2..6 spine tiles per islet
-	GAP_LEN_MIN = 1,
-	GAP_LEN_RANGE = 2, -- 1..2 ocean between islets
-	MIN_ISLETS = 3,
-	MAX_ISLETS = 5,
-	THICKEN_PCT = 55, -- fatter islets (2–6 tiles)
-	THICKEN_SECOND_PCT = 22,
-	HILLS_PCT = 55,
-	MTN_PCT = 8,
+	HALF_LEN_MIN = 6, HALF_LEN_RANGE = 4,   -- spine columns = 2*half+1 -> 13..19
+	SHORE_SCAN_OUT = 4,                     -- start this many rows seaward of the seed when looking for the shore
+	SHORE_SCAN_MAX = 14,
+	FAR_ISLET_PCT = 25,                     -- islets placed two water tiles out instead of one
+	MIN_NEAR_ISLETS = 2,                    -- islets that must sit one water tile off the coast
+	MIDDLE_LEN_MIN = 3, MIDDLE_LEN_RANGE = 2,  -- middle islets: 3..4 spine tiles
+	END_LEN_MIN = 2, END_LEN_RANGE = 2,        -- first/last islet: 2..3
+	GAP2_PCT = 25,                          -- gap of 2 columns instead of 1
+	THICKEN_PCT = 50,                       -- inner spine tile gets one ocean-side tile
+	MAX_ISLET_TILES = 5,
+	MIN_ISLETS = 3, MAX_ISLETS = 5,
+	SPINE_HILLS_PCT = 65,
+	PEAK_PCT = 50,                          -- middle of the longest islet becomes a mountain
+	SIDE_HILLS_PCT = 40,
 	MIN_LAND_TILES = 8,
-	MIN_SPAN = 8,
-	OCEAN_OFFSET_MIN = 2,
-	OCEAN_OFFSET_RANGE = 2, -- 2..3 off shore — more room than hugging the jagged coast
 };
 
 local function pidx(x, y, iW)
@@ -81,170 +71,153 @@ function TryPlaceShoreSineChainIsland(plotTypes, centerX, centerY, islLandInRing
 	end
 	local away = -landDirY;
 
-	local baseY = cy;
-	if type(landY) == "number" then
-		local off = CONFIG.OCEAN_OFFSET_MIN + Map.Rand(CONFIG.OCEAN_OFFSET_RANGE, "sineChainOff");
-		baseY = landY + away * off;
-		if baseY < 2 or baseY >= iH - 2 or not isWater(plotTypes, cx, baseY, iW, iH) then
-			baseY = cy;
-		end
-	end
-	-- Prefer a bit more polar room when seed is already ocean-ward of shore.
-	if type(landY) == "number" and math.abs(cy - landY) >= 2 then
-		baseY = cy;
-	end
-
-	local halfLen = CONFIG.HALF_LEN_MIN + Map.Rand(CONFIG.HALF_LEN_RANGE, "sineChainLen");
-	local amp = CONFIG.AMP_MIN + Map.Rand(CONFIG.AMP_RANGE, "sineChainAmp");
-	local soft = Map.Rand(100, "") < CONFIG.SOFT_FREQ_PCT;
-	local freq = soft
-		and (CONFIG.FREQ_SOFT + Map.Rand(3, "") * CONFIG.FREQ_SOFT_STEP)
-		or (CONFIG.FREQ_WILD + Map.Rand(3, "") * CONFIG.FREQ_WILD_STEP);
-	local phase = Map.Rand(628, "") / 100;
-
-	-- 1) Continuous sine corridor (no gaps yet). Skip only impassable columns.
-	local spine = {}; -- ordered by t
-	local spineSet = {};
-	local minX, maxX = nil, nil;
-	for t = -halfLen, halfLen do
-		local x = WrapCoord(cx + t, iW, wrapX);
-		local y = baseY + math.floor(amp * math.sin(t * freq + phase) + 0.0001) * away;
-		local placed = false;
-		for nudge = 0, 2 do
-			local ty = y + away * nudge;
-			if ty >= 1 and ty < iH - 1 and isWater(plotTypes, x, ty, iW, iH) then
-				local k = keyXY(x, ty);
-				if not spineSet[k] then
-					spineSet[k] = true;
-					spine[#spine + 1] = { x, ty, t };
-					if minX == nil or x < minX then minX = x; end
-					if maxX == nil or x > maxX then maxX = x; end
-					placed = true;
-				end
-				break;
+	local chainSet = {}; -- tiles already planned for this chain
+	-- Free = ocean, inside the rows, no land neighbour except tiles of this chain in `own`.
+	local function free(x, y, own)
+		if y < 2 or y >= iH - 2 then return false; end
+		if not isWater(plotTypes, x, y, iW, iH) or chainSet[keyXY(x, y)] then return false; end
+		for d = 1, 6 do
+			local nx, ny = GetHexNeighbor(x, y, d, iW, iH, wrapX, wrapY);
+			if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+				local k = keyXY(nx, ny);
+				if (isLand(plotTypes, nx, ny, iW, iH) or chainSet[k]) and not (own and own[k]) then return false; end
 			end
 		end
-		-- keep going even if one column fails (jagged bite); gaps later handle rhythm
-		if not placed then
-			spine[#spine + 1] = { nil, nil, t, hole = true };
+		return true;
+	end
+	local function adjacent(a, b)
+		for d = 1, 6 do
+			local nx, ny = GetHexNeighbor(a[1], a[2], d, iW, iH, wrapX, wrapY);
+			if nx == b[1] and ny == b[2] then return true; end
 		end
-	end
-
-	-- Collapse to only real spine tiles in order (holes become natural gap candidates).
-	local solid = {};
-	for _, s in ipairs(spine) do
-		if not s.hole and s[1] ~= nil then
-			solid[#solid + 1] = { s[1], s[2] };
-		end
-	end
-	if #solid < CONFIG.MIN_LAND_TILES then return false; end
-
-	-- Span: prefer linear extent; on wrap use count of solid cols as proxy.
-	local span = #solid;
-	if minX ~= nil and maxX ~= nil and maxX >= minX then
-		span = math.max(span, maxX - minX + 1);
-	end
-	if span < CONFIG.MIN_SPAN then return false; end
-
-	-- 2) Paint islet / gap pattern along solid spine (polarMerge-style cuts).
-	local keep = {};
-	local isletCount = 0;
-	local i = 1;
-	local wantIslet = true;
-	while i <= #solid do
-		if wantIslet then
-			if isletCount >= CONFIG.MAX_ISLETS then
-				break;
-			end
-			local len = CONFIG.ISLET_LEN_MIN + Map.Rand(CONFIG.ISLET_LEN_RANGE, "");
-			local n = 0;
-			while n < len and i <= #solid do
-				keep[#keep + 1] = solid[i];
-				i = i + 1;
-				n = n + 1;
-			end
-			if n >= CONFIG.ISLET_LEN_MIN then
-				isletCount = isletCount + 1;
-			end
-			wantIslet = false;
-		else
-			local glen = CONFIG.GAP_LEN_MIN + Map.Rand(CONFIG.GAP_LEN_RANGE, "");
-			i = i + glen;
-			wantIslet = true;
-		end
-	end
-	if isletCount < CONFIG.MIN_ISLETS then return false; end
-	if #keep < CONFIG.MIN_LAND_TILES then return false; end
-
-	-- 3) Thicken into 2–6 tile islets.
-	local landTiles = {};
-	local landSet = {};
-	for _, t in ipairs(keep) do
-		local k = keyXY(t[1], t[2]);
-		if not landSet[k] then
-			landSet[k] = true;
-			landTiles[#landTiles + 1] = { t[1], t[2] };
-		end
-	end
-	for _, t in ipairs(keep) do
-		if Map.Rand(100, "") < CONFIG.THICKEN_PCT then
-			local candidates = {
-				{ t[1], t[2] + away },
-				{ WrapCoord(t[1] + 1, iW, wrapX), t[2] },
-				{ WrapCoord(t[1] - 1, iW, wrapX), t[2] },
-				{ t[1], t[2] - away }, -- mild shoreward only if still ocean
-			};
-			local added = 0;
-			for _, c in ipairs(candidates) do
-				local x, y = c[1], c[2];
-				if y >= 1 and y < iH - 1 and isWater(plotTypes, x, y, iW, iH) then
-					local k = keyXY(x, y);
-					if not landSet[k] then
-						landSet[k] = true;
-						landTiles[#landTiles + 1] = { x, y };
-						added = added + 1;
-						if added >= 1 and Map.Rand(100, "") >= CONFIG.THICKEN_SECOND_PCT then
-							break;
-						end
-						if added >= 2 then break; end
-					end
-				end
-			end
-		end
-	end
-
-	for _, t in ipairs(landTiles) do
-		if not isWater(plotTypes, t[1], t[2], iW, iH) then return false; end
-	end
-	if #landTiles < CONFIG.MIN_LAND_TILES then return false; end
-
-	-- Reject if we somehow collapsed to one tiny blob (bbox too small).
-	local bx0, bx1, by0, by1 = landTiles[1][1], landTiles[1][1], landTiles[1][2], landTiles[1][2];
-	for _, t in ipairs(landTiles) do
-		if t[1] < bx0 then bx0 = t[1]; end
-		if t[1] > bx1 then bx1 = t[1]; end
-		if t[2] < by0 then by0 = t[2]; end
-		if t[2] > by1 then by1 = t[2]; end
-	end
-	local bboxW = bx1 - bx0 + 1;
-	if bboxW < CONFIG.MIN_SPAN and #landTiles < 12 then
-		-- wrap-friendly: if many tiles but bbox small, still OK if isletCount ok
-		if isletCount < CONFIG.MIN_ISLETS then return false; end
-	elseif bboxW < CONFIG.MIN_SPAN then
 		return false;
 	end
 
-	for _, t in ipairs(landTiles) do
-		local r = Map.Rand(100, "");
-		local pt;
-		if r < CONFIG.MTN_PCT then
-			pt = PlotTypes.PLOT_MOUNTAIN;
-		elseif r < CONFIG.MTN_PCT + CONFIG.HILLS_PCT then
-			pt = PlotTypes.PLOT_HILLS;
-		else
-			pt = PlotTypes.PLOT_LAND;
+	-- 1) Shore row per column: scan from seaward of the seed back toward land; first land = shore.
+	local halfLen = CONFIG.HALF_LEN_MIN + Map.Rand(CONFIG.HALF_LEN_RANGE + 1, "sineChainLen");
+	local cols = {};
+	for t = -halfLen, halfLen do
+		local x = WrapCoord(cx + t, iW, wrapX);
+		local shoreY = nil;
+		local y0 = cy + away * CONFIG.SHORE_SCAN_OUT;
+		for s = 0, CONFIG.SHORE_SCAN_MAX do
+			local y = y0 - away * s;
+			if y < 0 or y >= iH then break; end
+			if isLand(plotTypes, x, y, iW, iH) then
+				if s > 0 then shoreY = y; end
+				break;
+			end
 		end
-		plotTypes[pidx(t[1], t[2], iW)] = pt;
+		cols[#cols + 1] = { x = x, shoreY = shoreY };
+	end
+
+	-- 2) Islets along the columns: offset from the shore fixed per islet (2 = one water tile), lengths
+	-- follow an envelope (ends short, middle long), consecutive spine tiles must touch.
+	local islets = {};
+	local ci = 1;
+	local nCols = #cols;
+	while ci <= nCols and #islets < CONFIG.MAX_ISLETS do
+		local mid = math.abs((ci - 1) - (nCols - 1) / 2) < nCols / 4;
+		local want = mid and (CONFIG.MIDDLE_LEN_MIN + Map.Rand(CONFIG.MIDDLE_LEN_RANGE, "sineChainMidLen"))
+			or (CONFIG.END_LEN_MIN + Map.Rand(CONFIG.END_LEN_RANGE, "sineChainEndLen"));
+		local offs = (Map.Rand(100, "sineChainFar") < CONFIG.FAR_ISLET_PCT) and { 3, 2 } or { 2, 3 };
+		local spine, used = nil, nil;
+		for _, off in ipairs(offs) do
+			local sp, own = {}, {};
+			local c0 = cols[ci];
+			if c0.shoreY then
+				local t0 = { c0.x, c0.shoreY + away * off };
+				own[keyXY(t0[1], t0[2])] = true;
+				if free(t0[1], t0[2], own) then
+					sp[1] = t0;
+				else
+					own[keyXY(t0[1], t0[2])] = nil;
+				end
+			end
+			-- Next spine tiles: in the next column, touching the previous tile, 1-2 water tiles off the
+			-- shore (prefer the islet's own offset), so the spine can step diagonally along a jagged coast.
+			local j = ci + 1;
+			while #sp > 0 and j <= nCols and #sp < want do
+				local c = cols[j];
+				if not c.shoreY then break; end
+				local prev = sp[#sp];
+				local best, bestScore = nil, nil;
+				for dy = -1, 1 do
+					local t = { c.x, prev[2] + dy };
+					local o = (t[2] - c.shoreY) * away;
+					if (o == 2 or o == 3) and adjacent(prev, t) then
+						own[keyXY(t[1], t[2])] = true;
+						local okT = free(t[1], t[2], own);
+						own[keyXY(t[1], t[2])] = nil;
+						if okT then
+							local score = (o == off) and 0 or 1;
+							if not bestScore or score < bestScore then best, bestScore = t, score; end
+						end
+					end
+				end
+				if not best then break; end
+				own[keyXY(best[1], best[2])] = true;
+				sp[#sp + 1] = best;
+				j = j + 1;
+			end
+			if #sp >= 2 then spine = sp; used = off; break; end
+		end
+		if spine then
+			local islet = { tiles = {}, spine = spine, off = used };
+			local own = {};
+			for _, t in ipairs(spine) do
+				islet.tiles[#islet.tiles + 1] = { t[1], t[2], "spine" };
+				own[keyXY(t[1], t[2])] = true;
+			end
+			-- Ocean-side thickening on inner spine tiles only, capped per islet.
+			for si = 2, #spine - 1 do
+				if #islet.tiles >= CONFIG.MAX_ISLET_TILES then break; end
+				if Map.Rand(100, "sineChainThick") < CONFIG.THICKEN_PCT then
+					local t = spine[si];
+					local sx, sy = t[1], t[2] + away;
+					own[keyXY(sx, sy)] = true;
+					if free(sx, sy, own) then
+						islet.tiles[#islet.tiles + 1] = { sx, sy, "side" };
+					else
+						own[keyXY(sx, sy)] = nil;
+					end
+				end
+			end
+			for _, t in ipairs(islet.tiles) do chainSet[keyXY(t[1], t[2])] = true; end
+			islets[#islets + 1] = islet;
+			ci = ci + #spine + 1 + ((Map.Rand(100, "sineChainGap") < CONFIG.GAP2_PCT) and 1 or 0);
+		else
+			ci = ci + 1;
+		end
+	end
+
+	if #islets < CONFIG.MIN_ISLETS then return false; end
+	local near, total, longest = 0, 0, nil;
+	for _, il in ipairs(islets) do
+		if il.off == 2 then near = near + 1; end
+		total = total + #il.tiles;
+		if not longest or #il.spine > #longest.spine then longest = il; end
+	end
+	if near < CONFIG.MIN_NEAR_ISLETS or total < CONFIG.MIN_LAND_TILES then return false; end
+
+	-- 3) Terrain: hilly spine, optional peak mid-spine of the longest islet, milder ocean side.
+	local peakKey = nil;
+	if Map.Rand(100, "sineChainPeak") < CONFIG.PEAK_PCT then
+		local m = longest.spine[math.floor((#longest.spine + 1) / 2)];
+		peakKey = keyXY(m[1], m[2]);
+	end
+	for _, il in ipairs(islets) do
+		for _, t in ipairs(il.tiles) do
+			local pt;
+			if keyXY(t[1], t[2]) == peakKey then
+				pt = PlotTypes.PLOT_MOUNTAIN;
+			elseif t[3] == "spine" then
+				pt = (Map.Rand(100, "sineChainSpine") < CONFIG.SPINE_HILLS_PCT) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
+			else
+				pt = (Map.Rand(100, "sineChainSide") < CONFIG.SIDE_HILLS_PCT) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
+			end
+			plotTypes[pidx(t[1], t[2], iW)] = pt;
+		end
 	end
 
 	if not _island_placed then _island_placed = {}; end

@@ -4,7 +4,7 @@ include("X_IslandHelpers");
 
 local function isLand(plotTypes, x, y, iW, iH)
 	if x < 0 or x >= iW or y < 0 or y >= iH then return false; end
-	local t = plotTypes[y * iW + x];
+	local t = plotTypes[y * iW + x + 1];
 	return t == PlotTypes.PLOT_LAND or t == PlotTypes.PLOT_HILLS or t == PlotTypes.PLOT_MOUNTAIN;
 end
 
@@ -38,7 +38,7 @@ function TryPlaceChunkIsland(plotTypes, centerX, centerY, islLandInRing, params)
 	for _, t in ipairs(landTiles) do
 		local x, y = t[1], t[2];
 		local ring = t[3] or 0;
-		local idx = y * params.iW + x;
+		local idx = y * params.iW + x + 1;
 		local ht = hillThresh + (ring * 5) + Map.Rand(11, "") - 5;
 		ht = math.max(40, math.min(80, ht));
 		local mt = (Map.Rand(100, "") < ht) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
@@ -62,7 +62,7 @@ function TryPlaceChunkIsland(plotTypes, centerX, centerY, islLandInRing, params)
 			local t = centerCluster[pick];
 			centerCluster[pick] = centerCluster[#centerCluster];
 			centerCluster[#centerCluster] = nil;
-			plotTypes[t[2] * params.iW + t[1]] = PlotTypes.PLOT_MOUNTAIN;
+			plotTypes[t[2] * params.iW + t[1] + 1] = PlotTypes.PLOT_MOUNTAIN;
 		end
 	end
 	return true;

@@ -117,7 +117,7 @@ function TryPlaceRidgePeak(plotTypes, centerX, centerY, islLandInRing, params)
 				mt = PlotTypes.PLOT_MOUNTAIN;
 			end
 		end
-		plotTypes[y * iW + x] = mt;
+		plotTypes[y * iW + x + 1] = mt;
 	end
 
 	local landSidePct = CONFIG.LAND_SIDE_PCT_MIN + Map.Rand(CONFIG.LAND_SIDE_PCT_MAX - CONFIG.LAND_SIDE_PCT_MIN + 1, "");
@@ -181,7 +181,7 @@ function TryPlaceRidgePeak(plotTypes, centerX, centerY, islLandInRing, params)
 	for key in pairs(gapTiles) do
 		local x, y = key:match("([^,]+),([^,]+)");
 		x, y = tonumber(x), tonumber(y);
-		plotTypes[y * iW + x] = PlotTypes.PLOT_OCEAN;
+		plotTypes[y * iW + x + 1] = PlotTypes.PLOT_OCEAN;
 	end
 
 	local allLandSet = {};
@@ -234,7 +234,7 @@ function TryPlaceRidgePeak(plotTypes, centerX, centerY, islLandInRing, params)
 		if not riftSet[k] then
 			local x, y = k:match("([^,]+),([^,]+)");
 			x, y = tonumber(x), tonumber(y);
-			if plotTypes[y * iW + x] ~= PlotTypes.PLOT_OCEAN then
+			if plotTypes[y * iW + x + 1] ~= PlotTypes.PLOT_OCEAN then
 				distToRidge[k] = 0;
 				queue[#queue + 1] = {x, y};
 			end
@@ -265,7 +265,7 @@ function TryPlaceRidgePeak(plotTypes, centerX, centerY, islLandInRing, params)
 		local hillsPct = CONFIG.HILLS_3RD_PCT;
 		if d == 1 then hillsPct = CONFIG.HILLS_ADJ_PCT;
 		elseif d == 2 then hillsPct = CONFIG.HILLS_2ND_PCT; end
-		plotTypes[y * iW + x] = (Map.Rand(100, "") < hillsPct) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
+		plotTypes[y * iW + x + 1] = (Map.Rand(100, "") < hillsPct) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
 	end
 
 	return true;

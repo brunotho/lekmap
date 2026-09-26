@@ -4,7 +4,7 @@ include("X_IslandHelpers");
 
 local function isLand(plotTypes, x, y, iW, iH)
 	if x < 0 or x >= iW or y < 0 or y >= iH then return false; end
-	local t = plotTypes[y * iW + x];
+	local t = plotTypes[y * iW + x + 1];
 	return t == PlotTypes.PLOT_LAND or t == PlotTypes.PLOT_HILLS or t == PlotTypes.PLOT_MOUNTAIN;
 end
 
@@ -89,7 +89,7 @@ function TryPlaceMountainWallIsland(plotTypes, centerX, centerY, islLandInRing, 
 
 	for _, t in ipairs(all) do
 		local px, py = t[1], t[2];
-		local idx = py * params.iW + px;
+		local idx = py * params.iW + px + 1;
 		if ridgeSet[px .. "," .. py] then
 			plotTypes[idx] = PlotTypes.PLOT_MOUNTAIN;
 		else

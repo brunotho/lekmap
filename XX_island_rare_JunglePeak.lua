@@ -6,7 +6,7 @@ local function plotIdx1(x, y, iW) return y * iW + x + 1; end
 
 local function isLand(plotTypes, x, y, iW, iH)
 	if x < 0 or x >= iW or y < 0 or y >= iH then return false; end
-	local t = plotTypes[y * iW + x];
+	local t = plotTypes[y * iW + x + 1];
 	return t == PlotTypes.PLOT_LAND or t == PlotTypes.PLOT_HILLS or t == PlotTypes.PLOT_MOUNTAIN;
 end
 
@@ -170,9 +170,8 @@ function TryPlaceJunglePeakIsland(plotTypes, centerX, centerY, islLandInRing, pa
 		_krakatoa_island_plot = plotIdx1(cx, cy, params.iW);
 		_sri_pada_island_plot = nil;
 	else
-		local sx = WrapCoord(cx - 1, params.iW, params.wrapX);
-		local sy = cy;
-		_sri_pada_island_plot = plotIdx1(sx, sy, params.iW);
+		-- Sri Pada goes on the central peak too (was cx-1 = a caldera water tile).
+		_sri_pada_island_plot = plotIdx1(cx, cy, params.iW);
 		_krakatoa_island_plot = nil;
 	end
 	if not _island_placed then _island_placed = {}; end
@@ -181,13 +180,13 @@ function TryPlaceJunglePeakIsland(plotTypes, centerX, centerY, islLandInRing, pa
 end
 
 function DrawJunglePeakIsland(plotTypes, landTiles, calderaTiles, cx, cy, iW, iH)
-	plotTypes[cy * iW + cx] = PlotTypes.PLOT_MOUNTAIN;
+	plotTypes[cy * iW + cx + 1] = PlotTypes.PLOT_MOUNTAIN;
 	for _, t in ipairs(calderaTiles) do
-		plotTypes[t[2] * iW + t[1]] = PlotTypes.PLOT_OCEAN;
+		plotTypes[t[2] * iW + t[1] + 1] = PlotTypes.PLOT_OCEAN;
 	end
 	for _, t in ipairs(landTiles) do
 		local x, y = t[1], t[2];
-		local idx = y * iW + x;
+		local idx = y * iW + x + 1;
 		local adjCaldera = false;
 		for _, c in ipairs(calderaTiles) do
 			if isAdjacentToTile(x, y, c[1], c[2]) then adjCaldera = true; break; end

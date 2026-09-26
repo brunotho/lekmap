@@ -944,6 +944,9 @@ function LekHB_GenerateMap_Core()
 		if LekLogFinalLandStats then
 			LekLogFinalLandStats();
 		end
+		if LekDumpIslandMap then
+			LekDumpIslandMap();
+		end
 
 		-- Goodies depend on not colliding with resources or Natural Wonders, or being placed too near to start plots.
 		AddGoodies();

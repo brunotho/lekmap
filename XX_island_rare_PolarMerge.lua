@@ -33,6 +33,7 @@ local CONFIG = {
 	CURVE_FREQ_HIGH_MAX = 0.72,
 	CURVE_AMP_HIGH_FREQ_BOOST = 1.22,
 	CURVE_AMP_VARIATION_PCT = 12,
+	ARM_OUTWARD_DRIFT_MAX = 1,   -- tiles an arm may bend away from the enclosed sea (toward the wrap seam)
 
 	HILLS_PCT_MIN = 50,
 	HILLS_PCT_ADJ = 80, HILLS_PCT_2ND = 65, HILLS_PCT_3RD = 50,
@@ -291,7 +292,9 @@ local function drawPangaeaEmbrace(plotTypes, iW, iH, wrapX, wrapY)
 		if drawWest then
 			for w = 0, widthAtD_W - 1 do
 				local baseX = westAnchor + w;
-				local x = baseX + math.floor(curveAmpW * math.sin(d * curveFreq));
+				-- Outward drift (toward the wrap seam) capped at 1 tile; inward curve unchanged.
+				local offW = math.max(-(CONFIG.ARM_OUTWARD_DRIFT_MAX or 1), math.floor(curveAmpW * math.sin(d * curveFreq)));
+				local x = baseX + offW;
 				if wrapX then x = ((x % iW) + iW) % iW; end
 				if x < 0 or x >= iW then break; end
 				if isLand(plotTypes, x, y, iW, iH) then break; end
@@ -306,7 +309,8 @@ local function drawPangaeaEmbrace(plotTypes, iW, iH, wrapX, wrapY)
 		if drawEast then
 			for w = 0, widthAtD_E - 1 do
 				local baseX = eastAnchor - w;
-				local x = baseX - math.floor(curveAmpE * math.sin(d * curveFreq));
+				local offE = math.max(-(CONFIG.ARM_OUTWARD_DRIFT_MAX or 1), math.floor(curveAmpE * math.sin(d * curveFreq)));
+				local x = baseX - offE;
 				if wrapX then x = ((x % iW) + iW) % iW; end
 				if x < 0 or x >= iW then break; end
 				if isLand(plotTypes, x, y, iW, iH) then break; end
@@ -1154,7 +1158,7 @@ local TUNDRA_LAT = 0.85;
 
 local function isWater(plotTypes, x, y, iW, iH)
 	if x < 0 or x >= iW or y < 0 or y >= iH then return false; end
-	return plotTypes[y * iW + x] == PlotTypes.PLOT_OCEAN;
+	return plotTypes[y * iW + x + 1] == PlotTypes.PLOT_OCEAN;
 end
 
 local function getTundraLatitudeY(iH, southEdge)
@@ -1346,7 +1350,7 @@ local function drawArcticMerge(plotTypes, centerX, edgeY, southEdge, contactDist
 
 	for _, t in ipairs(landTiles) do
 		local x, y = t[1], t[2];
-		local idx = y * iW + x;
+		local idx = y * iW + x + 1;
 		if seaSet[x .. "," .. y] and not islandInSea[x .. "," .. y] then
 			plotTypes[idx] = PlotTypes.PLOT_OCEAN;
 		elseif waterPathSet[x .. "," .. y] then

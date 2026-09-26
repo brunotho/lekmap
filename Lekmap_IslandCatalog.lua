@@ -29,6 +29,8 @@ LekIslandTypePlace = {
 	volcanicRing = TryPlaceVolcanicRing,
 	geothermalIsland = TryPlaceGeothermalIsland,
 	wrapSoftLandbridge = TryPlaceWrapSoftLandbridge,
+	hotspotTrail = TryPlaceHotspotTrail,
+	atollRing = TryPlaceAtollRingIsland,
 	-- polarMerge / lakeRidge: special-cased in Lekmap_IslandEngine (not via this table).
 };
 

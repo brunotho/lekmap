@@ -33,13 +33,14 @@ function LekCiv5LogPath(fileName)
 end
 
 -- Append lines (string or list) to a Civ5 Logs file. Silently no-op when io is unavailable.
-function LekAppendCiv5Log(fileName, lineOrLines)
+-- overwrite = true truncates the file first (one-map-only logs).
+function LekAppendCiv5Log(fileName, lineOrLines, overwrite)
 	local path = LekCiv5LogPath(fileName);
 	if not path or not (io and io.open) then
 		return;
 	end
 	pcall(function()
-		local f = io.open(path, "a");
+		local f = io.open(path, overwrite and "w" or "a");
 		if not f then
 			return;
 		end

@@ -1,4 +1,5 @@
--- Diamond stack of land with the wonder peak embedded, extra peaks on tips, small satellite islets.
+-- Diamond of land with the Sinai wonder peak at its centre, hills around it, 1-2 extra peaks on the far
+-- tips (never next to Sinai), and small satellite islets.
 
 include("X_IslandHelpers");
 
@@ -33,6 +34,27 @@ local DIAMOND_OFFSETS = {
 	{-1, -2}, {0, -2},
 	{0, -3},
 };
+
+-- The map is odd-r (odd rows shifted right). Offsets below are authored for an even-row centre; they are
+-- turned into axial coordinates, rotated there, and added to the centre so the shape is the same on any row.
+local function offsetToAxial(dx, dy) return dx - (dy - dy % 2) / 2, dy; end
+local function cellToAxial(x, y) return x - (y - y % 2) / 2, y; end
+local function axialToCell(q, r) return q + (r - r % 2) / 2, r; end
+local function rotateAxial(q, r, steps)
+	for _ = 1, steps % 6 do
+		q, r = -r, q + r;
+	end
+	return q, r;
+end
+-- Tile for a DIAMOND offset around (cx, cy) after `rot` 60-degree turns.
+local function diamondTile(cx, cy, dx, dy, rot, iW, iH, wrapX)
+	local oq, orr = offsetToAxial(dx, dy);
+	oq, orr = rotateAxial(oq, orr, rot);
+	local cq, cr = cellToAxial(cx, cy);
+	local x, y = axialToCell(cq + oq, cr + orr);
+	if wrapX then x = x % iW; end
+	return x, y;
+end
 
 local function rotDir(d, delta)
 	return ((d - 1 + delta) % 6 + 6) % 6 + 1;
@@ -100,9 +122,7 @@ function TryPlaceSinaiIsland(plotTypes, centerX, centerY, islLandInRing, params)
 	local rot = Map.Rand(6, "");
 	local landTiles = {};
 	for _, off in ipairs(DIAMOND_OFFSETS) do
-		local dx, dy = RotateOffset60(off[1], off[2], rot);
-		local gx = wrapCoord(cx + dx, params.iW, params.wrapX);
-		local gy = wrapCoord(cy + dy, params.iH, params.wrapY);
+		local gx, gy = diamondTile(cx, cy, off[1], off[2], rot, params.iW, params.iH, params.wrapX);
 		if gx >= 0 and gx < params.iW and gy >= 0 and gy < params.iH then
 			landTiles[#landTiles + 1] = {gx, gy};
 		end
@@ -138,64 +158,51 @@ function TryPlaceSinaiIsland(plotTypes, centerX, centerY, islLandInRing, params)
 end
 
 function DrawSinaiIsland(plotTypes, cx, cy, landTiles, rot, iW, iH, wrapX, wrapY)
-	local dx, dy = RotateOffset60(0, 1, rot);
-	local sinaiX = wrapCoord(cx + dx, iW, wrapX);
-	local sinaiY = wrapCoord(cy + dy, iH, wrapY);
-
-	local tip1Dx, tip1Dy = RotateOffset60(0, 3, rot);
-	local tip2Dx, tip2Dy = RotateOffset60(0, -3, rot);
-	local tip1X = wrapCoord(cx + tip1Dx, iW, wrapX);
-	local tip1Y = wrapCoord(cy + tip1Dy, iH, wrapY);
-	local tip2X = wrapCoord(cx + tip2Dx, iW, wrapX);
-	local tip2Y = wrapCoord(cy + tip2Dy, iH, wrapY);
-
+	-- Sinai = the diamond centre (same tile as _sinai_island_plot).
+	local sinaiX, sinaiY = cx, cy;
+	-- Extra peaks: 1-2 diamond tiles at least 2 steps from Sinai, the two tips first.
 	local outerMtnSet = {};
 	do
-		local candidates = {};
-		local function addCandidate(wx, wy)
-			for _, t in ipairs(landTiles) do
-				if t[1] == wx and t[2] == wy then
-					candidates[#candidates + 1] = { wx, wy };
-					break;
+		local tips, others = {}, {};
+		local t1x, t1y = diamondTile(cx, cy, 0, 3, rot, iW, iH, wrapX);
+		local t2x, t2y = diamondTile(cx, cy, 0, -3, rot, iW, iH, wrapX);
+		for _, t in ipairs(landTiles) do
+			if Map.PlotDistance(sinaiX, sinaiY, t[1], t[2]) >= 2 then
+				if (t[1] == t1x and t[2] == t1y) or (t[1] == t2x and t[2] == t2y) then
+					tips[#tips + 1] = t;
+				else
+					others[#others + 1] = t;
 				end
 			end
 		end
-		addCandidate(tip1X, tip1Y);
-		addCandidate(tip2X, tip2Y);
-		local leftDx, leftDy = RotateOffset60(-2, 0, rot);
-		local leftX = wrapCoord(cx + leftDx, iW, wrapX);
-		local leftY = wrapCoord(cy + leftDy, iH, wrapY);
-		addCandidate(leftX, leftY);
-		local rightDx, rightDy = RotateOffset60(1, 0, rot);
-		local rightX = wrapCoord(cx + rightDx, iW, wrapX);
-		local rightY = wrapCoord(cy + rightDy, iH, wrapY);
-		addCandidate(rightX, rightY);
-		local toPick = math.min(3, #candidates);
-		while toPick > 0 and #candidates > 0 do
-			local idx = 1 + Map.Rand(#candidates, "");
-			local wx, wy = candidates[idx][1], candidates[idx][2];
-			outerMtnSet[wx .. "," .. wy] = true;
-			table.remove(candidates, idx);
-			toPick = toPick - 1;
+		local want = 1 + Map.Rand(2, "sinaiExtraPeaks");
+		local picked = {};
+		local function pickFrom(list)
+			while #list > 0 and #picked < want do
+				local i = 1 + Map.Rand(#list, "sinaiPeakPick");
+				local t = list[i];
+				table.remove(list, i);
+				local ok = true;
+				for _, p in ipairs(picked) do
+					if Map.PlotDistance(p[1], p[2], t[1], t[2]) < 2 then ok = false; break; end
+				end
+				if ok then picked[#picked + 1] = t; end
+			end
 		end
-	end
-
-	local adjToSinai = {};
-	for d = 1, 6 do
-		local nx, ny = GetHexNeighbor(sinaiX, sinaiY, d, iW, iH, wrapX, wrapY);
-		if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
-			adjToSinai[nx .. "," .. ny] = true;
-		end
+		pickFrom(tips);
+		pickFrom(others);
+		for _, t in ipairs(picked) do outerMtnSet[t[1] .. "," .. t[2]] = true; end
 	end
 
 	for _, t in ipairs(landTiles) do
 		local x, y = t[1], t[2];
 		local idx = y * iW + x + 1;
-		if x == sinaiX and y == sinaiY then
+		local d = Map.PlotDistance(sinaiX, sinaiY, x, y);
+		if d == 0 then
 			plotTypes[idx] = PlotTypes.PLOT_MOUNTAIN;
 		elseif outerMtnSet[x .. "," .. y] then
 			plotTypes[idx] = PlotTypes.PLOT_MOUNTAIN;
-		elseif adjToSinai[x .. "," .. y] then
+		elseif d == 1 then
 			plotTypes[idx] = PlotTypes.PLOT_HILLS;
 		else
 			plotTypes[idx] = (Map.Rand(100, "") < 40) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
