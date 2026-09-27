@@ -1,5 +1,6 @@
 -- Atoll ring: 4-6 tiny islets (mostly 1 tile, sometimes 2) spaced around a hex ring of radius 2-3 with an
--- open water centre. The ring's near side sits a couple of tiles off the coast, the rest curves away.
+-- open water centre. The whole ring is planned before painting: the islet walk starts on a ring tile that sits
+-- exactly one water tile off the coast, so the nearest islet always has a one-tile gap; the rest curves away.
 
 include("X_IslandHelpers");
 
@@ -9,7 +10,7 @@ local CONFIG = {
 	TWO_TILE_PCT = 25,                 -- islet covers two consecutive ring tiles
 	GAP2_PCT = 35,                     -- two water tiles between islets instead of one
 	HILLS_PCT = 35,
-	SHORE_MIN = 2, SHORE_MAX = 3,      -- nearest ring tile's distance to land (2 = one water tile between)
+	SHORE_DIST = 2,                    -- nearest ring tile's distance to land (2 = one water tile between)
 };
 
 local function isLand(plotTypes, x, y, iW)
@@ -26,8 +27,8 @@ function TryPlaceAtollRingIsland(plotTypes, centerX, centerY, islLandInRing, par
 	if cx < 0 or cx >= iW then return false; end
 
 	local R = (Map.Rand(100, "atollRadius") < CONFIG.RADIUS3_PCT) and 3 or 2;
-	-- Seed = ring centre; nearest land at R + SHORE_MIN .. R + SHORE_MAX puts the ring's near side 2-3 off.
-	if islLandInRing < R + CONFIG.SHORE_MIN or islLandInRing > R + CONFIG.SHORE_MAX then return false; end
+	-- Seed = ring centre; nearest land at R + SHORE_DIST puts the ring's near side one water tile off.
+	if islLandInRing ~= R + CONFIG.SHORE_DIST then return false; end
 	if cy - R < 3 or cy + R > iH - 4 then return false; end
 
 	-- Whole disk must be open water with no land touching the ring.
@@ -38,9 +39,19 @@ function TryPlaceAtollRingIsland(plotTypes, centerX, centerY, islLandInRing, par
 	local n = #ring;
 	if n < 6 * R then return false; end
 
-	-- Walk the ring from a random start: islet (1-2 tiles), gap (1-2 tiles), repeat.
+	-- Anchor: ring tiles with land exactly SHORE_DIST away (none closer: the R+1 disk is clear). The walk
+	-- starts there, so the first islet is the one hugging the coast.
+	local anchors = {};
+	for idx, t in ipairs(ring) do
+		for _, u in ipairs(GetHexRingAtRadius(t[1], t[2], CONFIG.SHORE_DIST, iW, iH, wrapX, wrapY)) do
+			if isLand(plotTypes, u[1], u[2], iW) then anchors[#anchors + 1] = idx - 1; break; end
+		end
+	end
+	if #anchors == 0 then return false; end
+
+	-- Walk the ring from the anchor: islet (1-2 tiles), gap (1-2 tiles), repeat.
 	local want = CONFIG.ISLETS_MIN + Map.Rand(CONFIG.ISLETS_RANGE + 1, "atollCount");
-	local start = Map.Rand(n, "atollStart");
+	local start = anchors[1 + Map.Rand(#anchors, "atollStart")];
 	local islets = {};
 	local i = 0;
 	while #islets < want and i < n do

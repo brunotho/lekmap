@@ -110,7 +110,7 @@ Placer **tags** (add gradually on XX_* or catalog only):
 ## First-pass ring allowlist (when re-enabling draft)
 
 **Likely keep (shore / small):**  
-`dot`, `pebble`, `strip`, `splinteredCliffsTiny`, `chunk`, `barbell`, `snake`, `wishbone`, `lollipop`, `clusterOfTiny`, `splinteredCliffs`, `mountainWall`, `ridgePeak`, `twinBay`, `shatteredRing`, `crescent`, `volcanicRing`, `junglePeak`, `sinaiIsland`, `solomonsMinesIsland` (odds 0 today), `geothermalIsland`
+`dot`, `pebble`, `strip`, `splinteredCliffsTiny`, `chunk`, `barbell`, `snake`, `wishbone`, `lollipop`, `clusterOfTiny`, `splinteredCliffs`, `mountainWall`, `drownedRidge`, `twinBay`, `shatteredRing`, `crescent`, `volcanicRing`, `junglePeak`, `sinaiIsland`, `solomonsMinesIsland` (odds 0 today), `geothermalIsland`
 
 **Likely deny or odds=0 on ring:**  
 `wrapSoftLandbridge`, `polarMerge` (EW-extent anchors meaningless on full-X belt; arms cluster at wrap), `steppingStone` (maybe keep with polar basins later), `EdgeOfWorld`, `EllipseArchipelago`, `fjordPeninsula`, `WaterRift` (deep far rings)

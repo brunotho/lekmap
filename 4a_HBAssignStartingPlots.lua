@@ -18780,7 +18780,15 @@ function AssignStartingPlots:LekPlaceRegionalLuxuryShortfallFallback()
 				end
 				return self:PlaceSpecificNumberOfResources(res_ID, 1, left, 1, -1, 0, 0, shuf);
 			end
-			if #pool48 > 0 then
+			if isSea then
+				-- Mainland shore first (4..max: rings 1-3 belong to the start copies), then the normal bands;
+				-- the 1..max band stays the last resort so the region never ends up short.
+				local poolMain = LekFilterMainlandShorePlots(self:LekBuildRegionalLuxuryRepairPoolInBand(region_number, res_ID, 4, LEK_REGIONAL_LUX_MAX_DIST or 7));
+				if #poolMain > 0 then
+					left = placeFromPool(poolMain);
+				end
+			end
+			if left > 0 and #pool48 > 0 then
 				left = placeFromPool(pool48);
 			end
 			if left > 0 then
@@ -20085,6 +20093,95 @@ function AssignStartingPlots:LekEnsureCapitalLuxuryMinimumNearStart(used_randoms
 	self:LekAssertCapitalLuxuryTilesMinimumOrRegen(minLux, countRing);
 end
 ------------------------------------------------------------------------------
+-- Lekmap: keep only water plots (1-based indices) that touch the mainland (biggest landmass). Plain global,
+-- not a method, so it needs no AssignStartingPlots registration.
+function LekFilterMainlandShorePlots(list)
+	local out = {};
+	if type(list) ~= "table" then return out; end
+	local big = Map.FindBiggestArea(false);
+	if not big then return out; end
+	local bigID = big:GetID();
+	local iW = select(1, Map.GetGridSize());
+	for _, idx in ipairs(list) do
+		local x = (idx - 1) % iW;
+		local y = (idx - 1 - x) / iW;
+		local plot = Map.GetPlot(x, y);
+		if plot and plot:IsWater() then
+			for d = 0, 5 do
+				local adj = Map.PlotDirection(x, y, d);
+				if adj and not adj:IsWater() and adj:GetArea() == bigID then
+					out[#out + 1] = idx;
+					break;
+				end
+			end
+		end
+	end
+	return out;
+end
+------------------------------------------------------------------------------
+-- Lekmap: split water plots (1-based) at hex distance dmin..dmax from a coastal capital into the two coast
+-- directions. Seaward = summed offset to the water within 2 of the capital; each plot goes to the side of
+-- that axis it lies on (plots straight out to sea count for side A). Plain global, no registration needed.
+function LekSplitShoreByCoastSide(list, sx, sy, dmin, dmax)
+	local sideA, sideB = {}, {};
+	if type(list) ~= "table" then return sideA, sideB; end
+	local iW = select(1, Map.GetGridSize());
+	local wrapX = Map:IsWrapX();
+	local function offset(x, y)
+		local dx = (x + 0.5 * (y % 2)) - (sx + 0.5 * (sy % 2));
+		if wrapX then
+			if dx > iW / 2 then dx = dx - iW; elseif dx < -iW / 2 then dx = dx + iW; end
+		end
+		return dx, (y - sy) * 0.866;
+	end
+	local nx, ny = 0, 0;
+	for dy = -2, 2 do
+		for dx = -3, 3 do
+			local x, y = sx + dx, sy + dy;
+			if wrapX then x = x % iW; end
+			local p = Map.GetPlot(x, y);
+			if p and p:IsWater() and not p:IsLake() and Map.PlotDistance(sx, sy, x, y) <= 2 then
+				local ox, oy = offset(x, y);
+				nx, ny = nx + ox, ny + oy;
+			end
+		end
+	end
+	if nx == 0 and ny == 0 then return sideA, sideB; end
+	for _, idx in ipairs(list) do
+		local x = (idx - 1) % iW;
+		local y = (idx - 1 - x) / iW;
+		local d = Map.PlotDistance(sx, sy, x, y);
+		if d >= dmin and d <= dmax then
+			local ox, oy = offset(x, y);
+			if nx * oy - ny * ox >= 0 then
+				sideA[#sideA + 1] = idx;
+			else
+				sideB[#sideB + 1] = idx;
+			end
+		end
+	end
+	return sideA, sideB;
+end
+------------------------------------------------------------------------------
+-- Lekmap: sheep never sit under forest / jungle (e.g. island vegetation or Sinai desert tiles). Runs after
+-- all resources are placed; removes the feature, keeps the sheep.
+function LekClearFeaturesOnSheep()
+	local sheep = GameInfo.Resources["RESOURCE_SHEEP"];
+	if not sheep then return; end
+	local n = 0;
+	for k = 0, Map.GetNumPlots() - 1 do
+		local p = Map.GetPlotByIndex(k);
+		if p and p:GetResourceType(-1) == sheep.ID then
+			local ft = p:GetFeatureType();
+			if ft == FeatureTypes.FEATURE_FOREST or ft == FeatureTypes.FEATURE_JUNGLE then
+				p:SetFeatureType(FeatureTypes.NO_FEATURE, -1);
+				n = n + 1;
+			end
+		end
+	end
+	if LekPipelineFlow then LekPipelineFlow("sheep_feature_cleared", "n=" .. tostring(n)); end
+end
+------------------------------------------------------------------------------
 function AssignStartingPlots:PlaceLuxuries()
 	-- This function is dependent upon AssignLuxuryRoles() and PlaceCityStates() having been executed first.
 	local iW, iH = Map.GetGridSize();
@@ -20387,22 +20484,32 @@ function AssignStartingPlots:PlaceLuxuries()
 		if res_ID ~= nil then
 		LekMapgenFileTrace("-", "- - -", "Attempting to place regional luxury #", res_ID, "in Region#", region_number);
 		local iNumAlreadyPlaced = self.amounts_of_resources_placed[res_ID + 1];
+		-- Lekmap: sea regionals keep a spacing radius of 1 (not 1..3) so their coastal copies block few tiles
+		-- for later random luxuries.
+		local luxRadMax = self:LekIsSeaLuxuryResourceId(res_ID) and 1 or 3;
 		local assignment_split = self.luxury_assignment_count[res_ID];
 		local primary, secondary, tertiary, quaternary, quinary, senary, luxury_plot_lists, shuf_list, iNumLeftToPlace;		-- MOD.Barathor: New -- added a quinary and senary list
 		primary, secondary, tertiary, quaternary, quinary, senary = self:GetIndicesForLuxuryType(res_ID);					-- MOD.Barathor: New -- added a quinary and senary list
 		luxury_plot_lists = self:GenerateLuxuryPlotListsInRegion(region_number)
 		luxury_plot_lists = self:FilterLuxuryPlotListsWithinPlotDistanceOfMajorStart(luxury_plot_lists, region_number, LEK_REGIONAL_LUX_MAX_DIST or 7)
 		if self:LekIsSeaLuxuryResourceId(res_ID) then
-			local seaRaw, seaDropLand, seaDropCS = 0, 0, 0;
+			local seaRaw, seaDropLand, seaDropCS, seaDropInner = 0, 0, 0, 0;
 			local function filterSeaList(li)
 				if type(li) ~= "number" or li <= 0 or luxury_plot_lists[li] == nil then
 					return;
 				end
 				local src = luxury_plot_lists[li];
 				local out = {};
+				-- Lekmap: the start already holds its copies within 3 of the capital; regional copies stay at 4+
+				-- (only the shortfall repair may still use the inner rings as a last resort).
+				local capR = self.startingPlots[region_number];
 				for _, idx in ipairs(src) do
 					seaRaw = seaRaw + 1;
-					if not AssignStartingPlots.LekCoastalRegionalTilePassesWorkableLandRule(self, idx) then
+					local ix = (idx - 1) % iW;
+					local iy = (idx - 1 - ix) / iW;
+					if capR and type(capR[1]) == "number" and Map.PlotDistance(capR[1], capR[2], ix, iy) <= 3 then
+						seaDropInner = seaDropInner + 1;
+					elseif not AssignStartingPlots.LekCoastalRegionalTilePassesWorkableLandRule(self, idx) then
 						seaDropLand = seaDropLand + 1;
 					elseif AssignStartingPlots.LekIsPlotWithinDistanceOfAnyCityState(self, idx, 2) then
 						seaDropCS = seaDropCS + 1;
@@ -20414,40 +20521,11 @@ function AssignStartingPlots:PlaceLuxuries()
 			end
 			filterSeaList(primary); filterSeaList(secondary); filterSeaList(tertiary);
 			filterSeaList(quaternary); filterSeaList(quinary); filterSeaList(senary);
-			if seaDropLand > 0 or seaDropCS > 0 then
+			if seaDropLand > 0 or seaDropCS > 0 or seaDropInner > 0 then
 				LekMapgenFileTrace("### LEK SEA REGIONAL FILTER runId=", tostring(_lek_run_id or "na"),
 					" Region#", region_number, " raw=", seaRaw,
-					" dropLandR2=", seaDropLand, " dropNearCS=", seaDropCS,
-					" keep=", (seaRaw - seaDropLand - seaDropCS), " maxDist=7");
-			end
-		end
-		if self:LekIsSeaLuxuryResourceId(res_ID) then
-			local seaRaw, seaDropLand, seaDropCS = 0, 0, 0;
-			local function filterSeaList(li)
-				if type(li) ~= "number" or li <= 0 or luxury_plot_lists[li] == nil then
-					return;
-				end
-				local src = luxury_plot_lists[li];
-				local out = {};
-				for _, idx in ipairs(src) do
-					seaRaw = seaRaw + 1;
-					if not AssignStartingPlots.LekCoastalRegionalTilePassesWorkableLandRule(self, idx) then
-						seaDropLand = seaDropLand + 1;
-					elseif AssignStartingPlots.LekIsPlotWithinDistanceOfAnyCityState(self, idx, 2) then
-						seaDropCS = seaDropCS + 1;
-					else
-						out[#out + 1] = idx;
-					end
-				end
-				luxury_plot_lists[li] = out;
-			end
-			filterSeaList(primary); filterSeaList(secondary); filterSeaList(tertiary);
-			filterSeaList(quaternary); filterSeaList(quinary); filterSeaList(senary);
-			if seaDropLand > 0 or seaDropCS > 0 then
-				LekMapgenFileTrace("### LEK SEA REGIONAL FILTER runId=", tostring(_lek_run_id or "na"),
-					" Region#", region_number, " raw=", seaRaw,
-					" dropLandR2=", seaDropLand, " dropNearCS=", seaDropCS,
-					" keep=", (seaRaw - seaDropLand - seaDropCS), " maxDist=7");
+					" dropLandR2=", seaDropLand, " dropNearCS=", seaDropCS, " dropInnerR3=", seaDropInner,
+					" keep=", (seaRaw - seaDropLand - seaDropCS - seaDropInner), " maxDist=", (LEK_REGIONAL_LUX_MAX_DIST or 7));
 			end
 		end
 
@@ -20476,27 +20554,69 @@ function AssignStartingPlots:PlaceLuxuries()
 		LekMapgenFileTrace("-", "Target number for Luxury#", res_ID, "with assignment split of", assignment_split, "is", targetNum);
 		
 		-- Place luxuries.
+		-- Lekmap: sea regionals go on the mainland shore first (water next to the biggest landmass); island
+		-- shores only get what the mainland pass could not place (the normal passes below).
+		iNumLeftToPlace = iNumThisLuxToPlace;
+		if self:LekIsSeaLuxuryResourceId(res_ID) then
+			-- The start already holds its copies within 3 of the capital; the regional copies go 4..max out along
+			-- the mainland coast in both directions, split as evenly as possible (3 -> 2 + 1, random side).
+			local spR = self.startingPlots[region_number];
+			if spR and type(spR[1]) == "number" and type(spR[2]) == "number" then
+				local allSea, seenSea = {}, {};
+				for _, li in ipairs({ primary, secondary, tertiary, quaternary, quinary, senary }) do
+					if li > 0 and luxury_plot_lists[li] then
+						for _, idx in ipairs(luxury_plot_lists[li]) do
+							if not seenSea[idx] then seenSea[idx] = true; allSea[#allSea + 1] = idx; end
+						end
+					end
+				end
+				local sideA, sideB = LekSplitShoreByCoastSide(LekFilterMainlandShorePlots(allSea), spR[1], spR[2], 4, LEK_REGIONAL_LUX_MAX_DIST or 7);
+				if Map.Rand(2, "Lek sea regional side swap") == 0 then sideA, sideB = sideB, sideA; end
+				local wantA = math.ceil(iNumLeftToPlace / 2);
+				local wantB = iNumLeftToPlace - wantA;
+				local leftA = (wantA > 0 and #sideA > 0) and self:PlaceSpecificNumberOfResources(res_ID, 1, wantA, 1, 2, 1, luxRadMax, GetShuffledCopyOfTable(sideA)) or wantA;
+				local leftB = (wantB > 0 and #sideB > 0) and self:PlaceSpecificNumberOfResources(res_ID, 1, wantB, 1, 2, 1, luxRadMax, GetShuffledCopyOfTable(sideB)) or wantB;
+				-- A side that ran short hands its rest to the other side.
+				if leftA > 0 and #sideB > 0 then leftA = self:PlaceSpecificNumberOfResources(res_ID, 1, leftA, 1, 2, 1, luxRadMax, GetShuffledCopyOfTable(sideB)); end
+				if leftB > 0 and #sideA > 0 then leftB = self:PlaceSpecificNumberOfResources(res_ID, 1, leftB, 1, 2, 1, luxRadMax, GetShuffledCopyOfTable(sideA)); end
+				LekMapgenFileTrace("-", "LEK sea regional coast split Region#", region_number, "res", res_ID, "want", wantA, "+", wantB,
+					"left", leftA, "+", leftB, "pool", #sideA, "/", #sideB);
+				iNumLeftToPlace = leftA + leftB;
+			end
+			-- Rest: any mainland-shore tile, then the normal passes (island shores).
+			for _, li in ipairs({ primary, secondary, tertiary, quaternary, quinary, senary }) do
+				if iNumLeftToPlace > 0 and li > 0 and luxury_plot_lists[li] then
+					shuf_list = GetShuffledCopyOfTable(LekFilterMainlandShorePlots(luxury_plot_lists[li]));
+					if #shuf_list > 0 then
+						iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 1, 2, 1, luxRadMax, shuf_list);
+					end
+				end
+			end
+			LekMapgenFileTrace("-", "LEK sea regional mainland-shore pass Region#", region_number, "res", res_ID, "left", iNumLeftToPlace, "of", iNumThisLuxToPlace);
+		end
 		shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[primary])
-		iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumThisLuxToPlace, 0.25, 2, 1, 3, shuf_list);	-- MOD.Barathor: Updated -- Existing ratio = 0.3, min radius = 0, max radius = 3
+		if iNumLeftToPlace > 0 then
+			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 0.25, 2, 1, luxRadMax, shuf_list);	-- MOD.Barathor: Updated -- Existing ratio = 0.3, min radius = 0, max radius = 3
+		end
 		if iNumLeftToPlace > 0 and secondary > 0 then
 			shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[secondary])
-			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 0.25, 2, 1, 3, shuf_list);	-- MOD.Barathor: Updated -- Existing ratio = 0.3, min radius = 0, max radius = 3
+			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 0.25, 2, 1, luxRadMax, shuf_list);	-- MOD.Barathor: Updated -- Existing ratio = 0.3, min radius = 0, max radius = 3
 		end
 		if iNumLeftToPlace > 0 and tertiary > 0 then
 			shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[tertiary])
-			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 0.25, 2, 1, 3, shuf_list);	-- MOD.Barathor: Updated -- Existing ratio = 0.4, min radius = 0, max radius = 2
+			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 0.25, 2, 1, luxRadMax, shuf_list);	-- MOD.Barathor: Updated -- Existing ratio = 0.4, min radius = 0, max radius = 2
 		end
 		if iNumLeftToPlace > 0 and quaternary > 0 then
 			shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[quaternary])
-			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 0.25, 2, 0, 3, shuf_list);	-- MOD.Barathor: Updated -- Existing ratio = 0.5, min radius = 0, max radius = 2 
+			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 0.25, 2, 0, luxRadMax, shuf_list);	-- MOD.Barathor: Updated -- Existing ratio = 0.5, min radius = 0, max radius = 2 
 		end
 		if iNumLeftToPlace > 0 and quinary > 0 then		-- MOD.Barathor: New -- added a quinary list
 			shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[quinary])
-			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 0.25, 2, 1, 3, shuf_list);	-- MOD.Barathor: Updated -- Existing ratio = 0.5, min radius = 0, max radius = 2 
+			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 0.25, 2, 1, luxRadMax, shuf_list);	-- MOD.Barathor: Updated -- Existing ratio = 0.5, min radius = 0, max radius = 2 
 		end
 		if iNumLeftToPlace > 0 and senary > 0 then		-- MOD.Barathor: New -- added a senary list
 			shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[senary])
-			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 0.25, 2, 1, 3, shuf_list);	-- MOD.Barathor: Updated -- Existing ratio = 0.5, min radius = 0, max radius = 2 
+			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 0.25, 2, 1, luxRadMax, shuf_list);	-- MOD.Barathor: Updated -- Existing ratio = 0.5, min radius = 0, max radius = 2 
 		end
 		LekMapgenFileTrace("-", "-", "Number of LuxuryID", res_ID, "left to place in Region#", region_number, "is", iNumLeftToPlace);
 		
@@ -20506,26 +20626,26 @@ function AssignStartingPlots:PlaceLuxuries()
 		if iNumLeftToPlace > 0 then	
 			-- Second pass, checking all with a 100% ratio to make sure the target total is reached for this region!
 			shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[primary])
-			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 1, 2, 1, 3, shuf_list);
+			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 1, 2, 1, luxRadMax, shuf_list);
 			if iNumLeftToPlace > 0 and secondary > 0 then
 				shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[secondary])
-				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 1, 2, 1, 3, shuf_list);
+				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 1, 2, 1, luxRadMax, shuf_list);
 			end
 			if iNumLeftToPlace > 0 and tertiary > 0 then
 				shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[tertiary])
-				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 1, 2, 1, 3, shuf_list);
+				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 1, 2, 1, luxRadMax, shuf_list);
 			end
 			if iNumLeftToPlace > 0 and quaternary > 0 then
 				shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[quaternary])
-				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 1, 2, 1, 3, shuf_list);
+				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 1, 2, 1, luxRadMax, shuf_list);
 			end
 			if iNumLeftToPlace > 0 and quinary > 0 then		-- MOD.Barathor: New -- added a quinary list
 				shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[quinary])
-				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 1, 2, 1, 3, shuf_list);
+				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 1, 2, 1, luxRadMax, shuf_list);
 			end
 			if iNumLeftToPlace > 0 and senary > 0 then		-- MOD.Barathor: New -- added a senary list
 				shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[senary])
-				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 1, 2, 1, 3, shuf_list);
+				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 1, 2, 1, luxRadMax, shuf_list);
 			end
 			LekMapgenFileTrace("-", "Number of LuxuryID", res_ID, "not placed in Region#", region_number, "is", iNumLeftToPlace);
 			if iNumLeftToPlace > 0 and self:LekIsSeaLuxuryResourceId(res_ID) then
@@ -20570,6 +20690,7 @@ function AssignStartingPlots:PlaceLuxuries()
 		{1, 1, 1, 1, 1, 1, 1},
 		{1, 1, 1, 1, 1, 1, 1, 1} };
 
+		local lekRandomLuxWanted, lekRandomLuxShortTypes = 0, 0;
 		for loop, res_ID in ipairs(self.resourceIDs_assigned_to_random) do
 			local primary, secondary, tertiary, quaternary, quinary, senary, luxury_plot_lists, current_list, iNumLeftToPlace;	-- MOD.Barathor: New -- added a quinary and senary list
 			primary, secondary, tertiary, quaternary, quinary, senary = self:GetIndicesForLuxuryType(res_ID);					-- MOD.Barathor: New -- added a quinary and senary list
@@ -20619,6 +20740,8 @@ function AssignStartingPlots:PlaceLuxuries()
 				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 0.75, 2, lux_distance, 0, current_list);
 			end
 			iNumRandomLuxPlaced = iNumRandomLuxPlaced + iNumThisLuxToPlace - iNumLeftToPlace;
+			lekRandomLuxWanted = lekRandomLuxWanted + iNumThisLuxToPlace;
+			if iNumLeftToPlace > 0 then lekRandomLuxShortTypes = lekRandomLuxShortTypes + 1; end
 			LekMapgenFileTrace("-");
 			LekMapgenFileTrace("Random Luxury ID#:", res_ID);
 			LekMapgenFileTrace("-", "Random Luxury Target Number:", iNumThisLuxToPlace);
@@ -20628,6 +20751,13 @@ function AssignStartingPlots:PlaceLuxuries()
 		LekMapgenFileTrace("+ Random Luxuries Target Number:", iNumRandomLuxTarget);
 		LekMapgenFileTrace("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+");
 		LekMapgenFileTrace("+ Random Luxuries Number Placed:", iNumRandomLuxPlaced);
+		-- One line per map in LekmapLandStats.log: are random luxuries crowded out (e.g. by regional spacing)?
+		if LekLandStatsLog then
+			LekLandStatsLog("### LekLuxSummary randomTarget=" .. tostring(iNumRandomLuxTarget)
+				.. " randomWanted=" .. tostring(lekRandomLuxWanted) .. " randomPlaced=" .. tostring(iNumRandomLuxPlaced)
+				.. " typesShort=" .. tostring(lekRandomLuxShortTypes) .. "/" .. tostring(#self.resourceIDs_assigned_to_random)
+				.. " totalLuxPlaced=" .. tostring(self.totalLuxPlacedSoFar));
+		end
 		LekMapgenFileTrace("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+", "-");
 	end
 
@@ -22553,7 +22683,9 @@ function AssignStartingPlots:PlaceCoastalBonusIslands()
 							local adjLand = countAdjacentLand(nx, ny, used);
 							local nextTileNumber = #islandTiles + 1;
 							local ok = false;
-							if nextTileNumber == 2 then
+							-- Never grow next to land that is not this island (kept the island merging into the mainland).
+							if countAdjacentLand(nx, ny, nil) > 0 then
+							elseif nextTileNumber == 2 then
 								ok = (adjLand == 1);
 							else
 								ok = (adjLand == 1 or adjLand == 2);
@@ -22692,7 +22824,8 @@ function AssignStartingPlots:PlaceCoastalBonusIslands()
 								and hasLandAtRing2(realX, realY)
 							then
 								local dLand = hexStepsToNearestLand(realX, realY);
-								if dLand == 2 or dLand == 3 then
+								-- Seed exactly one water tile off the coast (was 2..3: allowed a two-tile gap).
+								if dLand == 2 then
 									cand[#cand + 1] = { realX, realY, dLand };
 								end
 							end
@@ -24662,6 +24795,8 @@ function AssignStartingPlots:PlaceResourcesAndCityStates()
 	if _lek_global_six_request_map_regen ~= true then
 		self:LekAssertRegionalLuxuryNoShortfallAfterFallbackOrRegen();
 	end
+
+	pcall(LekClearFeaturesOnSheep);
 
 	do
 		local ok, err = pcall(function() self:PrintFinalResourceTotalsToLog(); end);

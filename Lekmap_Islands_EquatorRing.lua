@@ -21,10 +21,12 @@ function LekIslands_GetEquatorRingPolicy()
 		-- gap guard undoes violating placements). Non-merge effMax values are +2 so farther seeds exist.
 		-- Hard caps per map; islands' closest tile must be within 3 hexes of the mainland (hotspot trail exempt).
 		maxPerType = { splinteredCliffsTiny = 2, atollRing = 1 },
-		maxMainlandGap = 3,
+		maxMainlandGap = 2,     -- closest tile within 2 hexes = exactly one water tile to the mainland
+		-- Fragile multi-piece shapes may sit one tile further out (fewer rejected tries near the coast).
+		mainlandGapByType = { splinteredCliffs = 3, shatteredRing = 3, volcanicRing = 3 },
 		islandGap = 2,          -- water tiles every island keeps from other islands (0 = off)
 		farFromMainlandOk = { hotspotTrail = true },
-		mayTouchMainland = { polarMerge = true, wrapSoftLandbridge = true, ridgePeak = true, mountainWall = true },
+		mayTouchMainland = { polarMerge = true, wrapSoftLandbridge = true },
 		-- Budgets = average tiles / 11.5 (measured 2026-09-26), so one budget point is ~11.5 tiles for every type.
 		totalBudget = 5,
 		dotStripEarlyBudget = 0, -- early dot/strip phase off (dots were flooding coasts)
@@ -48,23 +50,23 @@ function LekIslands_GetEquatorRingPolicy()
 			{ type = "splinteredCliffsTiny", odds = 3, pullBack = 1, effMin = 0, effMax = 3, budget = 0.30 },
 		},
 		uncommon = {
-			{ type = "snake",               odds = 5, pullBack = 1, effMin = 0, effMax = 4, budget = 1.05 },
+			{ type = "snake",               odds = 5, pullBack = 1, effMin = 1, effMax = 1, budget = 1.05 },
 			{ type = "barbell",             odds = 4, pullBack = 1, effMin = 0, effMax = 4, budget = 0.61 },
 			{ type = "wishbone",            odds = 4, pullBack = 1, effMin = 0, effMax = 3, budget = 0.67 },
 			{ type = "lollipop",            odds = 2, pullBack = 1, effMin = 0, effMax = 4, budget = 0.97 },
 			{ type = "chunk",               odds = 2, pullBack = 1, effMin = 0, effMax = 4, budget = 0.61 },
 			{ type = "clusterOfTiny",       odds = 5, pullBack = 1, effMin = 0, effMax = 4, budget = 0.56, fragile = true },
-			{ type = "atollRing",           odds = 2, pullBack = 0, effMin = 4, effMax = 6, budget = 0.48 },
+			{ type = "atollRing",           odds = 2, pullBack = 0, effMin = 4, effMax = 5, budget = 0.48 },
 			{ type = "splinteredCliffs",    odds = 2, pullBack = 0, effMin = 1, effMax = 4, budget = 1.01, fragile = true },
-			{ type = "mountainWall",        odds = 1, pullBack = 0, effMin = 0, effMax = 1, budget = 0.76 },
-			{ type = "ridgePeak",           odds = 2, pullBack = 0, effMin = 0, effMax = 1, budget = 0.57 },
+			{ type = "mountainWall",        odds = 1, pullBack = 0, effMin = 2, effMax = 3, budget = 0.76 },
+			{ type = "drownedRidge",        odds = 2, pullBack = 0, effMin = 1, effMax = 4, budget = 0.60 },
 			{ type = "twinBay",             odds = 1, pullBack = 1, effMin = 0, effMax = 3, budget = 0.89 },
 			{ type = "shatteredRing",       odds = 1, pullBack = 1, effMin = 0, effMax = 4, budget = 1.07 },
 		},
 		rare = {
 			-- ~8–16+ land across 3–5 islets → between crescent (1.50) and volcanicRing (1.71)
 			{ type = "shoreSineChain",     odds = 5, pullBack = 1, effMin = 0, effMax = 7, budget = 0.90 },
-			{ type = "crescent",            odds = 2, pullBack = 1, effMin = 0, effMax = 4, budget = 1.57 },
+			{ type = "crescent",            odds = 0, pullBack = 1, effMin = 0, effMax = 4, budget = 1.57 },
 			{ type = "volcanicRing",        odds = 1, pullBack = 1, effMin = 1, effMax = 4, budget = 0.83 },
 			{ type = "hotspotTrail",        odds = 2, pullBack = 0, effMin = 3, effMax = 5, budget = 0.97 },
 			{ type = "junglePeak",          odds = 2, pullBack = 1, effMin = 2, effMax = 5, budget = 1.13 },

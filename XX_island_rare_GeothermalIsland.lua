@@ -107,7 +107,9 @@ function TryPlaceGeothermalIsland(plotTypes, centerX, centerY, islLandInRing, pa
 	if not footprintClear(plotTypes, landTiles, params.iW, params.iH) then return false; end
 
 	local roll = Map.Rand(100, "");
-	if roll < 20 then
+	-- Krakatoa is unique: skip it when the central volcano already took it.
+	local krakatoaTaken = _lek_central_volcano_nw and _lek_central_volcano_nw.kind == "krakatoa";
+	if roll < 20 and not krakatoaTaken then
 		_geothermal_island_nw_type = NW_KRAKATOA;
 		_geothermal_is_krakatoa = true;
 	else

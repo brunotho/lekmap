@@ -24,7 +24,7 @@ include("XX_island_uncommon_SplinteredMountains");
 include("XX_island_uncommon_SplinteredCliffs");
 include("XX_island_uncommon_TwinBay");
 include("XX_island_uncommon_MountainWall");
-include("XX_island_uncommon_RidgePeak");
+include("XX_island_uncommon_DrownedRidge");
 include("XX_island_uncommon_LakeRidge");
 include("XX_island_uncommon_ClusterOfTiny");
 include("XX_island_uncommon_AtollRing");

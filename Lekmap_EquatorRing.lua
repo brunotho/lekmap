@@ -3,7 +3,7 @@
 ------------------------------------------------------------------------------
 -- LOG MASTER SWITCH: false for release (nothing is written), true while testing.
 -- Flow log + all channels below follow it; channels only pick topics when it is true.
-_lek_mapgen_logs = true;
+_lek_mapgen_logs = false;
 _lek_pipeline_flow_log = _lek_mapgen_logs;
 -- Use 3 when testing islands on Small (LekIslandProbe budget lines need it).
 _lek_mapgen_log_verbosity = 1;
@@ -40,7 +40,7 @@ function GetMapScriptInfo()
 	LekPipelineFlow("GetMapScriptInfo_call");
 	local world_age, temperature, rainfall, sea_level, resources = GetCoreMapOptions()
 	return {
-		Name = "[COLOR_PLAYER_PURPLE_TEXT]Lekmap 6.0.4 -- Equator Ring[ENDCOLOR]",
+		Name = "[COLOR_PLAYER_PURPLE_TEXT]Lekmap 6.0.5 -- Equator Ring[ENDCOLOR]",
 		Description = "Lekmap pangaea — land belt wrapping the equator with open polar oceans.",
 		IsAdvancedMap = false,
 		IconIndex = 0,

@@ -299,10 +299,18 @@ function GenerateIslands(self, policy, genOpts)
 	end
 	local gapRejects = 0;
 	-- Max distance rule: an island's closest tile must be within policy.maxMainlandGap hexes of the mainland
-	-- (types in policy.farFromMainlandOk are exempt, e.g. the outward-heading hotspot trail).
+	-- (2 = exactly one water tile, since the gap guard forbids touching). policy.mainlandGapByType overrides it
+	-- per type; types in policy.farFromMainlandOk are exempt (e.g. the outward-heading hotspot trail).
 	local maxMainlandGap = policy.maxMainlandGap;
+	local gapByType = policy.mainlandGapByType or {};
 	local farOk = policy.farFromMainlandOk or {};
 	local mainDist = {};
+	local bfsGap = maxMainlandGap;
+	if bfsGap then
+		for _, g in pairs(gapByType) do
+			if g > bfsGap then bfsGap = g; end
+		end
+	end
 	if maxMainlandGap then
 		local qd = {};
 		for i in pairs(mainlandTiles) do
@@ -313,7 +321,7 @@ function GenerateIslands(self, policy, genOpts)
 		while hd <= #qd do
 			local k = qd[hd];
 			hd = hd + 1;
-			if mainDist[k] < maxMainlandGap then
+			if mainDist[k] < bfsGap then
 				for d = 1, 6 do
 					local nx, ny = GetHexNeighbor(k % iW, math.floor(k / iW), d, iW, iH, wrapX, wrapY);
 					if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
@@ -332,9 +340,8 @@ function GenerateIslands(self, policy, genOpts)
 	end
 	guardedPlace = function(islandType, placeFn)
 		local real = self.plotTypes;
-		if mayTouch[islandType] then
-			return placeFn(real);
-		end
+		-- Connectors (mayTouchMainland) may touch / bridge to the mainland, but still keep islandGap from other islands.
+		local connector = mayTouch[islandType];
 		local saved = saveMarkers();
 		local savedPlaced = {};
 		for k, v in pairs(_island_placed or {}) do savedPlaced[k] = v; end
@@ -348,7 +355,7 @@ function GenerateIslands(self, policy, genOpts)
 		});
 		local r1, r2, r3 = placeFn(proxy);
 		local bad = false;
-		if r1 then
+		if r1 and not connector then
 			for i, o in pairs(old) do
 				local nowLand = isLandType(real[i]);
 				if pangeaTiles[i] and real[i] ~= o[1] then
@@ -385,10 +392,12 @@ function GenerateIslands(self, policy, genOpts)
 				end
 			end
 		end
-		if r1 and not bad and maxMainlandGap and not farOk[islandType] then
+		if r1 and not bad and maxMainlandGap and not farOk[islandType] and not connector then
+			local limit = gapByType[islandType] or maxMainlandGap;
 			local near = false;
 			for i, o in pairs(old) do
-				if isLandType(real[i]) and not isLandType(o[1]) and mainDist[i - 1] ~= nil then
+				local md = mainDist[i - 1];
+				if isLandType(real[i]) and not isLandType(o[1]) and md ~= nil and md <= limit then
 					near = true;
 					break;
 				end
@@ -435,6 +444,8 @@ function GenerateIslands(self, policy, genOpts)
 		_geothermal_is_krakatoa = nil;
 		_geothermal_snow_plot_indices = nil;
 		_geothermal_forest_ring_indices = nil;
+		-- The central volcano is a JunglePeak stamp with its own wonder: no second JunglePeak on that map.
+		if _lek_central_volcano then _island_placed.junglePeak = true; end
 	end
 
 	local function restorePlotTypes()

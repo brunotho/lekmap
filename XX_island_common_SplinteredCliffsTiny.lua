@@ -1,5 +1,6 @@
 -- Sea stacks: a short row of single-tile mountain islets standing one water tile off the coast, parallel to
--- the shore and one water tile apart (eroded-cliff look, e.g. the Twelve Apostles).
+-- the shore and one water tile apart (eroded-cliff look, e.g. the Twelve Apostles). Sometimes one pair is two
+-- water tiles apart. Two rows on the same map never use the same number of stacks.
 
 include("X_IslandHelpers");
 
@@ -7,6 +8,7 @@ local CONFIG = {
 	STACKS_MIN = 3, STACKS_RANGE = 1,  -- 3..4 stacks
 	FIFTH_STACK_PCT = 20,              -- extra stack at the end of the row
 	SHORE_GAP = 2,                     -- hex distance to the nearest land (2 = one water tile between)
+	WIDE_GAP_PCT = 10,                 -- one pair of neighbouring stacks two water tiles apart instead of one
 	SCAN_RADIUS = 8,                   -- local window for the distance-to-land field
 };
 
@@ -75,13 +77,26 @@ function TryPlaceSplinteredCliffsTinyIsland(plotTypes, centerX, centerY, islLand
 	end
 	local want = CONFIG.STACKS_MIN + Map.Rand(CONFIG.STACKS_RANGE + 1, "seaStackCount");
 	if Map.Rand(100, "seaStackFifth") < CONFIG.FIFTH_STACK_PCT then want = want + 1; end
+	-- Stack counts already used by other rows on this map (reset with _island_placed each engine run).
+	local usedCounts = (_island_placed and _island_placed.seaStackCounts) or {};
+	if usedCounts[want] then
+		local free = {};
+		for c = CONFIG.STACKS_MIN, CONFIG.STACKS_MIN + CONFIG.STACKS_RANGE + 1 do
+			if not usedCounts[c] then free[#free + 1] = c; end
+		end
+		if #free == 0 then return false; end
+		want = free[1 + Map.Rand(#free, "seaStackCountFree")];
+	end
+	-- Step (1-based: stack #wideAt + 1) that is two water tiles from the previous stack, or none.
+	local wideAt = (Map.Rand(100, "seaStackWide") < CONFIG.WIDE_GAP_PCT) and (1 + Map.Rand(want - 1, "seaStackWideAt")) or nil;
 
 	-- Each next stack: two steps from the previous one, on the one-water-tile band, extending the row
 	-- (furthest from the first stack; the second stack picks a side at random).
 	while #stacks < want do
 		local last = stacks[#stacks];
 		local best, bestD, ties = nil, -1, {};
-		for _, t in ipairs(GetHexRingAtRadius(last[1], last[2], 2, iW, iH, wrapX, wrapY)) do
+		local step = (#stacks == wideAt) and 3 or 2;
+		for _, t in ipairs(GetHexRingAtRadius(last[1], last[2], step, iW, iH, wrapX, wrapY)) do
 			if onBand(t[1], t[2]) and clearOfStacks(t[1], t[2]) then
 				local d = (#stacks == 1) and 0 or Map.PlotDistance(stacks[1][1], stacks[1][2], t[1], t[2]);
 				if d > bestD then
@@ -98,10 +113,16 @@ function TryPlaceSplinteredCliffsTinyIsland(plotTypes, centerX, centerY, islLand
 		if #stacks >= 2 and bestD <= Map.PlotDistance(stacks[1][1], stacks[1][2], last[1], last[2]) then break; end
 		stacks[#stacks + 1] = best;
 	end
-	if #stacks < CONFIG.STACKS_MIN then return false; end
+	if #stacks < CONFIG.STACKS_MIN or usedCounts[#stacks] then return false; end
 
 	for _, s in ipairs(stacks) do
 		plotTypes[s[2] * iW + s[1] + 1] = PlotTypes.PLOT_MOUNTAIN;
 	end
+	-- New table (not in-place): the engine rolls _island_placed back by shallow copy on a rejected placement.
+	if not _island_placed then _island_placed = {}; end
+	local counts = {};
+	for c in pairs(usedCounts) do counts[c] = true; end
+	counts[#stacks] = true;
+	_island_placed.seaStackCounts = counts;
 	return true, cx, cy;
 end

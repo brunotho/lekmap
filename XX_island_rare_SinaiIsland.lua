@@ -132,7 +132,8 @@ function TryPlaceSinaiIsland(plotTypes, centerX, centerY, islLandInRing, params)
 	for _, idx in ipairs({1, 2, 3, 14, 15, 16}) do
 		if idx <= #landTiles then outerRingIdx[#outerRingIdx + 1] = idx; end
 	end
-	local numToRemove = math.min(1 + Map.Rand(2, ""), #outerRingIdx);
+	-- 3-4 of the 6 outer tiles go (was 1-2): diamond of 12-13 tiles instead of 14-15.
+	local numToRemove = math.min(3 + Map.Rand(2, ""), #outerRingIdx);
 	local toRemove = {};
 	for _ = 1, numToRemove do
 		local pick = 1 + Map.Rand(#outerRingIdx, "");
@@ -143,7 +144,7 @@ function TryPlaceSinaiIsland(plotTypes, centerX, centerY, islLandInRing, params)
 	for _, idx in ipairs(toRemove) do
 		table.remove(landTiles, idx);
 	end
-	if #landTiles < 12 then return false; end
+	if #landTiles < 10 then return false; end
 	if not footprintClear(plotTypes, landTiles, params.iW, params.iH) then return false; end
 
 	local diamondSet = {};

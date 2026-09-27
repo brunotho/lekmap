@@ -1108,20 +1108,20 @@ LEK_CENTRAL_SEA_ISLAND_PCT = 75;  -- per interior tile (2+ from shore), like the
 -- Plot indices (y*iW+x) of the painted sea; island draft skips them. Nil when none.
 _lek_central_sea_plots = nil;
 
+LEK_BAY_MAX_MOUTH_STEPS = 3;   -- bay tiles further than this (through the bay) from its sea mouth are refilled
+
 ------------------------------------------------------------------------------
 -- Central volcano (Fractal Pangaea, rare): the JunglePeak island (peak, caldera, broken ring of islets)
 -- stamped into the middle of the pangaea, inside a ragged sea dug around it. The peak rolls a natural
--- wonder (Krakatoa / Sri Pada / plain mountain), the island is mostly jungle, and a few single mountains
--- spike the mainland shore. Replaces the normal central sea on that map. This sea is exempt from the
--- 7-tile span cap, the capital-clearance fill and the mountain/inland-water barrier breaker.
+-- wonder (Krakatoa / Sri Pada, else a jungle tile) and the island is mostly jungle. Replaces the normal central
+-- sea on that map. This sea is exempt from the 7-tile span cap, the capital-clearance fill and the
+-- mountain/inland-water barrier breaker.
 ------------------------------------------------------------------------------
-LEK_CENTRAL_VOLCANO_CHANCE = 100;   -- TESTING: set to 1 for release
+LEK_CENTRAL_VOLCANO_CHANCE = 5;     -- % of Fractal Pangaea maps
 LEK_CENTRAL_VOLCANO_ANCHOR_R = 6;   -- anchor: any tile within this hex radius of the canvas centre
-LEK_CENTRAL_VOLCANO_NW = { krakatoa = 40, sripada = 40 };  -- else plain mountain
+LEK_CENTRAL_VOLCANO_NW = { krakatoa = 10, sripada = 10 };  -- else the peak is a jungle hill/flat tile
 LEK_CENTRAL_VOLCANO_JUNGLE_MIN = 60;  -- % of the island's non-mountain tiles with jungle (min + 0..range)
 LEK_CENTRAL_VOLCANO_JUNGLE_RANGE = 20;
-LEK_CENTRAL_VOLCANO_SPIKES_MIN = 3;   -- single mountains on the mainland shore of the sea (3..6)
-LEK_CENTRAL_VOLCANO_SPIKES_RANGE = 3;
 LEK_CENTRAL_VOLCANO_NOISE_MIN = 3;    -- random land<->water flips on the island / moat / outer shore (3..5)
 LEK_CENTRAL_VOLCANO_NOISE_RANGE = 2;
 _lek_central_volcano = false;
@@ -1176,7 +1176,7 @@ function LekPaintCentralVolcano(self, dist)
 		local k = t[2] * iW + t[1];
 		if pt[k + 1] ~= PlotTypes.PLOT_OCEAN then
 			islandSet[k] = true;
-			-- Only the central peak is a mountain; ring mountains become hills (spikes go on the outer shore).
+			-- Only the central peak is a mountain; ring mountains become hills.
 			if k ~= peakK and pt[k + 1] == PlotTypes.PLOT_MOUNTAIN then
 				pt[k + 1] = PlotTypes.PLOT_HILLS;
 			end
@@ -1202,7 +1202,8 @@ function LekPaintCentralVolcano(self, dist)
 	end
 	for k in pairs(sea) do pt[k + 1] = PlotTypes.PLOT_OCEAN; end
 
-	-- Natural wonder on the peak: Krakatoa / Sri Pada / plain mountain. Re-applied after the island engine.
+	-- Natural wonder on the peak: Krakatoa / Sri Pada (re-applied after the island engine); otherwise the peak
+	-- becomes a hill or flat tile that LekJungleCentralVolcano always covers with jungle.
 	_lek_central_volcano_nw = nil;
 	local r = Map.Rand(100, "central_volcano_nw");
 	local peak = cy * iW + cx + 1;
@@ -1210,6 +1211,8 @@ function LekPaintCentralVolcano(self, dist)
 		_lek_central_volcano_nw = { plot = peak, kind = "krakatoa" };
 	elseif r < LEK_CENTRAL_VOLCANO_NW.krakatoa + LEK_CENTRAL_VOLCANO_NW.sripada then
 		_lek_central_volcano_nw = { plot = peak, kind = "sripada" };
+	else
+		pt[peak] = (Map.Rand(2, "central_volcano_peak_flat") == 0) and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND;
 	end
 	LekApplyCentralVolcanoWonder();
 
@@ -1262,39 +1265,6 @@ function LekPaintCentralVolcano(self, dist)
 		end
 	end
 
-	-- Spiked ring: a few single mountains on mainland tiles bordering the sea, never next to each other.
-	local shore = {};
-	for k in pairs(sea) do
-		local x, y = k % iW, math.floor(k / iW);
-		for d = 1, 6 do
-			local nx, ny = GetHexNeighbor(x, y, d, iW, iH, wrapX, false);
-			local nk = ny * iW + nx;
-			if nx >= 0 and nx < iW and ny >= 0 and ny < iH and not sea[nk] and not islandSet[nk]
-				and pt[nk + 1] ~= PlotTypes.PLOT_OCEAN then
-				shore[nk] = true;
-			end
-		end
-	end
-	local shoreList = {};
-	for k in pairs(shore) do shoreList[#shoreList + 1] = k; end
-	table.sort(shoreList);
-	local spikesWant = LEK_CENTRAL_VOLCANO_SPIKES_MIN + Map.Rand(LEK_CENTRAL_VOLCANO_SPIKES_RANGE + 1, "central_volcano_nspikes");
-	local spikes = 0;
-	for _ = 1, 60 do
-		if spikes >= spikesWant or #shoreList == 0 then break; end
-		local k = shoreList[1 + Map.Rand(#shoreList, "central_volcano_spike")];
-		local x, y = k % iW, math.floor(k / iW);
-		local lonely = pt[k + 1] ~= PlotTypes.PLOT_MOUNTAIN;
-		for d = 1, 6 do
-			local nx, ny = GetHexNeighbor(x, y, d, iW, iH, wrapX, false);
-			if nx >= 0 and nx < iW and ny >= 0 and ny < iH and pt[ny * iW + nx + 1] == PlotTypes.PLOT_MOUNTAIN then lonely = false; break; end
-		end
-		if lonely then
-			pt[k + 1] = PlotTypes.PLOT_MOUNTAIN;
-			spikes = spikes + 1;
-		end
-	end
-
 	local land = {};
 	for k in pairs(islandSet) do
 		land[#land + 1] = k;
@@ -1308,9 +1278,8 @@ function LekPaintCentralVolcano(self, dist)
 	local nSea = 0;
 	for _ in pairs(sea) do nSea = nSea + 1; end
 	LekLandStatsLog("### LekInlandSeaCentral volcano=1 at=" .. tostring(cx) .. "," .. tostring(cy)
-		.. " placerOk=" .. tostring(ok) .. " nw=" .. tostring(_lek_central_volcano_nw and _lek_central_volcano_nw.kind or "mountain")
-		.. " islandTiles=" .. tostring(#land) .. " waterTiles=" .. tostring(nSea - #land)
-		.. " spikes=" .. tostring(spikes));
+		.. " placerOk=" .. tostring(ok) .. " nw=" .. tostring(_lek_central_volcano_nw and _lek_central_volcano_nw.kind or "none_jungle")
+		.. " islandTiles=" .. tostring(#land) .. " waterTiles=" .. tostring(nSea - #land));
 	return true;
 end
 
@@ -1318,12 +1287,12 @@ end
 function LekApplyCentralVolcanoWonder()
 	local nw = _lek_central_volcano_nw;
 	if not nw then return; end
+	-- Only set our own marker: the other one may belong to a Geothermal Krakatoa (no engine JunglePeak exists
+	-- on central-volcano maps, so nothing else can hold Sri Pada).
 	if nw.kind == "krakatoa" then
 		_krakatoa_island_plot = nw.plot;
-		_sri_pada_island_plot = nil;
 	elseif nw.kind == "sripada" then
 		_sri_pada_island_plot = nw.plot;
-		_krakatoa_island_plot = nil;
 	end
 end
 
@@ -1335,7 +1304,8 @@ function LekJungleCentralVolcano()
 	local n = 0;
 	for _, k in ipairs(land) do
 		local plot = Map.GetPlotByIndex(k);
-		if plot and not plot:IsWater() and not plot:IsMountain() and Map.Rand(100, "central_volcano_jungle") < pct then
+		local isPeak = (k == _lek_central_volcano_peak) and not _lek_central_volcano_nw;
+		if plot and not plot:IsWater() and not plot:IsMountain() and (isPeak or Map.Rand(100, "central_volcano_jungle") < pct) then
 			local ft = plot:GetFeatureType();
 			local info = (ft ~= FeatureTypes.NO_FEATURE) and GameInfo.Features[ft] or nil;
 			if not (info and info.NaturalWonder) then
@@ -1580,7 +1550,7 @@ function LekFillInlandSeasNearCapitals()
 		local ft = peakPlot and peakPlot:GetFeatureType() or -1;
 		local fname = (ft ~= FeatureTypes.NO_FEATURE and GameInfo.Features[ft]) and GameInfo.Features[ft].Type or "none";
 		LekLandStatsLog("### LekCentralVolcanoCheck peak=" .. px .. "," .. py .. " nearestCapital=" .. tostring(nearest)
-			.. " wantedNW=" .. tostring(_lek_central_volcano_nw and _lek_central_volcano_nw.kind or "mountain")
+			.. " wantedNW=" .. tostring(_lek_central_volcano_nw and _lek_central_volcano_nw.kind or "none_jungle")
 			.. " featureOnPeak=" .. fname);
 	end
 	local function isSeaWater(k)
@@ -2016,6 +1986,102 @@ function LekAddMediumMountainRidges(plotTypes, iW, iH, wrapX)
 	LekLandStatsLog("### LekMountainRidges existing=" .. tostring(existing) .. " target=" .. tostring(target)
 		.. " added=" .. tostring(added) .. " clump=" .. tostring(clumpMade));
 	return added;
+end
+
+------------------------------------------------------------------------------
+-- Straight horizontal ridges: a mountain group of 3+ tiles that all sit in one row (east-west, nothing above or
+-- below) looks ruler-drawn. Bend it: an end tile moves one step diagonally (up or down, random) next to its
+-- neighbour on the ridge and the old end becomes hills; 4+ tile runs bend both ends. The new mountain must be
+-- land, not a mountain, and touch no other mountain group; if neither side works the end just becomes hills.
+-- Runs last on the final plot types (after ridges, breakers and islands), before terrain.
+------------------------------------------------------------------------------
+function LekBendHorizontalMountainRuns(plotTypes, iW, iH, wrapX)
+	local MTN, HILLS, LAND = PlotTypes.PLOT_MOUNTAIN, PlotTypes.PLOT_HILLS, PlotTypes.PLOT_LAND;
+	local function nb(k, d)
+		local nx, ny = GetHexNeighbor(k % iW, math.floor(k / iW), d, iW, iH, wrapX, false);
+		if nx < 0 or nx >= iW or ny < 0 or ny >= iH then return nil; end
+		return ny * iW + nx;
+	end
+	local seen, bent, shortened, runs = {}, 0, 0, 0;
+	for k0 = 0, iW * iH - 1 do
+		if plotTypes[k0 + 1] == MTN and not seen[k0] then
+			local comp, h = { k0 }, 1;
+			seen[k0] = true;
+			while h <= #comp do
+				local k = comp[h];
+				h = h + 1;
+				for d = 1, 6 do
+					local nk = nb(k, d);
+					if nk and not seen[nk] and plotTypes[nk + 1] == MTN then
+						seen[nk] = true;
+						comp[#comp + 1] = nk;
+					end
+				end
+			end
+			local row = math.floor(comp[1] / iW);
+			local flat = #comp >= 3;
+			for _, k in ipairs(comp) do
+				if math.floor(k / iW) ~= row then flat = false; break; end
+			end
+			if flat then
+				runs = runs + 1;
+				local inComp = {};
+				for _, k in ipairs(comp) do inComp[k] = true; end
+				-- Ends: tiles with exactly one mountain neighbour in the run.
+				local ends = {};
+				for _, k in ipairs(comp) do
+					local n = 0;
+					local inner = nil;
+					for d = 1, 6 do
+						local nk = nb(k, d);
+						if nk and inComp[nk] then n = n + 1; inner = nk; end
+					end
+					if n == 1 then ends[#ends + 1] = { k, inner }; end
+				end
+				if #ends == 2 and #comp == 3 then
+					table.remove(ends, 1 + Map.Rand(2, "lek_flat_ridge_end"));
+				end
+				for _, e in ipairs(ends) do
+					local old, inner = e[1], e[2];
+					-- Candidates: off-row tiles next to both the inner ridge tile and the old end.
+					local cands = {};
+					for d = 1, 6 do
+						local t = nb(inner, d);
+						if t and math.floor(t / iW) ~= row then
+							for d2 = 1, 6 do
+								if nb(t, d2) == old then cands[#cands + 1] = t; break; end
+							end
+						end
+					end
+					if #cands == 2 and Map.Rand(2, "lek_flat_ridge_side") == 0 then cands[1], cands[2] = cands[2], cands[1]; end
+					local done = false;
+					for _, t in ipairs(cands) do
+						local pt = plotTypes[t + 1];
+						if pt == LAND or pt == HILLS then
+							local lonely = true;
+							for d = 1, 6 do
+								local nk = nb(t, d);
+								if nk and nk ~= inner and nk ~= old and plotTypes[nk + 1] == MTN then lonely = false; break; end
+							end
+							if lonely then
+								plotTypes[t + 1] = MTN;
+								plotTypes[old + 1] = HILLS;
+								bent = bent + 1;
+								done = true;
+								break;
+							end
+						end
+					end
+					if not done then
+						plotTypes[old + 1] = HILLS;
+						shortened = shortened + 1;
+					end
+				end
+			end
+		end
+	end
+	LekLandStatsLog("### LekFlatRidges runs=" .. tostring(runs) .. " bent=" .. tostring(bent) .. " shortened=" .. tostring(shortened));
+	return bent, shortened;
 end
 
 ------------------------------------------------------------------------------
@@ -3408,6 +3474,51 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 				end
 			end
 		end
+		-- Bays must open broadly to the sea: mouth = carved tiles touching pre-bay water; carved tiles more than
+		-- LEK_BAY_MAX_MOUTH_STEPS steps (through the bay) from a mouth become land again. Kills canals that run
+		-- along the coast behind a thin peninsula; wide shallow bays are untouched. Inland puddles are left as is.
+		do
+			local wrapXB = Map:IsWrapX();
+			local distB, qB = {}, {};
+			for i = 1, iW * iH do
+				if self.plotTypes[i] == PlotTypes.PLOT_OCEAN and preBaysPlotTypes[i] ~= PlotTypes.PLOT_OCEAN then
+					local k = i - 1;
+					for dir = 1, 6 do
+						local nx, ny = GetHexNeighbor(k % iW, math.floor(k / iW), dir, iW, iH, wrapXB, false);
+						if nx >= 0 and nx < iW and ny >= 0 and ny < iH
+							and preBaysPlotTypes[ny * iW + nx + 1] == PlotTypes.PLOT_OCEAN then
+							distB[k] = 0;
+							qB[#qB + 1] = k;
+							break;
+						end
+					end
+				end
+			end
+			local hB = 1;
+			while hB <= #qB do
+				local k = qB[hB];
+				hB = hB + 1;
+				for dir = 1, 6 do
+					local nx, ny = GetHexNeighbor(k % iW, math.floor(k / iW), dir, iW, iH, wrapXB, false);
+					if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+						local nk = ny * iW + nx;
+						if distB[nk] == nil and self.plotTypes[nk + 1] == PlotTypes.PLOT_OCEAN
+							and preBaysPlotTypes[nk + 1] ~= PlotTypes.PLOT_OCEAN then
+							distB[nk] = distB[k] + 1;
+							qB[#qB + 1] = nk;
+						end
+					end
+				end
+			end
+			local trimmed = 0;
+			for k, d in pairs(distB) do
+				if d > LEK_BAY_MAX_MOUTH_STEPS then
+					self.plotTypes[k + 1] = preBaysPlotTypes[k + 1];
+					trimmed = trimmed + 1;
+				end
+			end
+			if LekPipelineFlow then LekPipelineFlow("bays_trimmed", "tiles=" .. tostring(trimmed)); end
+		end
 		-- Bay tracking (island map log): carved components, how deep each cuts (steps from the pre-bay
 		-- water), and whether it opens to that water (bay) or sits inland (puddle).
 		_lek_bay_track = nil;
@@ -3676,9 +3787,9 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 			if islandsBudgetOk and LekPlaceShoreSpecks and LekIslands_ResolvePolicy then
 				local okS, errS = pcall(LekPlaceShoreSpecks, self, LekIslands_ResolvePolicy(nil));
 				if not okS and LekPipelineFlow then LekPipelineFlow("shore_specks_error", tostring(errS)); end
-				-- The island engine resets island NW markers each run; re-point them at the central peak.
-				if LekApplyCentralVolcanoWonder then LekApplyCentralVolcanoWonder(); end
 			end
+			-- The island engine resets island NW markers each run; re-point them at the central peak.
+			if LekApplyCentralVolcanoWonder then LekApplyCentralVolcanoWonder(); end
 		end
 
 		--check to make sure map has not failed
@@ -3767,6 +3878,8 @@ function PangaeaFractalWorld:GeneratePlotTypes(args)
 				.. " minOceanDist=" .. tostring(LEK_INLAND_SEA_MIN_OCEAN_DIST)
 				.. " maxSpan=" .. tostring(LEK_INLAND_SEA_MAX_SPAN));
 		end
+		local okB, errB = pcall(LekBendHorizontalMountainRuns, self.plotTypes, self.iNumPlotsX, self.iNumPlotsY, Map:IsWrapX());
+		if not okB and LekPipelineFlow then LekPipelineFlow("flat_ridges_error", tostring(errB)); end
 		LekLogLandStats("plotTypes", self.plotTypes, self.iNumPlotsX, self.iNumPlotsY, Map:IsWrapX(), false);
 		LekPangaeaProbeLog("### LekPangaeaPlotTypesProbe islandOuterRegen_summary layoutAttempt=" .. tostring(laProbe)
 			.. " outcome=pass outerAttemptsToPass=" .. tostring(outerAttempts)
