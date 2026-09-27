@@ -2,7 +2,7 @@
 
 **Status:** execution SSOT after workspace reset. Deep inventories live in older scratchpads; **implement in the phase order below**, not scatter-shot.
 
-**Archived context:** `SCRATCHPAD-unified-placement-and-bias-spec.md`, `SCRATCHPAD-hard-coastal-quota-architecture.md`, `SCRATCHPAD-tuple-roadmap-bias-and-performance.md`, `SCRATCHPAD-master-plan-try-order.md`, `SCRATCHPAD-start-placement-architecture.md` (glossary).
+**Archived context:** the older placement scratchpads (unified spec, hard coastal quota, tuple roadmap, master plan, placement glossary) were removed 2026-09-27; see git history before commit of that date.
 
 ---
 
