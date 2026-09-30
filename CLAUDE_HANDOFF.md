@@ -8,6 +8,16 @@
 - Old branches: `mapgen-tuning` (local + origin) is fully merged into main and can be deleted if the user agrees;
   `origin/release/v5.3-testing` is an old remote branch (ask before deleting).
 
+## On dev, untested in-game (2026-09-30, logs switched on)
+- Inland seas count for the start distance rules (`AssignStartingPlots.LekBuildCoastTables`, log `LekInlandSeaStartRing`).
+- Tiny cliffs: 60% of rows push 1-2 stacks to a 2-water-tile gap (`OUTER_PCT`, `OUTER_TWO_PCT`).
+- NW tiles blocked in all resource layers + final sweep (log `LekNWResourceSweep`).
+- Fractal only: `LekClearCoastalStartsTowardCenter` (pipeline, after ChooseLocations) turns salt water / mountains in
+  the center-facing half of rings 1-2 of coastal majors into land (log `LekCoastalCenterClear`, flow
+  `coastal_center_clear`). Placement already rejects coastal candidates whose only ocean contact faces the center
+  (`LekCoastalCandidateSurvivesCenterClear`, in the coastal disk gate), so `reverted=` should stay 0 — the revert
+  is only a safety net.
+
 ## Resuming test work
 1. Work on `dev` (`git checkout dev`). This folder is the game's live copy, so the checked-out branch is what loads.
 2. Set `_lek_mapgen_logs = true` in `LekmapPangaeaFractal.lua` and `Lekmap_EquatorRing.lua`.

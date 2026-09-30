@@ -1934,10 +1934,59 @@ function AssignStartingPlots.Create()
 	return findStarts
 end
 ------------------------------------------------------------------------------
-function AssignStartingPlots:__Init()
+-- Coast distance tables (also rebuilt after start-area terrain edits, e.g. LekClearCoastalStartsTowardCenter).
+function AssignStartingPlots.LekBuildCoastTables(self)
 	-- Set up data tables that record whether a plot is coastal land and whether a plot is adjacent to coastal land.
 	self.plotDataIsCoastal, self.plotDataIsNextToCoast = GenerateNextToCoastalLandDataTables()
 	self.plotDataIsThreeFromCoast = GenerateThreeFromCoastTable(self.plotDataIsCoastal, self.plotDataIsNextToCoast)
+	-- Lekmap: curated inland seas are not a coast for coastal starts, but they still count for the distance
+	-- rules (majors: coastal or 4+ from salt water; city states: never 2 from it). Land 1-2 from inland-sea
+	-- water is marked "next to coast", land 3 away "three from coast".
+	if _lek_inland_sea_plots and next(_lek_inland_sea_plots) then
+		local iW, iH = Map.GetGridSize();
+		local wrapX, wrapY = Map:IsWrapX(), Map:IsWrapY();
+		local dist, q = {}, {};
+		for k in pairs(_lek_inland_sea_plots) do
+			local p = Map.GetPlotByIndex(k);
+			if p and p:IsWater() then
+				dist[k] = 0;
+				q[#q + 1] = k;
+			end
+		end
+		local h, nNext, nThree = 1, 0, 0;
+		while h <= #q do
+			local k = q[h];
+			h = h + 1;
+			if dist[k] < 3 then
+				for d = 1, 6 do
+					local nx, ny = GetHexNeighbor(k % iW, math.floor(k / iW), d, iW, iH, wrapX, wrapY);
+					if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+						local nk = ny * iW + nx;
+						if dist[nk] == nil then
+							dist[nk] = dist[k] + 1;
+							q[#q + 1] = nk;
+							local i = nk + 1;
+							if not Map.GetPlotByIndex(nk):IsWater() and not self.plotDataIsCoastal[i] then
+								if dist[nk] <= 2 and not self.plotDataIsNextToCoast[i] then
+									self.plotDataIsNextToCoast[i] = true;
+									self.plotDataIsThreeFromCoast[i] = false;
+									nNext = nNext + 1;
+								elseif dist[nk] == 3 and not self.plotDataIsNextToCoast[i] and not self.plotDataIsThreeFromCoast[i] then
+									self.plotDataIsThreeFromCoast[i] = true;
+									nThree = nThree + 1;
+								end
+							end
+						end
+					end
+				end
+			end
+		end
+		LekLandStatsLog("### LekInlandSeaStartRing nextToCoast+=" .. nNext .. " threeFromCoast+=" .. nThree);
+	end
+end
+------------------------------------------------------------------------------
+function AssignStartingPlots:__Init()
+	AssignStartingPlots.LekBuildCoastTables(self);
 	-- Lekmap: mainland coastal water (for city state island-near-mainland check)
 	self.plotDataMainlandCoastWater, self.plotDataExpandedMainlandCoastWater = GenerateMainlandExpandedCoastData()
 	--
@@ -6607,6 +6656,14 @@ function AssignStartingPlots.LekGlobalSix_OK_InlandSaltCell(self, plotIndex, rFo
 end
 
 function AssignStartingPlots.LekGlobalSix_CoastalCandidatePassesSaltWaterDiskPct(self, plotIndex)
+	-- Lekmap: coastal candidates must also stay coastal after the center clear (Fractal Pangaea).
+	if self.plotDataIsCoastal[plotIndex] == true and LekCoastalCandidateSurvivesCenterClear then
+		local iW = select(1, Map.GetGridSize());
+		local cx = (plotIndex - 1) % iW;
+		if not LekCoastalCandidateSurvivesCenterClear(cx, (plotIndex - 1 - cx) / iW) then
+			return false;
+		end
+	end
 	local pctMax = self._lek_global_six_coastal_disk3_max_salt_water_pct;
 	if pctMax == nil or pctMax == false or type(pctMax) ~= "number" or pctMax < 0 or pctMax > 100 then
 		return true;
@@ -13951,7 +14008,11 @@ function AssignStartingPlots:AttemptToPlaceNaturalWonder(wonder_number, row_numb
 				nwRipple = math.max(5, nwRipple);
 			end
 			self:PlaceResourceImpact(x, y, 6, nwRipple)	-- Natural Wonders layer
-			-- No r1 strategic/luxury/bonus ban around NWs (fish never used those layers anyway — layer 4).
+			-- No r1 strategic/luxury/bonus ban around NWs (fish never used those layers anyway — layer 4),
+			-- but the wonder tile itself is blocked in every resource layer (uranium has its own layer 9).
+			for _, layer in ipairs({ 1, 2, 3, 4, 8, 9 }) do
+				self:PlaceResourceImpact(x, y, layer, 0);
+			end
 			self:PlaceResourceImpact(x, y, 5, 2)					-- City State layer
 			self:PlaceResourceImpact(x, y, 7, 1)					-- Marble layer
 			local plotIndex = y * iW + x + 1;
@@ -16254,6 +16315,12 @@ function AssignStartingPlots:PlaceResourceImpact(x, y, impact_table_number, radi
 	end
 end
 ------------------------------------------------------------------------------
+-- Lekmap: resources never go on a natural wonder tile.
+function LekPlotIsNaturalWonder(plot)
+	local ft = plot:GetFeatureType();
+	return ft ~= FeatureTypes.NO_FEATURE and GameInfo.Features[ft] ~= nil and GameInfo.Features[ft].NaturalWonder == true;
+end
+------------------------------------------------------------------------------
 function AssignStartingPlots:ProcessResourceList(frequency, impact_table_number, plot_list, resources_to_place)
 	-- This function needs to receive two numbers and two tables.
 	-- Length of the plotlist is divided by frequency to get the number of 
@@ -16338,7 +16405,7 @@ function AssignStartingPlots:ProcessResourceList(frequency, impact_table_number,
 						local x = (plotIndex - 1) % iW;
 						local y = (plotIndex - x - 1) / iW;
 						local res_plot = Map.GetPlot(x, y)
-						if res_plot:GetResourceType(-1) == -1 then -- Placing this strategic resource in this plot.
+						if res_plot:GetResourceType(-1) == -1 and not LekPlotIsNaturalWonder(res_plot) then -- Placing this strategic resource in this plot.
 							local res_addition = 0;
 							if res_range[use_this_res_index] ~= -1 then
 								res_addition = Map.Rand(res_range[use_this_res_index], "Resource Radius - Place Resource LUA");
@@ -16359,7 +16426,7 @@ function AssignStartingPlots:ProcessResourceList(frequency, impact_table_number,
 						local x = (plotIndex - 1) % iW;
 						local y = (plotIndex - x - 1) / iW;
 						local res_plot = Map.GetPlot(x, y)
-						if res_plot:GetResourceType(-1) == -1 then
+						if res_plot:GetResourceType(-1) == -1 and not LekPlotIsNaturalWonder(res_plot) then
 							local res_addition = 0;
 							if res_range[use_this_res_index] ~= -1 then
 								res_addition = Map.Rand(res_range[use_this_res_index], "Resource Radius - Place Resource LUA");
@@ -16376,7 +16443,7 @@ function AssignStartingPlots:ProcessResourceList(frequency, impact_table_number,
 						local x = (plotIndex - 1) % iW;
 						local y = (plotIndex - x - 1) / iW;
 						local res_plot = Map.GetPlot(x, y)
-						if res_plot:GetResourceType(-1) == -1 and not AssignStartingPlots.LekTropicalLuxBlockedAtY(self, res_ID[use_this_res_index], y) then -- Placing this luxury resource in this plot.
+						if res_plot:GetResourceType(-1) == -1 and not LekPlotIsNaturalWonder(res_plot) and not AssignStartingPlots.LekTropicalLuxBlockedAtY(self, res_ID[use_this_res_index], y) then -- Placing this luxury resource in this plot.
 							local res_addition = 0;
 							if res_range[use_this_res_index] ~= -1 then
 								res_addition = Map.Rand(res_range[use_this_res_index], "Resource Radius - Place Resource LUA");
@@ -16393,7 +16460,7 @@ function AssignStartingPlots:ProcessResourceList(frequency, impact_table_number,
 						local x = (plotIndex - 1) % iW;
 						local y = (plotIndex - x - 1) / iW;
 						local res_plot = Map.GetPlot(x, y)
-						if res_plot:GetResourceType(-1) == -1 then -- Placing this bonus resource in this plot.
+						if res_plot:GetResourceType(-1) == -1 and not LekPlotIsNaturalWonder(res_plot) then -- Placing this bonus resource in this plot.
 							local res_addition = 0;
 							if res_range[use_this_res_index] ~= -1 then
 								res_addition = Map.Rand(res_range[use_this_res_index], "Resource Radius - Place Resource LUA");
@@ -16417,7 +16484,7 @@ function AssignStartingPlots:ProcessResourceList(frequency, impact_table_number,
 						local x = (plotIndex - 1) % iW;
 						local y = (plotIndex - x - 1) / iW;
 						local res_plot = Map.GetPlot(x, y)
-						if res_plot:GetResourceType(-1) == -1 then
+						if res_plot:GetResourceType(-1) == -1 and not LekPlotIsNaturalWonder(res_plot) then
 							lowest_impact = self.strategicData[plotIndex];
 							best_plot = plotIndex;
 						end
@@ -16427,7 +16494,7 @@ function AssignStartingPlots:ProcessResourceList(frequency, impact_table_number,
 						local x = (plotIndex - 1) % iW;
 						local y = (plotIndex - x - 1) / iW;
 						local res_plot = Map.GetPlot(x, y)
-						if res_plot:GetResourceType(-1) == -1 then
+						if res_plot:GetResourceType(-1) == -1 and not LekPlotIsNaturalWonder(res_plot) then
 							lowest_impact = self.uraniumData[plotIndex];
 							best_plot = plotIndex;
 						end
@@ -16437,7 +16504,7 @@ function AssignStartingPlots:ProcessResourceList(frequency, impact_table_number,
 						local x = (plotIndex - 1) % iW;
 						local y = (plotIndex - x - 1) / iW;
 						local res_plot = Map.GetPlot(x, y)
-						if res_plot:GetResourceType(-1) == -1 then
+						if res_plot:GetResourceType(-1) == -1 and not LekPlotIsNaturalWonder(res_plot) then
 							lowest_impact = self.luxuryData[plotIndex];
 							best_plot = plotIndex;
 						end
@@ -16447,7 +16514,7 @@ function AssignStartingPlots:ProcessResourceList(frequency, impact_table_number,
 						local x = (plotIndex - 1) % iW;
 						local y = (plotIndex - x - 1) / iW;
 						local res_plot = Map.GetPlot(x, y)
-						if res_plot:GetResourceType(-1) == -1 then
+						if res_plot:GetResourceType(-1) == -1 and not LekPlotIsNaturalWonder(res_plot) then
 							lowest_impact = self.bonusData[plotIndex];
 							best_plot = plotIndex;
 						end
@@ -16557,7 +16624,7 @@ function AssignStartingPlots:PlaceSpecificNumberOfResources(resource_ID, quantit
 				local x = (plotIndex - 1) % iW;
 				local y = (plotIndex - x - 1) / iW;
 				local res_plot = Map.GetPlot(x, y)
-				if res_plot and res_plot:GetResourceType(-1) == -1 and not AssignStartingPlots.LekTropicalLuxBlockedAtY(self, resource_ID, y) then
+				if res_plot and res_plot:GetResourceType(-1) == -1 and not LekPlotIsNaturalWonder(res_plot) and not AssignStartingPlots.LekTropicalLuxBlockedAtY(self, resource_ID, y) then
 					res_plot:SetResourceType(resource_ID, quantity);
 					AssignStartingPlots.LekStratAuditRecordHorseIron(self, resource_ID, quantity, res_plot, x, y);
 					self.amounts_of_resources_placed[resource_ID + 1] = self.amounts_of_resources_placed[resource_ID + 1] + quantity;
@@ -22047,7 +22114,7 @@ function AssignStartingPlots:PlaceSmallQuantitiesOfStrategics(frequency, plot_li
 					local x = (plotIndex - 1) % iW;
 					local y = (plotIndex - x - 1) / iW;
 					local res_plot = Map.GetPlot(x, y)
-					if res_plot:GetResourceType(-1) == -1 then
+					if res_plot:GetResourceType(-1) == -1 and not LekPlotIsNaturalWonder(res_plot) then
 						-- Placing a small strategic resource here. Need to determine what type to place.
 						local selected_ID = -1;
 						local selected_quantity = 2;
@@ -24797,6 +24864,20 @@ function AssignStartingPlots:PlaceResourcesAndCityStates()
 	end
 
 	pcall(LekClearFeaturesOnSheep);
+
+	-- Safety net: no resource may sit on a natural wonder tile (some placers ignore the impact layers).
+	do
+		local cleared = {};
+		for k = 0, Map.GetNumPlots() - 1 do
+			local p = Map.GetPlotByIndex(k);
+			if p and p:GetResourceType(-1) ~= -1 and LekPlotIsNaturalWonder(p) then
+				local rt = p:GetResourceType(-1);
+				cleared[#cleared + 1] = p:GetX() .. "," .. p:GetY() .. ":" .. tostring(GameInfo.Resources[rt] and GameInfo.Resources[rt].Type or rt);
+				p:SetResourceType(-1);
+			end
+		end
+		LekLandStatsLog("### LekNWResourceSweep cleared=" .. #cleared .. " " .. table.concat(cleared, " "));
+	end
 
 	do
 		local ok, err = pcall(function() self:PrintFinalResourceTotalsToLog(); end);

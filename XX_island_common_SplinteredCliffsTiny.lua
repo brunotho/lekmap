@@ -1,6 +1,7 @@
 -- Sea stacks: a short row of single-tile mountain islets standing one water tile off the coast, parallel to
 -- the shore and one water tile apart (eroded-cliff look, e.g. the Twelve Apostles). Sometimes one pair is two
--- water tiles apart. Two rows on the same map never use the same number of stacks.
+-- water tiles apart. Two rows on the same map never use the same number of stacks. In most rows 1-2 stacks
+-- stand one tile further out (two water tiles to the shore).
 
 include("X_IslandHelpers");
 
@@ -10,6 +11,8 @@ local CONFIG = {
 	SHORE_GAP = 2,                     -- hex distance to the nearest land (2 = one water tile between)
 	WIDE_GAP_PCT = 10,                 -- one pair of neighbouring stacks two water tiles apart instead of one
 	SCAN_RADIUS = 8,                   -- local window for the distance-to-land field
+	OUTER_PCT = 60,                    -- rows where some stacks stand one tile further out (two water tiles)
+	OUTER_TWO_PCT = 35,                -- of those: two stacks instead of one
 };
 
 local function isLand(plotTypes, x, y, iW)
@@ -57,8 +60,8 @@ function TryPlaceSplinteredCliffsTinyIsland(plotTypes, centerX, centerY, islLand
 			end
 		end
 	end
-	local function onBand(x, y)
-		if y < 2 or y >= iH - 2 or dist[y * iW + x] ~= CONFIG.SHORE_GAP then return false; end
+	local function onBand(x, y, gap)
+		if y < 2 or y >= iH - 2 or dist[y * iW + x] ~= (gap or CONFIG.SHORE_GAP) then return false; end
 		if isLand(plotTypes, x, y, iW) then return false; end
 		for d = 1, 6 do
 			local nx, ny = GetHexNeighbor(x, y, d, iW, iH, wrapX, wrapY);
@@ -114,6 +117,38 @@ function TryPlaceSplinteredCliffsTinyIsland(plotTypes, centerX, centerY, islLand
 		stacks[#stacks + 1] = best;
 	end
 	if #stacks < CONFIG.STACKS_MIN or usedCounts[#stacks] then return false; end
+
+	-- Noise: in some rows 1-2 stacks step one tile further out (two water tiles to the shore). The first
+	-- stack always stays on the one-water-tile band, so the row keeps its mainland anchor.
+	if Map.Rand(100, "seaStackOuter") < CONFIG.OUTER_PCT then
+		local nOuter = (Map.Rand(100, "seaStackOuterTwo") < CONFIG.OUTER_TWO_PCT) and 2 or 1;
+		local order = {};
+		for i = 2, #stacks do order[#order + 1] = i; end
+		for i = #order, 2, -1 do
+			local j = 1 + Map.Rand(i, "seaStackOuterOrder");
+			order[i], order[j] = order[j], order[i];
+		end
+		local moved = 0;
+		for _, si in ipairs(order) do
+			if moved >= nOuter then break; end
+			local s = stacks[si];
+			local opts = {};
+			for d = 1, 6 do
+				local nx, ny = GetHexNeighbor(s[1], s[2], d, iW, iH, wrapX, wrapY);
+				if nx >= 0 and nx < iW and ny >= 0 and ny < iH and onBand(nx, ny, CONFIG.SHORE_GAP + 1) then
+					local ok = true;
+					for sj, o in ipairs(stacks) do
+						if sj ~= si and Map.PlotDistance(o[1], o[2], nx, ny) < 2 then ok = false; break; end
+					end
+					if ok then opts[#opts + 1] = { nx, ny }; end
+				end
+			end
+			if #opts > 0 then
+				stacks[si] = opts[1 + Map.Rand(#opts, "seaStackOuterPick")];
+				moved = moved + 1;
+			end
+		end
+	end
 
 	for _, s in ipairs(stacks) do
 		plotTypes[s[2] * iW + s[1] + 1] = PlotTypes.PLOT_MOUNTAIN;

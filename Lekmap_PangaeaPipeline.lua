@@ -446,6 +446,196 @@ function LekCapRing1MountainsNearCoastalMajors(start_plot_database)
 end
 
 ------------------------------------------------------------------------------
+-- Fractal Pangaea, after ChooseLocations (before BalanceAndAssign normalises starts): for each coastal
+-- major start, the half of rings 1 and 2 facing the map center (3 of 6 and 6 of 12 tiles, smallest angle
+-- to the start->center line) loses salt water (ocean + inland sea, not lakes) and mountains; they become
+-- flat or hills with terrain from the land neighbours. Afterwards the start must still be coastal (next to
+-- main-ocean salt water whose water body reaches 300 tiles, as IsCoastalLand(300)); otherwise that start's
+-- edits are undone. Returns starts cleared, tiles changed, starts reverted.
+------------------------------------------------------------------------------
+LEK_COASTAL_CENTER_CLEAR_MIN_SEA = 300;
+
+-- Center-facing half of rings 1 and 2 around (sx, sy): returns targets (3 ring-1 + 6 ring-2 tiles, {x, y})
+-- and ring1Rest (the 3 ring-1 tiles facing away). nil when the start is the map center.
+function LekCenterFacingRingTiles(sx, sy)
+	local iW, iH = Map.GetGridSize();
+	local wrapX = Map:IsWrapX();
+	local cx, cy = math.floor(iW / 2), math.floor(iH / 2);
+	local function relVec(fx, fy, tx, ty)
+		local dx = (tx + 0.5 * (ty % 2)) - (fx + 0.5 * (fy % 2));
+		if wrapX then
+			if dx > iW / 2 then dx = dx - iW; elseif dx < -iW / 2 then dx = dx + iW; end
+		end
+		return dx, (ty - fy) * 0.8660254;
+	end
+	local vx, vy = relVec(sx, sy, cx, cy);
+	local vlen = math.sqrt(vx * vx + vy * vy);
+	if vlen == 0 then return nil, nil; end
+	local targets, ring1Rest = {}, {};
+	for _, ring in ipairs({ { 1, 3 }, { 2, 6 } }) do
+		local cand = {};
+		for _, tt in ipairs(GetHexRingAtRadius(sx, sy, ring[1], iW, iH, wrapX, false)) do
+			local dx, dy = relVec(sx, sy, tt[1], tt[2]);
+			cand[#cand + 1] = { tt[1], tt[2], (dx * vx + dy * vy) / (math.sqrt(dx * dx + dy * dy) * vlen) };
+		end
+		table.sort(cand, function(a, b) return a[3] > b[3]; end);
+		for i = 1, #cand do
+			if i <= ring[2] then
+				targets[#targets + 1] = cand[i];
+			elseif ring[1] == 1 then
+				ring1Rest[#ring1Rest + 1] = cand[i];
+			end
+		end
+	end
+	return targets, ring1Rest;
+end
+
+-- Placement gate (Fractal only): a coastal candidate must keep main-ocean salt water on a ring-1 tile the
+-- center clear never touches, so LekClearCoastalStartsTowardCenter cannot make it non-coastal.
+function LekCoastalCandidateSurvivesCenterClear(x, y)
+	if not (LekLandmass_IsFractalPangaea and LekLandmass_IsFractalPangaea()) then return true; end
+	local _, rest = LekCenterFacingRingTiles(x, y);
+	if rest == nil then return true; end
+	for _, tt in ipairs(rest) do
+		local p = Map.GetPlot(tt[1], tt[2]);
+		if p and p:IsWater() and not p:IsLake() and not (LekIsInlandSeaPlot and LekIsInlandSeaPlot(p)) then
+			return true;
+		end
+	end
+	return false;
+end
+
+function LekClearCoastalStartsTowardCenter(start_plot_database)
+	if not start_plot_database or not GetHexRingAtRadius or not AdjacentToSaltWater then
+		return 0, 0, 0;
+	end
+	local iW, iH = Map.GetGridSize();
+	local wrapX = Map:IsWrapX();
+	local function isPurgeWater(p)
+		return p:IsWater() and (not p:IsLake() or (LekIsInlandSeaPlot and LekIsInlandSeaPlot(p)));
+	end
+	-- Start still coastal: adjacent main-ocean salt water, and that water body has >= MIN_SEA tiles.
+	local function stillCoastal(sx, sy)
+		if not AdjacentToSaltWater(sx, sy) then return false; end
+		local seen, q = {}, {};
+		for d = 1, 6 do
+			local nx, ny = GetHexNeighbor(sx, sy, d, iW, iH, wrapX, false);
+			if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+				local p = Map.GetPlot(nx, ny);
+				local k = ny * iW + nx;
+				if p and p:IsWater() and not p:IsLake() and not (LekIsInlandSeaPlot and LekIsInlandSeaPlot(p)) and not seen[k] then
+					seen[k] = true;
+					q[#q + 1] = k;
+				end
+			end
+		end
+		local h = 1;
+		while h <= #q do
+			if #q >= LEK_COASTAL_CENTER_CLEAR_MIN_SEA then return true; end
+			local k = q[h];
+			h = h + 1;
+			for d = 1, 6 do
+				local nx, ny = GetHexNeighbor(k % iW, math.floor(k / iW), d, iW, iH, wrapX, false);
+				if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+					local nk = ny * iW + nx;
+					local p = Map.GetPlot(nx, ny);
+					if not seen[nk] and p and p:IsWater() then
+						seen[nk] = true;
+						q[#q + 1] = nk;
+					end
+				end
+			end
+		end
+		return #q >= LEK_COASTAL_CENTER_CLEAR_MIN_SEA;
+	end
+
+	local nStarts, nTiles, nReverted = 0, 0, 0;
+	local parts = {};
+	for r = 1, start_plot_database.iNumCivs or 0 do
+		local t = start_plot_database.startingPlots and start_plot_database.startingPlots[r];
+		local sx, sy = t and t[1], t and t[2];
+		if type(sx) == "number" and type(sy) == "number" and AdjacentToSaltWater(sx, sy) then
+			local targets = LekCenterFacingRingTiles(sx, sy);
+			if targets then
+				local undo, changed = {}, {};
+				for _, tt in ipairs(targets) do
+					local p = Map.GetPlot(tt[1], tt[2]);
+					if p and (p:IsMountain() or isPurgeWater(p)) then
+						undo[#undo + 1] = { p, p:GetPlotType(), p:GetTerrainType(), p:GetFeatureType(), p:GetResourceType(-1), p:GetNumResource() };
+						changed[#changed + 1] = p;
+					end
+				end
+				-- Water/mountain -> flat or hills (hill odds = share of hills+mountains among land neighbours).
+				for _, p in ipairs(changed) do
+					local nLand, nHigh = 0, 0;
+					for d = 0, 5 do
+						local np = Map.PlotDirection(p:GetX(), p:GetY(), d);
+						if np and not np:IsWater() then
+							nLand = nLand + 1;
+							if np:IsHills() or np:IsMountain() then nHigh = nHigh + 1; end
+						end
+					end
+					local hills = nLand > 0 and Map.Rand(nLand, "lek_center_clear_hill") < nHigh;
+					if p:IsWater() then
+						p:SetResourceType(-1);
+						p:SetFeatureType(FeatureTypes.NO_FEATURE, -1);
+					end
+					p:SetPlotType(hills and PlotTypes.PLOT_HILLS or PlotTypes.PLOT_LAND, false, true);
+				end
+				-- Terrain: majority of land neighbours (ties -> lower id), default grass.
+				for _, p in ipairs(changed) do
+					local votes, bestT, bestN = {}, TerrainTypes.TERRAIN_GRASS, 0;
+					for d = 0, 5 do
+						local np = Map.PlotDirection(p:GetX(), p:GetY(), d);
+						if np and not np:IsWater() then
+							local tt = np:GetTerrainType();
+							if tt ~= TerrainTypes.TERRAIN_COAST and tt ~= TerrainTypes.TERRAIN_OCEAN then
+								votes[tt] = (votes[tt] or 0) + 1;
+								if votes[tt] > bestN or (votes[tt] == bestN and tt < bestT) then
+									bestN = votes[tt];
+									bestT = tt;
+								end
+							end
+						end
+					end
+					p:SetTerrainType(bestT, false, true);
+				end
+				-- Deep ocean next to new land becomes coast.
+				for _, p in ipairs(changed) do
+					for d = 0, 5 do
+						local np = Map.PlotDirection(p:GetX(), p:GetY(), d);
+						if np and np:IsWater() and np:GetTerrainType() == TerrainTypes.TERRAIN_OCEAN then
+							undo[#undo + 1] = { np, np:GetPlotType(), np:GetTerrainType(), np:GetFeatureType(), np:GetResourceType(-1), np:GetNumResource() };
+							np:SetTerrainType(TerrainTypes.TERRAIN_COAST, false, true);
+						end
+					end
+				end
+				if #changed > 0 then
+					if stillCoastal(sx, sy) then
+						nStarts = nStarts + 1;
+						nTiles = nTiles + #changed;
+						parts[#parts + 1] = sx .. "," .. sy .. ":" .. #changed;
+					else
+						for i = #undo, 1, -1 do
+							local u = undo[i];
+							u[1]:SetPlotType(u[2], false, true);
+							u[1]:SetTerrainType(u[3], false, true);
+							u[1]:SetFeatureType(u[4], -1);
+							if u[5] ~= -1 then u[1]:SetResourceType(u[5], u[6]); end
+						end
+						nReverted = nReverted + 1;
+						parts[#parts + 1] = sx .. "," .. sy .. ":reverted";
+					end
+				end
+			end
+		end
+	end
+	LekLandStatsLog("### LekCoastalCenterClear starts=" .. nStarts .. " tiles=" .. nTiles
+		.. " reverted=" .. nReverted .. " " .. table.concat(parts, " "));
+	return nStarts, nTiles, nReverted;
+end
+
+------------------------------------------------------------------------------
 -- Break oversized connected mountain blobs (6-neighbor). Demote highest-degree
 -- peaks to hills until each component is <= maxCompSize. Returns tiles demoted.
 ------------------------------------------------------------------------------
@@ -4916,6 +5106,22 @@ function StartPlotSystem()
 	end
 
 	startPlacementSanity(start_plot_database, "after_ChooseLocations", false);
+	if LekLandmass_IsFractalPangaea and LekLandmass_IsFractalPangaea() then
+		local ok, err = pcall(function()
+			local nS, nT, nR = LekClearCoastalStartsTowardCenter(start_plot_database);
+			if nT > 0 then
+				-- Coast data feeds city states / resources later; rebuild it on the edited terrain.
+				AssignStartingPlots.LekBuildCoastTables(start_plot_database);
+				start_plot_database.plotDataMainlandCoastWater, start_plot_database.plotDataExpandedMainlandCoastWater = GenerateMainlandExpandedCoastData();
+			end
+			if LekPipelineFlow then
+				LekPipelineFlow("coastal_center_clear", "starts=" .. nS .. " tiles=" .. nT .. " reverted=" .. nR);
+			end
+		end);
+		if not ok and LekPipelineFlow then
+			LekPipelineFlow("coastal_center_clear_error", tostring(err));
+		end
+	end
 	if LekPipelineFlow then
 		local pace = start_plot_database._lek_ui_starting_locations_pace or -1;
 		local pathName = (pace == 1) and "Legacy" or ((pace == 2) and "GeometricBalance" or "unknown");
