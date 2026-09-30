@@ -1,25 +1,49 @@
-# Claude handoff — 2026-09-27 (after release 6.0.5)
+# Claude handoff — 2026-09-30 (dev work after release 6.0.5)
 
 ## Where things stand
-- **6.0.5 is released**: `main` = `dev` = release commit on GitHub (brunotho/lekmap). Changelog: `Changelog_v6.0.5`.
-- The user is playing full test games on 6.0.5 and will come back with findings.
-- Release values are in place: logs off (`_lek_mapgen_logs = false` in both lobby leaves),
-  `LEK_CENTRAL_VOLCANO_CHANCE = 5`.
+- **6.0.5 is released** on `main` (GitHub brunotho/lekmap, changelog `Changelog_v6.0.5`). Release values there:
+  logs off, `LEK_CENTRAL_VOLCANO_CHANCE = 5`.
+- **`dev` is ahead of main with local commits only (not pushed).** The user says when to push. Testing values are on
+  in dev: `_lek_mapgen_logs = true` in both lobby leaves. The checkout is on `dev` (this folder is the live game copy).
+- The user has rolled ~12 Small Fractal maps on the current dev: all features below look right visually and in the
+  logs (no Lekmap errors). Next steps are the user's call: more specs, more test rolls, or a release (6.0.6).
 - Old branches: `mapgen-tuning` (local + origin) is fully merged into main and can be deleted if the user agrees;
   `origin/release/v5.3-testing` is an old remote branch (ask before deleting).
+- Lua.log shows `Lekmap v6.2\LekmapTeamerMapLegacy.lua:672` errors: an old Lekmap copy in another maps folder, not
+  this repo (harmless; the user may delete that folder).
 
-## On dev, untested in-game (2026-09-30, logs switched on)
-- Inland seas count for the start distance rules (`AssignStartingPlots.LekBuildCoastTables`, log `LekInlandSeaStartRing`).
-- Tiny cliffs: 60% of rows push 1-2 stacks to a 2-water-tile gap (`OUTER_PCT`, `OUTER_TWO_PCT`).
-- NW tiles blocked in all resource layers + final sweep (log `LekNWResourceSweep`).
-- Fractal only: `LekClearCoastalStartsTowardCenter` (pipeline, after ChooseLocations) turns salt water / mountains in
-  the center-facing half of rings 1-2 of coastal majors into land (log `LekCoastalCenterClear`, flow
-  `coastal_center_clear`). Placement already rejects coastal candidates whose only ocean contact faces the center
-  (`LekCoastalCandidateSurvivesCenterClear`, in the coastal disk gate), so `reverted=` should stay 0 — the revert
-  is only a safety net.
+## Done on dev since 6.0.5 (all verified in logs over the user's test rolls)
+- **Inland seas count for start distance rules**: `AssignStartingPlots.LekBuildCoastTables` (called from `__Init`
+  and after the center clear) marks land 1-2 from inland-sea water "next to coast" and 3 away "three from coast";
+  inland seas still are not a coast for coastal starts. Majors stay 4+ from them, city states not at 1-2.
+  Log `LekInlandSeaStartRing`. Fractal only (Equator Ring has no curated inland seas).
+- **Tiny cliffs noise** (`XX_island_common_SplinteredCliffsTiny.lua`): 60% of rows push 1 (35%: 2) stacks one tile
+  further out (two water tiles); the first stack keeps the one-tile anchor (`OUTER_PCT`, `OUTER_TWO_PCT`).
+- **No resources on natural wonders**: NW tile blocked in all resource impact layers; `LekPlotIsNaturalWonder`
+  check in `ProcessResourceList` / `PlaceSpecificNumberOfResources` / `PlaceSmallQuantitiesOfStrategics`;
+  `AttemptToPlaceNaturalWonder` skips candidate tiles that already hold a resource (start balancing places
+  strategics before wonders; island NW spots clear the resource instead); final sweep log `LekNWResourceSweep
+  cleared=N` should be 0 (last fix untested in-game — check the next rolls).
+- **Coastal start center clear** (Fractal only): `LekClearCoastalStartsTowardCenter` (pipeline, after
+  ChooseLocations, before BalanceAndAssign) turns salt water (ocean + inland sea, not lakes) and mountains in the
+  center-facing half of rings 1-2 (3 + 6 tiles, `LekCenterFacingRingTiles`) of coastal majors into flat/hills with
+  neighbour terrain. Placement rejects coastal candidates whose only ocean contact faces the center
+  (`LekCoastalCandidateSurvivesCenterClear`, inside `LekGlobalSix_CoastalCandidatePassesSaltWaterDiskPct`), so the
+  post-check revert never fires. Log `LekCoastalCenterClear starts/tiles/reverted` (seen: 1-3 tiles per map, reverted 0).
+- **Luxury diversity** (`PlaceLuxuries`; regionals and start luxuries untouched): a city state's type may be shared by
+  at most 1 of its 5 nearest city states, checked both ways (re-roll; fallback if nothing fits); log
+  `LekCSLuxDiversity rejects/fallback`. A random luxury may not go where 2+ of the 6 nearest luxuries are its type —
+  another eligible random type with copies left is swapped in, else the tile is skipped (`placeRandomLuxDiverse`);
+  log `LekLuxDiversity randomRejects/swaps`. Seen: 0-3 rejects, fallback 0, random totals unchanged.
+- **Amber** is cluster-only: never regional / city state / start or capital luxury (site allow-list,
+  `LekRandomLuxNoAmber`, CS pool, `LekStripLuxuryResourcesNearStart` keeps it). When rolled as a random type,
+  `LekPlaceAmberClusters` places 1-3 locations (8+ apart) on land within 3 of salt water, each 1/2/3 ambers
+  (50/35/15) within 2 tiles, 75% trees (jungle |lat|<0.3 on grass/plains, else forest). Constants `LEK_AMBER_*`;
+  log `LekAmber locations/tiles`.
+- Changelog for these is not written yet (add `Changelog_v6.0.6` on release).
 
 ## Resuming test work
-1. Work on `dev` (`git checkout dev`). This folder is the game's live copy, so the checked-out branch is what loads.
+1. Work on `dev` (`git checkout dev`); commit locally, push only when the user asks. This folder is the game's live copy, so the checked-out branch is what loads.
 2. Set `_lek_mapgen_logs = true` in `LekmapPangaeaFractal.lua` and `Lekmap_EquatorRing.lua`.
 3. To look at the central volcano, temporarily raise `LEK_CENTRAL_VOLCANO_CHANCE` (release value 5).
 4. User tests by rolling Small maps with default settings (mostly Fractal Pangaea) and reports tile coordinates.

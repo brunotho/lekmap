@@ -13925,8 +13925,22 @@ function AssignStartingPlots:AttemptToPlaceNaturalWonder(wonder_number, row_numb
 	else
 		candidate_plot_list = GetShuffledCopyOfTable(temp_table);
 	end
+	-- Lekmap: start balancing (NormalizeStartLocation) places strategics before wonders exist. Skip tiles that
+	-- already hold a resource; the purpose-built island wonder tiles clear it instead.
+	local islandNWPlot = {};
+	for _, ip in pairs({ _krakatoa_island_plot or false, _sri_pada_island_plot or false, _sinai_island_plot or false,
+		_solomons_island_mines_plot or false, _geothermal_island_plot or false }) do
+		if ip then islandNWPlot[ip] = true; end
+	end
 	for loop, plotIndex in ipairs(candidate_plot_list) do
-		if self.naturalWondersData[plotIndex] == 0 then -- No collision with civ start or other NW, so place wonder here!
+		local candX = (plotIndex - 1) % iW;
+		local candPlot = Map.GetPlot(candX, math.floor((plotIndex - candX - 1) / iW));
+		local hasRes = candPlot ~= nil and candPlot:GetResourceType(-1) ~= -1;
+		if hasRes and islandNWPlot[plotIndex] then
+			candPlot:SetResourceType(-1);
+			hasRes = false;
+		end
+		if self.naturalWondersData[plotIndex] == 0 and not hasRes then -- No collision with civ start or other NW, so place wonder here!
 			local x = (plotIndex - 1) % iW;
 			local y = math.floor((plotIndex - x - 1) / iW);
 			local plot = Map.GetPlot(x, y);
@@ -17214,6 +17228,9 @@ function AssignStartingPlots:LekShouldExcludeLuxuryFromRegionalAssignment(res_ID
 	if res_ID == nil then
 		return true;
 	end
+	if res_ID == self.amber_ID then
+		return true;	-- Lekmap: amber is cluster-only (LekPlaceAmberClusters)
+	end
 	if LekMapGetCustomOption(15) ~= 1 then
 		return false;
 	end
@@ -17348,7 +17365,7 @@ function AssignStartingPlots:AssignLuxuryRoles()
 	for index, resource_options in ipairs(self.luxury_city_state_weights) do
 		local res_ID = resource_options[1];
 		local test = TestMembership(self.resourceIDs_assigned_to_regions, res_ID)
-		if test == false then
+		if test == false and res_ID ~= self.amber_ID then	-- Lekmap: amber is cluster-only
 			table.insert(resource_IDs, res_ID);
 			table.insert(resource_weights, resource_options[2]);
 			iNumAvailableTypes = iNumAvailableTypes + 1;
@@ -17751,6 +17768,9 @@ function AssignStartingPlots:GetListOfAllowableLuxuriesAtCitySite(x, y, radius, 
 				end
 			end
 		end
+	end
+	if self.amber_ID then
+		allowed_luxuries[self.amber_ID] = false;	-- Lekmap: amber is cluster-only
 	end
 	return allowed_luxuries
 end
@@ -19030,7 +19050,7 @@ function AssignStartingPlots:LekStripLuxuryResourcesNearStart(x, y, max_ring, us
 	local center = Map.GetPlot(x, y);
 	if center then
 		local rc = center:GetResourceType(-1);
-		if rc >= 0 and self:LekResourceIsLuxury(rc) then
+		if rc >= 0 and rc ~= self.amber_ID and self:LekResourceIsLuxury(rc) then
 			if used_randoms_as_secondaries then
 				used_randoms_as_secondaries[rc] = false;
 			end
@@ -19045,7 +19065,7 @@ function AssignStartingPlots:LekStripLuxuryResourcesNearStart(x, y, max_ring, us
 	end
 	self:LekVisitPlotsHexRingsFromCenter(x, y, max_ring, function(plot, _, _)
 		local rt = plot:GetResourceType(-1);
-		if rt >= 0 and self:LekResourceIsLuxury(rt) then
+		if rt >= 0 and rt ~= self.amber_ID and self:LekResourceIsLuxury(rt) then	-- amber clusters stay
 			if used_randoms_as_secondaries then
 				used_randoms_as_secondaries[rt] = false;
 			end
@@ -19988,7 +20008,7 @@ function AssignStartingPlots:LekPlaceStartingRegionalLuxBundleForRegion(region_n
 	if iNumLeftToPlace > 0 and self.iNumTypesRandom > 0 then
 		luxury_plot_lists = self:GenerateLuxuryPlotListsAtCitySite(x, y, 3, false);
 		local randoms_to_place = 1;
-		for loop, random_res in ipairs(self.resourceIDs_assigned_to_random) do
+		for loop, random_res in ipairs(AssignStartingPlots.LekRandomLuxNoAmber(self)) do
 			primary, secondary, tertiary, quaternary, quinary, senary = self:GetIndicesForLuxuryType(random_res);
 			if randoms_to_place > 0 then
 				shuf_list = orderPlotsForStartLux(luxury_plot_lists[primary], random_res);
@@ -20249,6 +20269,134 @@ function LekClearFeaturesOnSheep()
 	if LekPipelineFlow then LekPipelineFlow("sheep_feature_cleared", "n=" .. tostring(n)); end
 end
 ------------------------------------------------------------------------------
+-- Lekmap: random luxury types without amber (amber only comes from LekPlaceAmberClusters).
+function AssignStartingPlots.LekRandomLuxNoAmber(self)
+	local out = {};
+	for _, rid in ipairs(self.resourceIDs_assigned_to_random) do
+		if rid ~= self.amber_ID then out[#out + 1] = rid; end
+	end
+	return out;
+end
+
+LEK_AMBER_CLUSTER_SIZE_PCT = { 50, 35, 15 };	-- odds of 1 / 2 / 3 ambers per location
+LEK_AMBER_MAX_LOCATIONS = 3;					-- 1..3 locations, equally likely
+LEK_AMBER_MIN_LOCATION_DIST = 8;
+LEK_AMBER_MAX_SALT_DIST = 3;					-- land within 3 tiles of salt water (ocean or inland sea, not lakes)
+LEK_AMBER_TREE_PCT = 75;						-- featureless tile gets jungle (tropics) or forest
+LEK_AMBER_JUNGLE_LAT = 0.3;						-- |latitude| below this (0 = equator, 1 = pole) -> jungle
+
+-- Amber: 1-3 locations near salt water, each 1-3 ambers within 2 tiles of each other, often under trees.
+-- Returns the placed tiles { {x, y}, ... }.
+function AssignStartingPlots.LekPlaceAmberClusters(self)
+	local iW, iH = Map.GetGridSize();
+	local wrapX = Map:IsWrapX();
+	local res = self.amber_ID;
+	-- Distance to salt water (BFS from salt water, up to LEK_AMBER_MAX_SALT_DIST).
+	local dist, q = {}, {};
+	for k = 0, Map.GetNumPlots() - 1 do
+		local p = Map.GetPlotByIndex(k);
+		if p:IsWater() and (not p:IsLake() or (LekIsInlandSeaPlot and LekIsInlandSeaPlot(p))) then
+			dist[k] = 0;
+			q[#q + 1] = k;
+		end
+	end
+	local h = 1;
+	while h <= #q do
+		local k = q[h];
+		h = h + 1;
+		if dist[k] < LEK_AMBER_MAX_SALT_DIST then
+			for d = 1, 6 do
+				local nx, ny = GetHexNeighbor(k % iW, math.floor(k / iW), d, iW, iH, wrapX, false);
+				if nx >= 0 and nx < iW and ny >= 0 and ny < iH then
+					local nk = ny * iW + nx;
+					if dist[nk] == nil then
+						dist[nk] = dist[k] + 1;
+						q[#q + 1] = nk;
+					end
+				end
+			end
+		end
+	end
+	local function okTile(x, y, needFreeLayer)
+		local k = y * iW + x;
+		local d = dist[k];
+		if d == nil or d < 1 then return false; end
+		local p = Map.GetPlot(x, y);
+		local pt = p:GetPlotType();
+		if pt ~= PlotTypes.PLOT_LAND and pt ~= PlotTypes.PLOT_HILLS then return false; end
+		local tt = p:GetTerrainType();
+		if tt == TerrainTypes.TERRAIN_DESERT or tt == TerrainTypes.TERRAIN_SNOW then return false; end
+		local ft = p:GetFeatureType();
+		if ft ~= FeatureTypes.NO_FEATURE and ft ~= FeatureTypes.FEATURE_FOREST and ft ~= FeatureTypes.FEATURE_JUNGLE then
+			return false;
+		end
+		if p:GetResourceType(-1) ~= -1 or p:IsCity() or self.playerCollisionData[k + 1] == true then return false; end
+		if needFreeLayer and self.luxuryData[k + 1] ~= 0 then return false; end
+		return true;
+	end
+	local function addTrees(p)
+		if p:GetFeatureType() ~= FeatureTypes.NO_FEATURE then return; end
+		if Map.Rand(100, "Lek amber trees") >= LEK_AMBER_TREE_PCT then return; end
+		local lat = math.abs(p:GetY() - (iH - 1) / 2) / ((iH - 1) / 2);
+		local tt = p:GetTerrainType();
+		if lat < LEK_AMBER_JUNGLE_LAT and (tt == TerrainTypes.TERRAIN_GRASS or tt == TerrainTypes.TERRAIN_PLAINS) then
+			p:SetFeatureType(FeatureTypes.FEATURE_JUNGLE, -1);
+		else
+			p:SetFeatureType(FeatureTypes.FEATURE_FOREST, -1);
+		end
+	end
+	local cand = {};
+	for k in pairs(dist) do
+		local x, y = k % iW, math.floor(k / iW);
+		if okTile(x, y, true) then cand[#cand + 1] = k; end
+	end
+	table.sort(cand);
+	cand = GetShuffledCopyOfTable(cand);
+	local wantLoc = 1 + Map.Rand(LEK_AMBER_MAX_LOCATIONS, "Lek amber locations");
+	local anchors, placed, parts = {}, {}, {};
+	for _, k in ipairs(cand) do
+		if #anchors >= wantLoc then break; end
+		local x, y = k % iW, math.floor(k / iW);
+		local far = true;
+		for _, a in ipairs(anchors) do
+			if Map.PlotDistance(x, y, a[1], a[2]) < LEK_AMBER_MIN_LOCATION_DIST then far = false; break; end
+		end
+		if far and okTile(x, y, true) then
+			local roll = Map.Rand(100, "Lek amber cluster size");
+			local size = 1;
+			if roll >= LEK_AMBER_CLUSTER_SIZE_PCT[1] then size = 2; end
+			if roll >= LEK_AMBER_CLUSTER_SIZE_PCT[1] + LEK_AMBER_CLUSTER_SIZE_PCT[2] then size = 3; end
+			local members = { { x, y } };
+			local near = {};
+			for _, r in ipairs({ 1, 2 }) do
+				for _, t in ipairs(GetHexRingAtRadius(x, y, r, iW, iH, wrapX, false)) do
+					if okTile(t[1], t[2], false) then near[#near + 1] = t; end
+				end
+			end
+			near = GetShuffledCopyOfTable(near);
+			for _, t in ipairs(near) do
+				if #members >= size then break; end
+				members[#members + 1] = t;
+			end
+			for _, m in ipairs(members) do
+				local p = Map.GetPlot(m[1], m[2]);
+				p:SetResourceType(res, 1);
+				addTrees(p);
+				self.amounts_of_resources_placed[res + 1] = self.amounts_of_resources_placed[res + 1] + 1;
+				self.totalLuxPlacedSoFar = self.totalLuxPlacedSoFar + 1;
+				placed[#placed + 1] = m;
+			end
+			for _, m in ipairs(members) do
+				self:PlaceResourceImpact(m[1], m[2], 2, 3);
+			end
+			anchors[#anchors + 1] = { x, y };
+			parts[#parts + 1] = x .. "," .. y .. "x" .. #members .. "(want" .. size .. ")";
+		end
+	end
+	LekLandStatsLog("### LekAmber locations=" .. #anchors .. "/" .. wantLoc .. " tiles=" .. #placed .. " " .. table.concat(parts, " "));
+	return placed;
+end
+------------------------------------------------------------------------------
 function AssignStartingPlots:PlaceLuxuries()
 	-- This function is dependent upon AssignLuxuryRoles() and PlaceCityStates() having been executed first.
 	local iW, iH = Map.GetGridSize();
@@ -20396,7 +20544,7 @@ function AssignStartingPlots:PlaceLuxuries()
 		if iNumLeftToPlace > 0 and self.iNumTypesRandom > 0 then
 			-- We'll attempt to place one source of a Luxury type assigned to random distribution.
 			local randoms_to_place = 1;
-			for loop, random_res in ipairs(self.resourceIDs_assigned_to_random) do
+			for loop, random_res in ipairs(AssignStartingPlots.LekRandomLuxNoAmber(self)) do
 
 				primary, secondary, tertiary, quaternary, quinary, senary = self:GetIndicesForLuxuryType(random_res);	-- MOD.Barathor: New -- added a quinary and senary list
 				if randoms_to_place > 0 then
@@ -20429,6 +20577,43 @@ function AssignStartingPlots:PlaceLuxuries()
 		end
 	end
 	
+	-- Lekmap: city state luxury diversity. near5[c] = the 5 closest other valid city states.
+	local csLuxType, near5 = {}, {};
+	local lekCsLuxRejects, lekCsLuxFallback = 0, 0;
+	for c = 1, self.iNumCityStates do
+		if self.city_state_validity_table[c] ~= false and self.cityStatePlots[c] then
+			local cx, cy = self.cityStatePlots[c][1], self.cityStatePlots[c][2];
+			local others = {};
+			for o = 1, self.iNumCityStates do
+				if o ~= c and self.city_state_validity_table[o] ~= false and self.cityStatePlots[o] then
+					others[#others + 1] = { o, Map.PlotDistance(cx, cy, self.cityStatePlots[o][1], self.cityStatePlots[o][2]) };
+				end
+			end
+			table.sort(others, function(p, q) return p[2] < q[2] or (p[2] == q[2] and p[1] < q[1]); end);
+			near5[c] = {};
+			for k = 1, math.min(5, #others) do near5[c][k] = others[k][1]; end
+		end
+	end
+	-- res may go to city state c: at most 1 of c's 5 nearest has it, and every city state that has it and counts
+	-- c among its 5 nearest still has at most 1 other sharer afterwards.
+	local function csLuxTypeOk(c, res)
+		local n = 0;
+		for _, o in ipairs(near5[c] or {}) do
+			if csLuxType[o] == res then n = n + 1; end
+		end
+		if n > 1 then return false; end
+		for o, t in pairs(csLuxType) do
+			if t == res then
+				local hasC, m = false, 0;
+				for _, q in ipairs(near5[o] or {}) do
+					if q == c then hasC = true; elseif csLuxType[q] == res then m = m + 1; end
+				end
+				if hasC and m + 1 > 1 then return false; end
+			end
+		end
+		return true;
+	end
+
 	-- Place Luxuries at City States.
 	-- Candidates include luxuries exclusive to CS, the lux assigned to this CS's region (if in a region), and the randoms.
 	for city_state = 1, self.iNumCityStates do
@@ -20486,64 +20671,66 @@ function AssignStartingPlots:PlaceLuxuries()
 			end
 
 			-- If there are no allowable luxury types at this city site, then this city state gets none.
-			local iNumAvailableTypes = table.maxn(lux_possible_for_cs);
-			if iNumAvailableTypes == 0 then
+			if next(lux_possible_for_cs) == nil then
 				print("City State #", city_state, "has poor land, ineligible to receive a Luxury resource.");
 			else
-				-- Calculate probability thresholds for each allowable luxury type.
-				local res_threshold = {};
-				local totalWeight, accumulatedWeight = 0, 0;
-				for res_ID, this_weight in pairs(lux_possible_for_cs) do
-					totalWeight = totalWeight + this_weight;
-				end
-
-				-- Choose luxury type.
-				local use_this_ID;
-				local diceroll = Map.Rand(10000, "Choose resource type - Assign Luxury To City State - Lua");
-
-				for res_ID, this_weight in pairs(lux_possible_for_cs) do
-					local threshold = (this_weight + accumulatedWeight) * 10000 / totalWeight;
-					if diceroll < threshold then
-						use_this_ID = res_ID;
-						print("CS Given Lux ID: " .. tostring(use_this_ID));
-						break
+				-- Lekmap diversity: roll a type (weights as above); a type shared by 2+ of the 5 nearest city states
+				-- (checked from both sides) is dropped and the roll repeated. If every type is dropped, the dropped
+				-- ones are tried anyway (logged as fallback) so the city state still gets a luxury.
+				local function placeAtSite(res)
+					local primary, secondary, tertiary, quaternary, quinary, senary = self:GetIndicesForLuxuryType(res);
+					local luxury_plot_lists = self:GenerateLuxuryPlotListsAtCitySite(x, y, 2, false);
+					local left = 1;
+					for _, li in ipairs({ primary, secondary, tertiary, quaternary, quinary, senary }) do
+						if left > 0 and li > 0 then
+							left = self:PlaceSpecificNumberOfResources(res, 1, 1, 1, -1, 0, 0, GetShuffledCopyOfTable(luxury_plot_lists[li]));
+						end
 					end
-					accumulatedWeight = accumulatedWeight + this_weight;
+					return left == 0;
 				end
-
-				print("-"); print("-"); print("-Assigned Luxury Type", use_this_ID, "to City State#", city_state);
-				-- Place luxury.
-				local primary, secondary, tertiary, quaternary, quinary, senary, luxury_plot_lists, shuf_list;			-- MOD.Barathor: New -- added a quinary and senary list
- 				primary, secondary, tertiary, quaternary, quinary, senary = self:GetIndicesForLuxuryType(use_this_ID);	-- MOD.Barathor: New -- added a quinary and senary list
-				luxury_plot_lists = self:GenerateLuxuryPlotListsAtCitySite(x, y, 2, false)
-				shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[primary])
-				local iNumLeftToPlace = self:PlaceSpecificNumberOfResources(use_this_ID, 1, 1, 1, -1, 0, 0, shuf_list);
-				if iNumLeftToPlace > 0 and secondary > 0 then
-					shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[secondary])
-					iNumLeftToPlace = self:PlaceSpecificNumberOfResources(use_this_ID, 1, 1, 1, -1, 0, 0, shuf_list);
+				local function rollFrom(pool)
+					local total = 0;
+					for _, w in pairs(pool) do total = total + w; end
+					local diceroll = Map.Rand(10000, "Choose resource type - Assign Luxury To City State - Lua");
+					local acc, last = 0, nil;
+					for res_ID, w in pairs(pool) do
+						last = res_ID;
+						acc = acc + w;
+						if diceroll < acc * 10000 / total then return res_ID; end
+					end
+					return last;
 				end
-				if iNumLeftToPlace > 0 and tertiary > 0 then
-					shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[tertiary])
-					iNumLeftToPlace = self:PlaceSpecificNumberOfResources(use_this_ID, 1, 1, 1, -1, 0, 0, shuf_list);
+				local pool, dropped = {}, {};
+				for res_ID, w in pairs(lux_possible_for_cs) do pool[res_ID] = w; end
+				local use_this_ID;
+				while next(pool) ~= nil do
+					local res = rollFrom(pool);
+					pool[res] = nil;
+					if not csLuxTypeOk(city_state, res) then
+						dropped[#dropped + 1] = res;
+						lekCsLuxRejects = lekCsLuxRejects + 1;
+					elseif placeAtSite(res) then
+						use_this_ID = res;
+						break;
+					end
 				end
-				if iNumLeftToPlace > 0 and quaternary > 0 then
-					shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[quaternary])
-					iNumLeftToPlace = self:PlaceSpecificNumberOfResources(use_this_ID, 1, 1, 1, -1, 0, 0, shuf_list);
+				if use_this_ID == nil then
+					for _, res in ipairs(dropped) do
+						if placeAtSite(res) then
+							use_this_ID = res;
+							lekCsLuxFallback = lekCsLuxFallback + 1;
+							break;
+						end
+					end
 				end
-				if iNumLeftToPlace > 0 and quinary > 0 then		-- MOD.Barathor: New -- added a quinary list
-					shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[quinary])
-					iNumLeftToPlace = self:PlaceSpecificNumberOfResources(use_this_ID, 1, 1, 1, -1, 0, 0, shuf_list);
-				end
-				if iNumLeftToPlace > 0 and senary > 0 then		-- MOD.Barathor: New -- added a senary list
-					shuf_list = GetShuffledCopyOfTable(luxury_plot_lists[senary])
-					iNumLeftToPlace = self:PlaceSpecificNumberOfResources(use_this_ID, 1, 1, 1, -1, 0, 0, shuf_list);
-				end
-				if iNumLeftToPlace == 0 then
+				if use_this_ID ~= nil then
+					csLuxType[city_state] = use_this_ID;
 					LekMapgenFileTrace("-", "Placed Luxury ID#", use_this_ID, "at City State#", city_state, "in Region#", region_number, "located at Plot", x, y);
 				end
 			end
 		end
 	end
+	LekLandStatsLog("### LekCSLuxDiversity rejects=" .. lekCsLuxRejects .. " fallback=" .. lekCsLuxFallback);
 		
 	-- Place Regional Luxuries
 	for region_number = 1, self.iNumCivs do
@@ -20758,23 +20945,119 @@ function AssignStartingPlots:PlaceLuxuries()
 		{1, 1, 1, 1, 1, 1, 1, 1} };
 
 		local lekRandomLuxWanted, lekRandomLuxShortTypes = 0, 0;
+		-- Lekmap diversity: before a random luxury goes on a tile, the 6 nearest luxuries already on the map
+		-- (any kind) may hold at most 1 of its type. Otherwise another random type that fits the tile (its
+		-- terrain lists) and still has copies to place is tried with the same check; if none fits, the tile is
+		-- skipped. want[] = copies each random type still has to place (swaps count toward the swapped-in type).
+		local luxPos = {};
+		for k = 0, Map.GetNumPlots() - 1 do
+			local p = Map.GetPlotByIndex(k);
+			local rt = p:GetResourceType(-1);
+			if rt ~= -1 and self:LekResourceIsLuxury(rt) then
+				luxPos[#luxPos + 1] = { p:GetX(), p:GetY(), rt };
+			end
+		end
+		local listSet = {};
+		for li, lst in pairs(self.global_luxury_plot_lists) do
+			local set = {};
+			for _, idx in ipairs(lst) do set[idx] = true; end
+			listSet[li] = set;
+		end
+		local typeLists = {};
+		for _, rid in ipairs(self.resourceIDs_assigned_to_random) do
+			typeLists[rid] = { self:GetIndicesForLuxuryType(rid) };
+		end
+		local want, placedByType = {}, {};
+		local lekLuxDivRejects, lekLuxDivSwaps = 0, 0;
+		local function sameTypeNear(x, y, res)
+			local ds = {};
+			for _, lp in ipairs(luxPos) do
+				ds[#ds + 1] = { Map.PlotDistance(x, y, lp[1], lp[2]), lp[3] };
+			end
+			table.sort(ds, function(p, q) return p[1] < q[1]; end);
+			local n = 0;
+			for k = 1, math.min(6, #ds) do
+				if ds[k][2] == res then n = n + 1; end
+			end
+			return n;
+		end
+		local function fitsTile(res, plotIndex, y)
+			for _, li in ipairs(typeLists[res]) do
+				if li > 0 and listSet[li] and listSet[li][plotIndex] then
+					return not AssignStartingPlots.LekTropicalLuxBlockedAtY(self, res, y);
+				end
+			end
+			return false;
+		end
+		local function putLux(res, x, y, rad)
+			Map.GetPlot(x, y):SetResourceType(res, 1);
+			self.amounts_of_resources_placed[res + 1] = self.amounts_of_resources_placed[res + 1] + 1;
+			self.totalLuxPlacedSoFar = self.totalLuxPlacedSoFar + 1;
+			self:PlaceResourceImpact(x, y, 2, rad);
+			luxPos[#luxPos + 1] = { x, y, res };
+			want[res] = (want[res] or 0) - 1;
+			placedByType[res] = (placedByType[res] or 0) + 1;
+		end
+		-- Same contract as PlaceSpecificNumberOfResources(res, 1, amount, ratio, 2, rad, 0, list) plus the check.
+		local function placeRandomLuxDiverse(res, amount, ratio, plot_list, rad)
+			if plot_list == nil then return amount; end
+			local left = amount;
+			local nTry = math.min(amount, math.ceil(ratio * LekHBPlotListLen(plot_list)));
+			for _ = 1, nTry do
+				for _, plotIndex in ipairs(plot_list) do
+					if self.luxuryData[plotIndex] == 0 then
+						local x = (plotIndex - 1) % iW;
+						local y = (plotIndex - x - 1) / iW;
+						local p = Map.GetPlot(x, y);
+						if p and p:GetResourceType(-1) == -1 and not LekPlotIsNaturalWonder(p)
+							and not AssignStartingPlots.LekTropicalLuxBlockedAtY(self, res, y) then
+							if sameTypeNear(x, y, res) <= 1 then
+								putLux(res, x, y, rad);
+								left = left - 1;
+								break;
+							end
+							lekLuxDivRejects = lekLuxDivRejects + 1;
+							local alts = {};
+							for _, rid in ipairs(self.resourceIDs_assigned_to_random) do
+								if rid ~= res and (want[rid] or 0) > 0 and fitsTile(rid, plotIndex, y) and sameTypeNear(x, y, rid) <= 1 then
+									alts[#alts + 1] = rid;
+								end
+							end
+							if #alts > 0 then
+								putLux(alts[1 + Map.Rand(#alts, "Lek lux diversity swap")], x, y, rad);
+								lekLuxDivSwaps = lekLuxDivSwaps + 1;
+							end
+						end
+					end
+				end
+			end
+			return left;
+		end
+		do
+			local LandXY = iW * iH;
+			local NumRandToAdd = 4;
+			if LandXY < 2500 then
+				NumRandToAdd = 4;
+			elseif LandXY < 6000 then
+				NumRandToAdd = 5;
+			elseif LandXY < 10000 then
+				NumRandToAdd = 6;
+			end
+			for _, rid in ipairs(self.resourceIDs_assigned_to_random) do
+				want[rid] = math.max(NumRandToAdd, math.ceil(iNumRandomLuxTarget / 10));
+			end
+		end
+		-- Amber (when rolled as a random type) is placed as 1-3 small coastal clusters instead.
+		if self.amber_ID and want[self.amber_ID] then
+			want[self.amber_ID] = 0;
+			local nAmber = AssignStartingPlots.LekPlaceAmberClusters(self);
+			for _, pa in ipairs(nAmber) do luxPos[#luxPos + 1] = { pa[1], pa[2], self.amber_ID }; end
+		end
 		for loop, res_ID in ipairs(self.resourceIDs_assigned_to_random) do
 			local primary, secondary, tertiary, quaternary, quinary, senary, luxury_plot_lists, current_list, iNumLeftToPlace;	-- MOD.Barathor: New -- added a quinary and senary list
 			primary, secondary, tertiary, quaternary, quinary, senary = self:GetIndicesForLuxuryType(res_ID);					-- MOD.Barathor: New -- added a quinary and senary list
 			--if self.iNumTypesRandom > 8 then
-				local iW, iH = Map.GetGridSize();
-				local LandXY = iW * iH;
-				local NumRandToAdd = 4;
-
-				if LandXY < 2500 then
-					NumRandToAdd = 4;
-				elseif LandXY < 6000 then
-					NumRandToAdd = 5;
-				elseif LandXY < 10000 then
-					NumRandToAdd = 6;
-				end
-
-				iNumThisLuxToPlace = math.max(NumRandToAdd, math.ceil(iNumRandomLuxTarget / 10));
+				iNumThisLuxToPlace = math.max(0, want[res_ID] or 0);	-- Lekmap: per-type target (set above) minus copies swapped in earlier
 			--else
 			--	local lux_minimum = math.max(3, loopTarget - loop);
 			--	local lux_share_of_remaining = math.ceil(iNumRandomLuxTarget * random_lux_ratios_table[self.iNumTypesRandom][loop]);
@@ -20785,26 +21068,26 @@ function AssignStartingPlots:PlaceLuxuries()
 
 			-- Place this luxury type.
 			current_list = self.global_luxury_plot_lists[primary];
-			iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumThisLuxToPlace, 0.25, 2, lux_distance, 0, current_list);
+			iNumLeftToPlace = placeRandomLuxDiverse(res_ID, iNumThisLuxToPlace, 0.25, current_list, lux_distance);
 			if iNumLeftToPlace > 0 and secondary > 0 then
 				current_list = self.global_luxury_plot_lists[secondary];
-				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 0.3, 2, lux_distance, 0, current_list);
+				iNumLeftToPlace = placeRandomLuxDiverse(res_ID, iNumLeftToPlace, 0.3, current_list, lux_distance);
 			end
 			if iNumLeftToPlace > 0 and tertiary > 0 then
 				current_list = self.global_luxury_plot_lists[tertiary];
-				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 0.35, 2, lux_distance, 0, current_list);
+				iNumLeftToPlace = placeRandomLuxDiverse(res_ID, iNumLeftToPlace, 0.35, current_list, lux_distance);
 			end
 			if iNumLeftToPlace > 0 and quaternary > 0 then
 				current_list = self.global_luxury_plot_lists[quaternary];
-				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 0.4, 2, lux_distance, 0, current_list);
+				iNumLeftToPlace = placeRandomLuxDiverse(res_ID, iNumLeftToPlace, 0.4, current_list, lux_distance);
 			end
 			if iNumLeftToPlace > 0 and quinary > 0 then		-- MOD.Barathor: New -- added a quinary list
 				current_list = self.global_luxury_plot_lists[quinary];
-				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 0.5, 2, lux_distance, 0, current_list);
+				iNumLeftToPlace = placeRandomLuxDiverse(res_ID, iNumLeftToPlace, 0.5, current_list, lux_distance);
 			end
 			if iNumLeftToPlace > 0 and senary > 0 then		-- MOD.Barathor: New -- added a senary list
 				current_list = self.global_luxury_plot_lists[senary];
-				iNumLeftToPlace = self:PlaceSpecificNumberOfResources(res_ID, 1, iNumLeftToPlace, 0.75, 2, lux_distance, 0, current_list);
+				iNumLeftToPlace = placeRandomLuxDiverse(res_ID, iNumLeftToPlace, 0.75, current_list, lux_distance);
 			end
 			iNumRandomLuxPlaced = iNumRandomLuxPlaced + iNumThisLuxToPlace - iNumLeftToPlace;
 			lekRandomLuxWanted = lekRandomLuxWanted + iNumThisLuxToPlace;
@@ -20814,6 +21097,10 @@ function AssignStartingPlots:PlaceLuxuries()
 			LekMapgenFileTrace("-", "Random Luxury Target Number:", iNumThisLuxToPlace);
 			LekMapgenFileTrace("Random Luxury Target Placed:", iNumThisLuxToPlace - iNumLeftToPlace, "-");
 		end
+		-- Count actual placements (swapped-in copies included).
+		iNumRandomLuxPlaced = 0;
+		for _, n in pairs(placedByType) do iNumRandomLuxPlaced = iNumRandomLuxPlaced + n; end
+		LekLandStatsLog("### LekLuxDiversity randomRejects=" .. lekLuxDivRejects .. " swaps=" .. lekLuxDivSwaps);
 		LekMapgenFileTrace("-", "+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+");
 		LekMapgenFileTrace("+ Random Luxuries Target Number:", iNumRandomLuxTarget);
 		LekMapgenFileTrace("+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+");
