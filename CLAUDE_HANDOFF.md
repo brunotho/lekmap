@@ -1,18 +1,16 @@
 # Claude handoff — 2026-09-30 (dev work after release 6.0.5)
 
 ## Where things stand
-- **6.0.5 is released** on `main` (GitHub brunotho/lekmap, changelog `Changelog_v6.0.5`). Release values there:
-  logs off, `LEK_CENTRAL_VOLCANO_CHANCE = 5`.
-- **`dev` is ahead of main with local commits only (not pushed).** The user says when to push. Testing values are on
-  in dev: `_lek_mapgen_logs = true` in both lobby leaves. The checkout is on `dev` (this folder is the live game copy).
-- The user has rolled ~12 Small Fractal maps on the current dev: all features below look right visually and in the
-  logs (no Lekmap errors). Next steps are the user's call: more specs, more test rolls, or a release (6.0.6).
-- Old branches: `mapgen-tuning` (local + origin) is fully merged into main and can be deleted if the user agrees;
-  `origin/release/v5.3-testing` is an old remote branch (ask before deleting).
-- Lua.log shows `Lekmap v6.2\LekmapTeamerMapLegacy.lua:672` errors: an old Lekmap copy in another maps folder, not
-  this repo (harmless; the user may delete that folder).
+- **6.0.6 is released** on `main` (GitHub brunotho/lekmap, changelog `Changelog_v6.0.6`), 2026-10-01. Release
+  values there: logs off, `LEK_CENTRAL_VOLCANO_CHANCE = 5`. `dev` = `main`.
+- Before new test work on `dev`, turn the logs back on (see "Resuming test work").
+- Verified before release: ~16 rolls (both maps), no visual issues, no Lekmap errors, `LekNWResourceSweep cleared=0`
+  on all rolls after the fix.
+- Branches `mapgen-tuning` and `origin/release/v5.3-testing` were deleted (v5.3 snapshot commit: `27c6a13`).
+- Lua.log shows `Lekmap v6.2\LekmapTeamerMapLegacy.lua:672` errors: another Lekmap copy the user keeps on purpose
+  for something else. Ignore it; do not delete it.
 
-## Done on dev since 6.0.5 (all verified in logs over the user's test rolls)
+## Shipped in 6.0.6 (all verified in logs over the user's test rolls)
 - **Inland seas count for start distance rules**: `AssignStartingPlots.LekBuildCoastTables` (called from `__Init`
   and after the center clear) marks land 1-2 from inland-sea water "next to coast" and 3 away "three from coast";
   inland seas still are not a coast for coastal starts. Majors stay 4+ from them, city states not at 1-2.
@@ -40,7 +38,6 @@
   `LekPlaceAmberClusters` places 1-3 locations (8+ apart) on land within 3 of salt water, each 1/2/3 ambers
   (50/35/15) within 2 tiles, 75% trees (jungle |lat|<0.3 on grass/plains, else forest). Constants `LEK_AMBER_*`;
   log `LekAmber locations/tiles`.
-- Changelog for these is not written yet (add `Changelog_v6.0.6` on release).
 
 ## Resuming test work
 1. Work on `dev` (`git checkout dev`); commit locally, push only when the user asks. This folder is the game's live copy, so the checked-out branch is what loads.
